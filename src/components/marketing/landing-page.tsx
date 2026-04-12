@@ -18,33 +18,33 @@ type LandingPageProps = {
 };
 
 const HERO_SIGNALS = [
-  "Cross-platform narrative tracking",
-  "Linked memecoin discovery",
-  "Real-time validation workflow",
+  "Ranks emerging narratives",
+  "Links narratives to memecoins",
+  "Validates with chart context",
 ] as const;
 
 const HERO_NOTES = [
-  "Research software only",
-  "Membership access",
-  "No execution tooling",
+  "Narrative-first workflow",
+  "Paid research access",
+  "No trade execution",
 ] as const;
 
 const PLATFORM_DETAILS = [
   {
-    title: "Narrative board first",
-    text: "The terminal starts with the narrative layer, so attention shifts are visible before the page ever asks the user to think about a ticker.",
+    title: "Narratives ranked by acceleration",
+    text: "The left panel ranks emerging narratives by attention, post volume, and platform spread so users can see internet momentum before price-led screeners flatten the story.",
   },
   {
-    title: "Assets tied to the story",
-    text: "Linked memecoins stay in the same view as the narrative so the move from attention to tradable name happens without tab-hopping.",
+    title: "Memecoins linked to the thesis",
+    text: "The center board keeps linked memecoins in the same workflow with liquidity, momentum, and confidence context instead of forcing a second research tab.",
   },
   {
-    title: "Validation beside the signal",
-    text: "Market context sits next to the selected asset: liquidity, volume, transaction flow, and chart preview in one working surface.",
+    title: "Validation beside the move",
+    text: "The right panel validates the selected coin with chart context, market-cap context, transaction flow, and recent price response in the same view.",
   },
   {
     title: "Built for repeated monitoring",
-    text: "This is a working research terminal for scanning and validating setups, not a decorative SaaS dashboard full of filler panels.",
+    text: "The terminal is designed for repeated narrative scanning, linked-asset review, and follow-up validation rather than decorative dashboard browsing.",
   },
 ] as const;
 
@@ -150,7 +150,7 @@ export function LandingPage({
 
         <main>
           <section className="border-b border-white/[0.06]">
-            <div className="mx-auto grid w-full max-w-[1380px] gap-16 px-4 pb-24 pt-12 sm:px-6 lg:grid-cols-[minmax(0,0.68fr)_minmax(720px,1.32fr)] lg:px-8 lg:pb-32 lg:pt-24">
+            <div className="mx-auto grid w-full max-w-[1440px] gap-12 px-4 pb-24 pt-12 sm:px-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(780px,1.3fr)] lg:gap-10 lg:px-8 lg:pb-32 lg:pt-24">
               <div className="max-w-[560px] lg:pt-12">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
                   Narrative Intelligence Terminal
@@ -159,7 +159,7 @@ export function LandingPage({
                   Track narratives before the trade gets crowded.
                 </h1>
                 <p className="mt-7 max-w-[560px] text-[17px] leading-8 text-[#9cb1c7]">
-                  Follow the theme, review the linked memecoins, and validate price response from one working terminal built for active market users.
+                  Rank emerging narratives, surface the memecoins attached to them, and validate market response from one narrative-first research terminal.
                 </p>
 
                 <div className="mt-9 flex flex-wrap gap-3">
@@ -202,8 +202,8 @@ export function LandingPage({
             <div className="mx-auto w-full max-w-[1320px] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
               <SectionIntro
                 eyebrow="Workflow"
-                title="Narrative detection to validation, in one readable sequence."
-                text="The supporting diagram reinforces the real screenshot above: find the narrative, review the linked assets, then validate market context without leaving the terminal."
+                title="From narrative acceleration to market validation."
+                text="The terminal follows a simple operating sequence: detect the narrative, surface linked memecoins, then validate price and market context before acting."
               />
 
               <TerminalWorkflowDiagram />
@@ -214,8 +214,8 @@ export function LandingPage({
             <div className="mx-auto w-full max-w-[1320px] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
               <SectionIntro
                 eyebrow="Inside The Terminal"
-                title="A product surface built to be scanned quickly."
-                text="The real screenshot does the heavy lifting. This section just clarifies what each major region of the terminal is responsible for."
+                title="A research surface organized around the actual workflow."
+                text="Each panel has a single job: rank narratives, surface linked memecoins, and validate the selected market response without leaving the terminal."
               />
 
               <div className="mt-12 grid gap-10 lg:grid-cols-4 lg:gap-0">
@@ -245,8 +245,8 @@ export function LandingPage({
               <div>
                 <SectionIntro
                   eyebrow="Platform View"
-                  title="A tighter crop on the working surface."
-                  text="The second visual stays grounded in the same real screenshot, focused on the asset board and validation area where decisions are actually pressure-tested."
+                  title="A closer view of the asset and validation side."
+                  text="The detail crop keeps focus on the linked memecoin board and the validation panel where market response, chart context, and confidence are reviewed together."
                 />
 
                 <div className="mt-10">

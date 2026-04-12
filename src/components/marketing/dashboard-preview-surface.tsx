@@ -477,7 +477,7 @@ export function DashboardPreviewSurface() {
   return (
     <div
       data-testid="dashboard-preview-capture"
-      className="flex h-[940px] w-[1600px] overflow-hidden border border-white/[0.08] bg-[radial-gradient(circle_at_top_left,rgba(86,217,255,0.06),transparent_18%),linear-gradient(180deg,rgba(8,12,18,0.995),rgba(4,7,11,0.998))] text-foreground shadow-[0_40px_120px_rgba(0,0,0,0.5)]"
+      className="flex h-[1080px] w-[2140px] overflow-hidden border border-white/[0.08] bg-[radial-gradient(circle_at_top_left,rgba(86,217,255,0.06),transparent_18%),linear-gradient(180deg,rgba(8,12,18,0.995),rgba(4,7,11,0.998))] text-foreground shadow-[0_40px_120px_rgba(0,0,0,0.5)]"
     >
       <TerminalSidebar pathname="/trends" onOpenCommandPalette={() => undefined} />
 
@@ -486,10 +486,10 @@ export function DashboardPreviewSurface() {
           <div className="flex items-center justify-between gap-6">
             <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-[0.2em] text-[#6f849d]">
-                Research workspace
+                Live narrative monitor
               </p>
               <p className="mt-1 text-[20px] font-semibold tracking-[-0.03em] text-[#edf4ff]">
-                Narrative to asset terminal
+                Narrative-to-memecoin workspace
               </p>
             </div>
 
@@ -508,8 +508,8 @@ export function DashboardPreviewSurface() {
 
             <section
               className={cn(
-                "grid min-h-0 min-w-0 flex-1 gap-2 overflow-hidden",
-                "grid-cols-[minmax(290px,0.94fr)_minmax(420px,1.24fr)_minmax(360px,0.98fr)]",
+                "grid min-h-0 min-w-0 flex-1 gap-3 overflow-hidden",
+                "grid-cols-[minmax(360px,0.96fr)_minmax(560px,1.32fr)_minmax(430px,1fr)]",
               )}
             >
               <div id="signals" className="min-h-0 min-w-0 overflow-hidden">
@@ -537,7 +537,7 @@ export function DashboardPreviewSurface() {
               <div id="memecoins" className="min-h-0 min-w-0 overflow-hidden">
                 <TerminalPanel
                   title="Memecoins"
-                  subtitle="Momentum-ranked memecoin board"
+                  subtitle="Linked memecoins ranked by momentum"
                   tone="neutral"
                   className="h-full min-h-0 min-w-0"
                   bodyClassName="overflow-hidden"

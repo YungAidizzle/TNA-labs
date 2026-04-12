@@ -11,22 +11,22 @@ type TerminalScreenshotFrameProps = {
 
 const CALLOUTS = [
   {
-    label: "Real-time narrative tracking",
-    className: "left-[-14px] top-[21%]",
+    label: "Narrative tracking",
+    className: "left-[-182px] top-[26%]",
     lineClassName:
-      "after:absolute after:right-[-48px] after:top-1/2 after:h-px after:w-12 after:-translate-y-1/2 after:bg-gradient-to-r after:from-[#77dfff] after:to-transparent",
+      "after:absolute after:right-[-118px] after:top-1/2 after:h-px after:w-[112px] after:-translate-y-1/2 after:bg-gradient-to-r after:from-[#77dfff] after:to-transparent before:absolute before:right-[-124px] before:top-1/2 before:h-2 before:w-2 before:-translate-y-1/2 before:rounded-full before:bg-cyan before:shadow-[0_0_14px_rgba(86,217,255,0.45)]",
   },
   {
-    label: "Momentum-ranked memecoins",
-    className: "left-[43%] top-[6%] -translate-x-1/2",
+    label: "Momentum memecoins",
+    className: "left-1/2 top-[-66px] -translate-x-1/2",
     lineClassName:
-      "after:absolute after:left-1/2 after:top-full after:h-12 after:w-px after:-translate-x-1/2 after:bg-gradient-to-b after:from-[#77dfff] after:to-transparent",
+      "after:absolute after:left-1/2 after:top-full after:h-[58px] after:w-px after:-translate-x-1/2 after:bg-gradient-to-b after:from-[#77dfff] after:to-transparent before:absolute before:left-1/2 before:top-[calc(100%+56px)] before:h-2 before:w-2 before:-translate-x-1/2 before:rounded-full before:bg-cyan before:shadow-[0_0_14px_rgba(86,217,255,0.45)]",
   },
   {
     label: "Validation workflow",
-    className: "right-[-10px] top-[22%]",
+    className: "right-[-178px] top-[26%]",
     lineClassName:
-      "after:absolute after:left-[-48px] after:top-1/2 after:h-px after:w-12 after:-translate-y-1/2 after:bg-gradient-to-l after:from-[#7de0ad] after:to-transparent",
+      "after:absolute after:left-[-118px] after:top-1/2 after:h-px after:w-[112px] after:-translate-y-1/2 after:bg-gradient-to-l after:from-[#7de0ad] after:to-transparent before:absolute before:left-[-124px] before:top-1/2 before:h-2 before:w-2 before:-translate-y-1/2 before:rounded-full before:bg-emerald before:shadow-[0_0_14px_rgba(77,219,147,0.42)]",
   },
 ] as const;
 
@@ -60,10 +60,10 @@ export function TerminalScreenshotFrame({
 
             <div className="text-right">
               <p className="text-[11px] uppercase tracking-[0.18em] text-[#6f849d]">
-                {isHero ? "Actual Product Screenshot" : "Focused Product Crop"}
+                {isHero ? "Live Terminal View" : "Linked Asset Detail"}
               </p>
               <p className="mt-1 text-[12px] text-[#b7c7d9]">
-                Narrative to asset research terminal
+                Ranked narratives, linked memecoins, and validation context
               </p>
             </div>
           </div>
@@ -77,32 +77,33 @@ export function TerminalScreenshotFrame({
             <Image
               src="/marketing/dashboard-terminal-hero.png"
               alt="Actual dashboard screenshot showing ranked narratives, momentum-ranked memecoins, and the validation workflow."
-              width={1600}
-              height={940}
+              width={3200}
+              height={1880}
               priority={priority}
+              quality={100}
               className={cn(
                 isHero ? "h-auto w-full" : "h-full w-full object-cover object-[68%_center]",
                 imageClassName,
               )}
-              sizes={isHero ? "(min-width: 1024px) 58vw, 100vw" : "(min-width: 1024px) 50vw, 100vw"}
+              sizes={isHero ? "(min-width: 1280px) 900px, (min-width: 1024px) 62vw, 100vw" : "(min-width: 1280px) 760px, (min-width: 1024px) 54vw, 100vw"}
             />
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
-          <p>Real terminal UI, captured from the product preview surface</p>
-          <p>Readable first. Effects kept minimal.</p>
+          <p>Live ranking, linked assets, and market response in one terminal</p>
+          <p>Built for narrative-first crypto research</p>
         </div>
       </div>
 
       {showCallouts ? (
         <>
-          <div className="pointer-events-none absolute inset-0 hidden xl:block">
+          <div className="pointer-events-none absolute inset-0 hidden 2xl:block">
             {CALLOUTS.map((callout) => (
               <div
                 key={callout.label}
                 className={cn(
-                  "absolute rounded-full border border-white/[0.12] bg-[rgba(7,11,18,0.94)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#eef5ff] shadow-[0_18px_42px_rgba(0,0,0,0.42)]",
+                  "absolute rounded-full border border-white/[0.12] bg-[rgba(7,11,18,0.96)] px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#eef5ff] shadow-[0_18px_42px_rgba(0,0,0,0.42)]",
                   callout.className,
                   callout.lineClassName,
                 )}
@@ -113,7 +114,7 @@ export function TerminalScreenshotFrame({
             ))}
           </div>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-3 xl:hidden">
+          <div className="mt-4 grid gap-2 sm:grid-cols-3 2xl:hidden">
             {CALLOUTS.map((callout) => (
               <div
                 key={callout.label}
