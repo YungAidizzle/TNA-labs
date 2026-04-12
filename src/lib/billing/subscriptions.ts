@@ -27,6 +27,28 @@ export type AppSubscription = {
   updated_at: string;
 };
 
+export type CheckoutSessionConfirmationResult =
+  | {
+      status: "access_granted" | "already_active";
+      message: string;
+      accessState: ProfileAccessState | null;
+      stripeCustomerId: string | null;
+      stripeSubscriptionId: string | null;
+      subscriptionStatus: SubscriptionStatus | null;
+    }
+  | {
+      status: "processing";
+      message: string;
+      accessState: ProfileAccessState | null;
+      stripeCustomerId: string | null;
+      stripeSubscriptionId: string | null;
+      subscriptionStatus: SubscriptionStatus | null;
+    }
+  | {
+      status: "invalid";
+      message: string;
+    };
+
 const SUBSCRIPTION_COLUMNS =
   "id, user_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, status, current_period_end, cancel_at_period_end, created_at, updated_at";
 
@@ -275,6 +297,46 @@ function getStripeCurrentPeriodEnd(subscription: Stripe.Subscription) {
   return Math.max(...periodEnds);
 }
 
+function isAccessReadyStatus(status: SubscriptionStatus) {
+  return status === "active" || status === "trialing";
+}
+
+async function resolveExpandedCheckoutSubscription(session: Stripe.Checkout.Session) {
+  const subscriptionValue = session.subscription;
+  if (!subscriptionValue) {
+    return null;
+  }
+
+  if (typeof subscriptionValue !== "string") {
+    return subscriptionValue;
+  }
+
+  const stripe = getStripeServerClient();
+  return stripe.subscriptions.retrieve(subscriptionValue, {
+    expand: ["items.data.price"],
+  });
+}
+
+function resolveCheckoutSessionUserId(
+  session: Stripe.Checkout.Session,
+  subscription: Stripe.Subscription | null,
+) {
+  const expandedCustomer =
+    session.customer &&
+    typeof session.customer !== "string" &&
+    !("deleted" in session.customer && session.customer.deleted)
+      ? session.customer
+      : null;
+
+  return (
+    session.client_reference_id ??
+    readMetadataValue(session.metadata, "supabaseUserId") ??
+    readMetadataValue(subscription?.metadata, "supabaseUserId") ??
+    readMetadataValue(expandedCustomer?.metadata, "supabaseUserId") ??
+    null
+  );
+}
+
 export async function syncSubscriptionFromStripe(
   subscription: Stripe.Subscription,
   hintedUserId?: string | null,
@@ -343,6 +405,142 @@ export async function syncCheckoutSession(session: Stripe.Checkout.Session) {
   });
 
   return syncSubscriptionFromStripe(subscription, userId);
+}
+
+export async function confirmCheckoutSessionForUser(params: {
+  sessionId: string;
+  userId: string;
+  currentAccessState?: ProfileAccessState | null;
+  expectedStripeCustomerId?: string | null;
+}): Promise<CheckoutSessionConfirmationResult> {
+  const { sessionId, userId, currentAccessState, expectedStripeCustomerId } = params;
+
+  if (isPaidAccessState(currentAccessState)) {
+    return {
+      status: "already_active",
+      message: "Access is already active on this account.",
+      accessState: currentAccessState,
+      stripeCustomerId: expectedStripeCustomerId ?? null,
+      stripeSubscriptionId: null,
+      subscriptionStatus: null,
+    };
+  }
+
+  const stripe = getStripeServerClient();
+  const session = await stripe.checkout.sessions.retrieve(sessionId, {
+    expand: ["customer", "subscription", "subscription.items.data.price"],
+  });
+
+  if (session.mode !== "subscription") {
+    return {
+      status: "invalid",
+      message: "This checkout session is not a subscription session.",
+    };
+  }
+
+  const stripeCustomerId =
+    typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
+  const subscription = await resolveExpandedCheckoutSubscription(session);
+  const stripeSubscriptionId = subscription?.id ?? null;
+  const resolvedSessionUserId = resolveCheckoutSessionUserId(session, subscription);
+  const resolvedProfileUserId = stripeCustomerId
+    ? await resolveUserIdByStripeCustomerId(stripeCustomerId)
+    : null;
+  const belongsToUser =
+    resolvedSessionUserId === userId ||
+    resolvedProfileUserId === userId ||
+    Boolean(expectedStripeCustomerId && stripeCustomerId && expectedStripeCustomerId === stripeCustomerId);
+
+  if (!belongsToUser) {
+    return {
+      status: "invalid",
+      message: "This checkout session does not belong to the current account.",
+    };
+  }
+
+  if (!stripeCustomerId) {
+    return {
+      status: "invalid",
+      message: "Stripe did not return a customer for this checkout session.",
+    };
+  }
+
+  if (session.status !== "complete") {
+    return {
+      status: "processing",
+      message: "Checkout is still being completed in Stripe.",
+      accessState: currentAccessState ?? null,
+      stripeCustomerId,
+      stripeSubscriptionId,
+      subscriptionStatus: null,
+    };
+  }
+
+  if (session.payment_status !== "paid") {
+    return {
+      status: "processing",
+      message: "Payment is still being confirmed. Access will open as soon as Stripe marks it paid.",
+      accessState: currentAccessState ?? null,
+      stripeCustomerId,
+      stripeSubscriptionId,
+      subscriptionStatus: subscription
+        ? mapStripeStatusToSubscriptionStatus(subscription.status)
+        : null,
+    };
+  }
+
+  if (!subscription) {
+    return {
+      status: "processing",
+      message: "Stripe is still finalizing the subscription record. Retry in a moment.",
+      accessState: currentAccessState ?? null,
+      stripeCustomerId,
+      stripeSubscriptionId,
+      subscriptionStatus: null,
+    };
+  }
+
+  const subscriptionStatus = mapStripeStatusToSubscriptionStatus(subscription.status);
+  if (!isAccessReadyStatus(subscriptionStatus)) {
+    return {
+      status: "processing",
+      message: "Payment succeeded, but subscription activation is still in progress.",
+      accessState: currentAccessState ?? null,
+      stripeCustomerId,
+      stripeSubscriptionId,
+      subscriptionStatus,
+    };
+  }
+
+  await syncStripeCustomerToProfile(
+    userId,
+    stripeCustomerId,
+    session.customer_details?.email ?? session.customer_email ?? null,
+  );
+
+  await upsertSubscriptionRecord({
+    user_id: userId,
+    stripe_customer_id: stripeCustomerId,
+    stripe_subscription_id: subscription.id,
+    stripe_price_id: getStripePriceIdFromSubscription(subscription),
+    status: subscriptionStatus,
+    current_period_end: toIsoFromUnixTimestamp(getStripeCurrentPeriodEnd(subscription)),
+    cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
+  });
+
+  const refreshed = await refreshProfileAccessState(userId, stripeCustomerId);
+  const accessState = refreshed?.accessState ?? null;
+
+  return {
+    status: isPaidAccessState(accessState) ? "access_granted" : "processing",
+    message: isPaidAccessState(accessState)
+      ? "Access confirmed. Redirecting to the terminal."
+      : "Subscription synced, but access is still updating. Retry in a moment.",
+    accessState,
+    stripeCustomerId,
+    stripeSubscriptionId: subscription.id,
+    subscriptionStatus,
+  };
 }
 
 export async function getOrCreateStripeCustomerForUser(params: {
