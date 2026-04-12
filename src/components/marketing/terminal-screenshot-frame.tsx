@@ -44,59 +44,80 @@ export function TerminalScreenshotFrame({
   const isHero = variant === "hero";
 
   return (
-    <div className={cn("relative", className)}>
+    <div className={cn("relative", isHero ? "lg:[perspective:2200px]" : "", className)}>
       <div className="pointer-events-none absolute inset-0 rounded-[34px] bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.16),transparent_34%),radial-gradient(circle_at_85%_18%,rgba(88,217,160,0.12),transparent_22%)] blur-2xl" />
-      <div className="pointer-events-none absolute inset-x-[7%] bottom-[-8%] h-[28%] rounded-full bg-[rgba(0,0,0,0.45)] blur-3xl" />
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-x-[7%] bottom-[-8%] h-[28%] rounded-full bg-[rgba(0,0,0,0.45)] blur-3xl",
+          isHero ? "lg:bottom-[-10%] lg:left-[16%] lg:right-[4%] lg:h-[26%] lg:blur-[68px]" : "",
+        )}
+      />
 
-      <div className="relative rounded-[30px] border border-white/[0.1] bg-[linear-gradient(180deg,rgba(10,16,24,0.98),rgba(5,8,13,0.995))] p-3 shadow-[0_38px_110px_rgba(0,0,0,0.46)]">
-        <div className="rounded-[24px] border border-white/[0.08] bg-[#050912] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-          <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-4 py-3 sm:px-5">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#f97373]" />
-                <span className="h-2.5 w-2.5 rounded-full bg-[#f8be62]" />
-                <span className="h-2.5 w-2.5 rounded-full bg-[#52d890]" />
+      <div
+        className={cn(
+          "relative",
+          isHero
+            ? "lg:[transform-style:preserve-3d] lg:[transform-origin:18%_56%] lg:[transform:rotateY(-8deg)_rotateX(1.6deg)_translateZ(0)]"
+            : "",
+        )}
+      >
+        <div
+          className={cn(
+            "relative rounded-[30px] border border-white/[0.1] bg-[linear-gradient(180deg,rgba(10,16,24,0.98),rgba(5,8,13,0.995))] p-3 shadow-[0_38px_110px_rgba(0,0,0,0.46)]",
+            isHero
+              ? "lg:shadow-[22px_44px_130px_rgba(0,0,0,0.5),-18px_18px_44px_rgba(5,11,18,0.14)]"
+              : "",
+          )}
+        >
+          <div className="rounded-[24px] border border-white/[0.08] bg-[#050912] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-4 py-3 sm:px-5">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#f97373]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#f8be62]" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#52d890]" />
+                </div>
+                <div className="hidden rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-[#8fa4bd] sm:block">
+                  /trends
+                </div>
               </div>
-              <div className="hidden rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-[#8fa4bd] sm:block">
-                /trends
+
+              <div className="text-right">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#6f849d]">
+                  {isHero ? "Live Terminal View" : "Linked Asset Detail"}
+                </p>
+                <p className="mt-1 text-[12px] text-[#b7c7d9]">
+                  Ranked narratives, linked memecoins, and validation context
+                </p>
               </div>
             </div>
 
-            <div className="text-right">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-[#6f849d]">
-                {isHero ? "Live Terminal View" : "Linked Asset Detail"}
-              </p>
-              <p className="mt-1 text-[12px] text-[#b7c7d9]">
-                Ranked narratives, linked memecoins, and validation context
-              </p>
-            </div>
-          </div>
-
-          <div
-            className={cn(
-              "relative overflow-hidden rounded-b-[24px]",
-              isHero ? "" : "h-[320px] sm:h-[420px] lg:h-[560px]",
-            )}
-          >
-            <Image
-              src={MASTER_SCREENSHOT_SRC}
-              alt="Actual dashboard screenshot showing ranked narratives, momentum-ranked memecoins, and the validation workflow."
-              width={MASTER_SCREENSHOT_WIDTH}
-              height={MASTER_SCREENSHOT_HEIGHT}
-              priority={priority}
-              unoptimized
+            <div
               className={cn(
-                isHero ? "h-auto w-full" : "h-full w-full object-cover object-[68%_center]",
-                imageClassName,
+                "relative overflow-hidden rounded-b-[24px]",
+                isHero ? "" : "h-[320px] sm:h-[420px] lg:h-[560px]",
               )}
-              sizes={isHero ? "(min-width: 1280px) 900px, (min-width: 1024px) 62vw, 100vw" : "(min-width: 1280px) 760px, (min-width: 1024px) 54vw, 100vw"}
-            />
+            >
+              <Image
+                src={MASTER_SCREENSHOT_SRC}
+                alt="Actual dashboard screenshot showing ranked narratives, momentum-ranked memecoins, and the validation workflow."
+                width={MASTER_SCREENSHOT_WIDTH}
+                height={MASTER_SCREENSHOT_HEIGHT}
+                priority={priority}
+                unoptimized
+                className={cn(
+                  isHero ? "h-auto w-full" : "h-full w-full object-cover object-[68%_center]",
+                  imageClassName,
+                )}
+                sizes={isHero ? "(min-width: 1280px) 900px, (min-width: 1024px) 62vw, 100vw" : "(min-width: 1280px) 760px, (min-width: 1024px) 54vw, 100vw"}
+              />
+            </div>
           </div>
-        </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
-          <p>Live ranking, linked assets, and market response in one terminal</p>
-          <p>Built for narrative-first crypto research</p>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
+            <p>Live ranking, linked assets, and market response in one terminal</p>
+            <p>Built for narrative-first crypto research</p>
+          </div>
         </div>
       </div>
 
