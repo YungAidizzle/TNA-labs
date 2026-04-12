@@ -17,19 +17,19 @@ const featureCards = [
   {
     title: "Narrative ranking",
     description:
-      "Structure market narratives into a disciplined scan surface instead of scattered feeds and impulsive context switching.",
+      "See which market narratives are gaining force, fading, or colliding before the move feels obvious elsewhere.",
     icon: Activity,
   },
   {
     title: "Linked asset context",
     description:
-      "Trace related memecoin exposure and supporting context in the same workflow so discovery and validation stay connected.",
+      "Move from narrative to related assets and back without losing the thread of the idea or the speed of the scan.",
     icon: Waypoints,
   },
   {
     title: "Membership-backed access",
     description:
-      "Use Stripe and Supabase to keep premium routes, billing state, and account permissions aligned with live subscription status.",
+      "Reserve the live terminal for paying members with clear account continuity and hosted billing controls.",
     icon: ShieldCheck,
   },
 ] as const;
@@ -56,9 +56,9 @@ const workflowSteps = [
 ] as const;
 
 const controlNotes = [
-  "Paid access is enforced from webhook-synced subscription state, not optimistic client-only assumptions.",
-  "Public-facing pages stay concise and serious while the protected product surface remains separate.",
-  "Navigation, loading, and auth feedback are tuned to feel immediate instead of silent after click.",
+  "The public site filters for serious users before they enter the member product.",
+  "Account access, membership, and the live terminal follow one clear path.",
+  "Primary actions respond immediately, even when the next page takes a moment.",
 ] as const;
 
 const faqItems = [
@@ -70,12 +70,17 @@ const faqItems = [
   {
     question: "What unlocks after membership?",
     answer:
-      "The protected terminal routes, billing controls, and the workflow that depends on synchronized subscription state.",
+      "Member access opens the live terminal, linked asset context, and billing controls attached to the same account.",
+  },
+  {
+    question: "What happens after I subscribe?",
+    answer:
+      "Checkout completes in Stripe, then access opens as soon as your account confirms the membership.",
   },
   {
     question: "Why keep the public site restrained?",
     answer:
-      "The product is closer to operator software than a general marketing site. Clarity and trust matter more than volume.",
+      "Because this is software for repeat use. Precision and trust matter more than noise.",
   },
 ] as const;
 
@@ -105,9 +110,9 @@ export default async function HomePage() {
             </h1>
 
             <p className="mt-6 max-w-[720px] text-[16px] leading-8 text-[#9bb0c8] sm:text-[17px]">
-              Narrative To Asset turns narrative monitoring, linked memecoin discovery, and
-              premium access control into one deliberate surface. The public site stays calm and
-              credible. The live terminal stays protected.
+              Narrative To Asset brings ranked narrative signals, linked asset context, and
+              member access into one sharp workflow. Public pages stay clear and credible. The live
+              terminal stays reserved for subscribers.
             </p>
 
             <div className="mt-10 flex flex-wrap gap-3">
@@ -137,10 +142,10 @@ export default async function HomePage() {
 
               <InteractiveLink
                 href="/#workflow"
-                pendingLabel="Reviewing workflow"
+                pendingLabel="Opening workflow details"
                 className={buttonClassName({ tone: "secondary", size: "lg" })}
               >
-                Review workflow
+                See how it works
               </InteractiveLink>
             </div>
 
@@ -178,11 +183,11 @@ export default async function HomePage() {
           <aside className="surface-panel panel-glow-emerald flex flex-col p-8 sm:p-10">
             <p className="section-kicker">Operator frame</p>
             <h2 className="mt-5 max-w-[520px] text-[30px] font-semibold tracking-[-0.05em] text-[#f2f8ff] sm:text-[36px]">
-              A disciplined public layer for a paid execution product.
+              A sharper public layer for a serious member product.
             </h2>
             <p className="mt-5 text-[15px] leading-8 text-[#94aac2]">
-              The goal is not to turn the product into generic SaaS marketing. It is to make every
-              public touchpoint feel deliberate, responsive, and operationally trustworthy.
+              The objective is not louder marketing. It is to make every public touchpoint feel
+              deliberate, responsive, and worthy of the member surface behind it.
             </p>
 
             <div className="mt-8 space-y-3">
@@ -201,7 +206,7 @@ export default async function HomePage() {
                   Calm by default
                 </p>
                 <p className="mt-3 text-[14px] leading-7 text-[#8fa6bf]">
-                  Clear hierarchy, stronger spacing, and restrained motion reduce noise without softening the identity.
+                  Strong hierarchy and restrained motion keep the site sharp without softening the identity.
                 </p>
               </div>
               <div className="metric-card">
@@ -210,7 +215,7 @@ export default async function HomePage() {
                   Immediate feedback
                 </p>
                 <p className="mt-3 text-[14px] leading-7 text-[#8fa6bf]">
-                  Buttons, navigation, and auth actions now acknowledge intent instantly instead of waiting in silence.
+                  Buttons, navigation, and account actions acknowledge intent immediately instead of waiting in silence.
                 </p>
               </div>
             </div>
@@ -224,11 +229,11 @@ export default async function HomePage() {
                   navigationLabel="Opening membership surface"
                   className={buttonClassName({ tone: "secondary", size: "md" })}
                 >
-                  Membership surface
+                  See membership
                 </InteractiveLink>
                 <InteractiveLink
                   href="/#features"
-                  pendingLabel="Reviewing product details"
+                  pendingLabel="Opening product details"
                   className={buttonClassName({ tone: "quiet", size: "md" })}
                 >
                   Product details
@@ -263,8 +268,8 @@ export default async function HomePage() {
               One public path, one protected operator surface.
             </h2>
             <p className="mt-5 max-w-[500px] text-[15px] leading-8 text-[#94aac2]">
-              The product flow is intentionally linear: attract the right user, authenticate cleanly,
-              unlock membership through Stripe, then keep access state synchronized before granting terminal access.
+              The entry path is simple by design: arrive, sign in, confirm membership in Stripe,
+              then continue into the live terminal once access is confirmed.
             </p>
           </div>
 
@@ -294,15 +299,15 @@ export default async function HomePage() {
               Professional outside, controlled inside.
             </h2>
             <p className="mt-5 text-[15px] leading-8 text-[#94aac2]">
-              The public site should clarify the product, not dilute it. Every visible state is now
-              designed to reduce hesitation, dead clicks, and bolted-on feeling across the access flow.
+              The public site should explain the product without diluting it. Every visible state is
+              designed to reduce hesitation and make the path into membership feel intentional.
             </p>
 
             <div className="mt-8 grid gap-3">
               {[
-                "Immediate route feedback on internal navigation",
-                "Pending states on auth, checkout, and billing actions",
-                "Loading shells that match final layouts closely enough to reduce swap shock",
+                "Immediate response on key clicks and page changes",
+                "Clean sign-in, checkout, and billing handoff between states",
+                "Loading shells that land close to the final layout instead of flashing a mismatch",
               ].map((item) => (
                 <div key={item} className="panel-list-row flex items-start gap-3">
                   <Binary className="mt-0.5 h-4 w-4 shrink-0 text-cyan" />
@@ -332,7 +337,7 @@ export default async function HomePage() {
             <div>
               <p className="section-kicker">Ready state</p>
               <h2 className="mt-4 text-[30px] font-semibold tracking-[-0.05em] text-[#f4f9ff] sm:text-[38px]">
-                Review the membership surface and continue into the protected flow.
+                Review membership and continue into the live member flow.
               </h2>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -343,7 +348,7 @@ export default async function HomePage() {
                 className={buttonClassName({ tone: "primary", size: "lg" })}
               >
                 <span className="inline-flex items-center gap-2">
-                  Review pricing
+                  Review membership
                   <ArrowRight className="h-4 w-4" />
                 </span>
               </InteractiveLink>

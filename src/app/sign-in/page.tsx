@@ -15,7 +15,7 @@ export default async function SignInPage() {
     <AuthShell
       eyebrow="Account access"
       title="Sign in"
-      description="Access the live narrative terminal, linked memecoin surface, and validation workflows from one account."
+      description="Sign in to reach the live terminal, billing controls, and member access tied to your account."
     >
       <SignInForm />
     </AuthShell>

@@ -10,15 +10,15 @@ type AuthShellProps = {
 };
 
 const sideItems = [
-  "Narrative ranking and linked asset context stay inside one operator workflow.",
-  "Auth, membership control, and protected routes share the same system language.",
-  "Loading and navigation states now acknowledge intent immediately instead of waiting in silence.",
+  "Member access follows the same account from sign-in through billing and into the live terminal.",
+  "The entry flow stays quiet, direct, and consistent with the product behind it.",
+  "Primary actions respond immediately, so the site never feels unconfirmed after click.",
 ] as const;
 
 const trustNotes = [
-  { icon: Zap, label: "Fast surface" },
-  { icon: ShieldCheck, label: "Session-aware access" },
-  { icon: BadgeCheck, label: "Billing-ready structure" },
+  { icon: Zap, label: "Fast response" },
+  { icon: ShieldCheck, label: "Account continuity" },
+  { icon: BadgeCheck, label: "Secure billing handoff" },
 ] as const;
 
 export function AuthShell({
@@ -67,16 +67,15 @@ export function AuthShell({
           <section className="surface-panel hidden border border-white/[0.08] p-8 lg:flex lg:flex-col lg:p-10">
             <span className="eyebrow-chip">
               <Sparkles className="h-3.5 w-3.5 text-cyan" />
-              Trusted entry flow
+              Member access
             </span>
 
             <h1 className="mt-8 max-w-[560px] text-[42px] font-semibold leading-[0.98] tracking-[-0.06em] text-[#f4f9ff]">
-              Operator-grade access starts with a calmer, clearer auth surface.
+              Clean account access for a paid product.
             </h1>
             <p className="mt-5 max-w-[560px] text-[15px] leading-8 text-[#95aac2]">
-              The public entry flow now matches the discipline of the product it leads into:
-              cleaner hierarchy, immediate feedback, and tighter continuity between account access,
-              membership control, and the protected terminal.
+              Sign-in and account creation should feel reliable before a user ever reaches checkout.
+              The entry path now carries the same discipline as the member surface it leads into.
             </p>
 
             <div className="mt-8 grid gap-3">

@@ -30,9 +30,7 @@ export function SignUpForm() {
     setSuccessMessage(null);
 
     if (!authConfigured) {
-      setError(
-        "Supabase auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
-      );
+      setError("Account creation is temporarily unavailable.");
       return;
     }
 
@@ -76,8 +74,8 @@ export function SignUpForm() {
       const mode = data.session ? "created" : "check-email";
       setSuccessMessage(
         mode === "check-email"
-          ? "Account created. Confirmation email is required before sign-in."
-          : "Account created. Opening access setup.",
+          ? "Account created. Confirm your email to continue."
+          : "Account created. Continuing to access setup.",
       );
       startNavigation("Opening access setup");
       startRoutingTransition(() => {
@@ -94,25 +92,9 @@ export function SignUpForm() {
 
   return (
     <form className="space-y-5" onSubmit={handleSubmit}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="metric-card">
-          <p className="section-kicker">Account state</p>
-          <p className="mt-3 text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
-            Production-style entry
-          </p>
-          <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
-            The form is staged around account creation first, then pricing and paid access.
-          </p>
-        </div>
-        <div className="metric-card">
-          <p className="section-kicker">Continuation</p>
-          <p className="mt-3 text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
-            Onboarding handoff
-          </p>
-          <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
-            After sign-up, the user moves directly into the next access step instead of stalling on a blank success state.
-          </p>
-        </div>
+      <div className="status-banner border-cyan/12 bg-cyan/[0.06]">
+        Create your account first. Membership checkout appears on the next step and stays attached
+        to this sign-in.
       </div>
 
       <div className="space-y-2">
@@ -147,7 +129,7 @@ export function SignUpForm() {
           className="field-input"
           placeholder="Minimum 8 characters"
         />
-        <p className="field-note">Use a durable password. Password reset can be layered in separately.</p>
+        <p className="field-note">Use at least 8 characters.</p>
       </div>
 
       <div className="space-y-2">
@@ -187,7 +169,7 @@ export function SignUpForm() {
 
       {!authConfigured ? (
         <div className="border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
-          Auth is not configured in the environment yet.
+          Account creation is temporarily unavailable right now. Please try again shortly.
         </div>
       ) : null}
 

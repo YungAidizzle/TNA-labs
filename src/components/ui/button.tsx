@@ -33,20 +33,21 @@ export function buttonClassName({
   className,
 }: ButtonClassOptions = {}) {
   return joinClasses(
-    "app-button group relative inline-flex items-center justify-center overflow-hidden border font-semibold uppercase tracking-[0.16em] transition-[transform,border-color,background-color,color,opacity,box-shadow] duration-200",
+    "app-button group relative inline-flex cursor-pointer select-none items-center justify-center overflow-hidden border font-semibold uppercase tracking-[0.16em] transition-[transform,border-color,background-color,color,opacity,box-shadow] duration-200",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/45 focus-visible:ring-offset-2 focus-visible:ring-offset-[#020508]",
     "disabled:cursor-not-allowed disabled:opacity-60",
     size === "sm" && "h-10 px-4 text-[11px]",
     size === "md" && "h-11 px-5 text-[12px]",
     size === "lg" && "h-12 px-6 text-[12px]",
     tone === "primary" &&
-      "border-cyan/30 bg-[linear-gradient(180deg,rgba(17,57,71,0.94),rgba(7,20,29,0.98))] text-[#effdff] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_32px_rgba(0,0,0,0.24)] hover:border-cyan/45 hover:text-white",
+      "border-cyan/30 bg-[linear-gradient(180deg,rgba(17,57,71,0.94),rgba(7,20,29,0.98))] text-[#effdff] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_18px_32px_rgba(0,0,0,0.24)] hover:-translate-y-px hover:border-cyan/46 hover:bg-[linear-gradient(180deg,rgba(22,66,82,0.98),rgba(8,22,31,0.99))] hover:text-white hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_22px_38px_rgba(0,0,0,0.28),0_0_0_1px_rgba(86,217,255,0.08)] active:translate-y-[1px] active:border-cyan/55 active:bg-[linear-gradient(180deg,rgba(14,46,59,0.98),rgba(6,17,24,1))] active:shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_12px_22px_rgba(0,0,0,0.24)]",
     tone === "secondary" &&
-      "border-white/[0.12] bg-white/[0.03] text-[#d6e0ee] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:border-white/[0.22] hover:bg-white/[0.05] hover:text-[#f4f8ff]",
+      "border-white/[0.12] bg-white/[0.03] text-[#d6e0ee] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:-translate-y-px hover:border-white/[0.24] hover:bg-white/[0.055] hover:text-[#f4f8ff] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_14px_28px_rgba(0,0,0,0.16)] active:translate-y-[1px] active:border-white/[0.2] active:bg-white/[0.04] active:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_18px_rgba(0,0,0,0.14)]",
     tone === "quiet" &&
-      "border-transparent bg-transparent text-[#8fa5bd] hover:border-white/[0.08] hover:bg-white/[0.03] hover:text-[#f4f8ff]",
+      "border-transparent bg-transparent text-[#8fa5bd] hover:-translate-y-px hover:border-white/[0.08] hover:bg-white/[0.03] hover:text-[#f4f8ff] active:translate-y-[1px] active:border-white/[0.08] active:bg-white/[0.025]",
     fullWidth && "w-full",
-    pending && "pointer-events-none",
+    pending &&
+      "pointer-events-none translate-y-0 border-cyan/28 shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_16px_28px_rgba(0,0,0,0.2)]",
     className,
   );
 }

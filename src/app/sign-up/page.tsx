@@ -15,7 +15,7 @@ export default async function SignUpPage() {
     <AuthShell
       eyebrow="Create account"
       title="Get access"
-      description="Create an account now. Subscription activation is staged next, but the access flow and account structure are already in place."
+      description="Create your account to continue into member access and secure checkout."
     >
       <SignUpForm />
     </AuthShell>

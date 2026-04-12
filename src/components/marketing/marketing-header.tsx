@@ -14,7 +14,7 @@ type MarketingHeaderProps = {
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/#features", label: "Features" },
-  { href: "/pricing", label: "Pricing" },
+  { href: "/pricing", label: "Membership" },
   { href: "/#faq", label: "FAQ" },
 ] as const;
 
@@ -105,7 +105,7 @@ export function MarketingHeader({
               size: "sm",
             })}
           >
-            {hasPaidAccess ? "Dashboard" : isAuthenticated ? "Pricing" : "Sign In"}
+            {hasPaidAccess ? "Dashboard" : isAuthenticated ? "Membership" : "Sign In"}
           </InteractiveLink>
           <InteractiveLink
             href={hasPaidAccess ? "/dashboard" : isAuthenticated ? "/pricing" : "/sign-up"}

@@ -36,9 +36,7 @@ export function SignInForm() {
     setError(null);
 
     if (!authConfigured) {
-      setError(
-        "Supabase auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
-      );
+      setError("Account access is temporarily unavailable.");
       return;
     }
 
@@ -83,25 +81,9 @@ export function SignInForm() {
 
   return (
     <form className="space-y-5" onSubmit={handleSubmit}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="metric-card">
-          <p className="section-kicker">Session handling</p>
-          <p className="mt-3 text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
-            Immediate progress feedback
-          </p>
-          <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
-            Sign-in shows button and route feedback as soon as the request starts.
-          </p>
-        </div>
-        <div className="metric-card">
-          <p className="section-kicker">Redirect target</p>
-          <p className="mt-3 text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
-            Protected access resumes cleanly
-          </p>
-          <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
-            Safe redirect handling returns the user to the right surface after authentication.
-          </p>
-        </div>
+      <div className="status-banner border-cyan/12 bg-cyan/[0.06]">
+        Use the account attached to your membership. If access is already active, you will go
+        straight to the terminal after sign-in.
       </div>
 
       <div className="space-y-2">
@@ -126,7 +108,7 @@ export function SignInForm() {
           <label htmlFor="password" className="field-label">
             Password
           </label>
-          <span className="field-note">Password reset flow can be added next</span>
+          <span className="field-note">Use the password tied to this account</span>
         </div>
         <input
           id="password"
@@ -161,7 +143,7 @@ export function SignInForm() {
 
       {!authConfigured ? (
         <div className="border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
-          Auth is not configured in the environment yet.
+          Account access is temporarily unavailable right now. Please try again shortly.
         </div>
       ) : null}
 
