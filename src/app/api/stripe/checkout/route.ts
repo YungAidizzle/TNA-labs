@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
-import { isPaidAccessState } from "@/lib/billing/shared";
+import { hasDashboardAccessState } from "@/lib/billing/shared";
 import { getOrCreateStripeCustomerForUser } from "@/lib/billing/subscriptions";
 import {
   hasStripeCheckoutConfig,
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     return NextResponse.redirect(url);
   }
 
-  if (profile && isPaidAccessState(profile.access_state)) {
+  if (profile && hasDashboardAccessState(profile.access_state)) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 

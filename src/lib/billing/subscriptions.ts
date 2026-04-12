@@ -6,6 +6,7 @@ import { getSupabaseServerClient, hasSupabaseServerCredentials } from "@/lib/sup
 import {
   compareSubscriptionStatusPriority,
   deriveOnboardingState,
+  hasDashboardAccessState,
   isPaidAccessState,
   mapStripeStatusToSubscriptionStatus,
   mapSubscriptionStatusToAccessState,
@@ -29,7 +30,7 @@ export type AppSubscription = {
 
 export type CheckoutSessionConfirmationResult =
   | {
-      status: "access_granted" | "already_active";
+      status: "access_granted" | "pending_access" | "already_active";
       message: string;
       accessState: ProfileAccessState | null;
       stripeCustomerId: string | null;
@@ -301,6 +302,14 @@ function isAccessReadyStatus(status: SubscriptionStatus) {
   return status === "active" || status === "trialing";
 }
 
+function isPendingAccessStatus(status: SubscriptionStatus) {
+  return status === "pending";
+}
+
+function isFailedAccessStatus(status: SubscriptionStatus) {
+  return status === "inactive" || status === "past_due" || status === "canceled";
+}
+
 async function resolveExpandedCheckoutSubscription(session: Stripe.Checkout.Session) {
   const subscriptionValue = session.subscription;
   if (!subscriptionValue) {
@@ -407,6 +416,43 @@ export async function syncCheckoutSession(session: Stripe.Checkout.Session) {
   return syncSubscriptionFromStripe(subscription, userId);
 }
 
+export async function syncFailedCheckoutSession(session: Stripe.Checkout.Session) {
+  if (session.mode !== "subscription") {
+    return null;
+  }
+
+  const stripeCustomerId =
+    typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
+  const subscription = await resolveExpandedCheckoutSubscription(session);
+  const userId =
+    session.client_reference_id ??
+    readMetadataValue(session.metadata, "supabaseUserId") ??
+    (stripeCustomerId ? await resolveUserIdByStripeCustomerId(stripeCustomerId) : null);
+
+  if (!userId || !stripeCustomerId || !subscription) {
+    return null;
+  }
+
+  await syncStripeCustomerToProfile(
+    userId,
+    stripeCustomerId,
+    session.customer_details?.email ?? session.customer_email ?? null,
+  );
+
+  await upsertSubscriptionRecord({
+    user_id: userId,
+    stripe_customer_id: stripeCustomerId,
+    stripe_subscription_id: subscription.id,
+    stripe_price_id: getStripePriceIdFromSubscription(subscription),
+    status: "inactive",
+    current_period_end: toIsoFromUnixTimestamp(getStripeCurrentPeriodEnd(subscription)),
+    cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
+  });
+
+  await refreshProfileAccessState(userId, stripeCustomerId);
+  return subscription.id;
+}
+
 export async function confirmCheckoutSessionForUser(params: {
   sessionId: string;
   userId: string;
@@ -415,10 +461,13 @@ export async function confirmCheckoutSessionForUser(params: {
 }): Promise<CheckoutSessionConfirmationResult> {
   const { sessionId, userId, currentAccessState, expectedStripeCustomerId } = params;
 
-  if (isPaidAccessState(currentAccessState)) {
+  if (hasDashboardAccessState(currentAccessState)) {
     return {
       status: "already_active",
-      message: "Access is already active on this account.",
+      message:
+        currentAccessState === "pending"
+          ? "Access is already available while billing finalizes."
+          : "Access is already active on this account.",
       accessState: currentAccessState,
       stripeCustomerId: expectedStripeCustomerId ?? null,
       stripeSubscriptionId: null,
@@ -501,16 +550,18 @@ export async function confirmCheckoutSessionForUser(params: {
   }
 
   const subscriptionStatus = mapStripeStatusToSubscriptionStatus(subscription.status);
-  if (!isAccessReadyStatus(subscriptionStatus)) {
+  if (isFailedAccessStatus(subscriptionStatus)) {
     return {
-      status: "processing",
-      message: "Payment succeeded, but subscription activation is still in progress.",
-      accessState: currentAccessState ?? null,
-      stripeCustomerId,
-      stripeSubscriptionId,
-      subscriptionStatus,
+      status: "invalid",
+      message: "Billing could not be confirmed for this checkout session.",
     };
   }
+
+  const nextSubscriptionStatus: SubscriptionStatus = isAccessReadyStatus(subscriptionStatus)
+    ? subscriptionStatus
+    : isPendingAccessStatus(subscriptionStatus)
+      ? "pending"
+      : "pending";
 
   await syncStripeCustomerToProfile(
     userId,
@@ -523,7 +574,7 @@ export async function confirmCheckoutSessionForUser(params: {
     stripe_customer_id: stripeCustomerId,
     stripe_subscription_id: subscription.id,
     stripe_price_id: getStripePriceIdFromSubscription(subscription),
-    status: subscriptionStatus,
+    status: nextSubscriptionStatus,
     current_period_end: toIsoFromUnixTimestamp(getStripeCurrentPeriodEnd(subscription)),
     cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
   });
@@ -531,15 +582,26 @@ export async function confirmCheckoutSessionForUser(params: {
   const refreshed = await refreshProfileAccessState(userId, stripeCustomerId);
   const accessState = refreshed?.accessState ?? null;
 
+  if (!hasDashboardAccessState(accessState)) {
+    return {
+      status: "processing",
+      message: "Subscription synced, but access is still updating. Retry in a moment.",
+      accessState: currentAccessState ?? null,
+      stripeCustomerId,
+      stripeSubscriptionId,
+      subscriptionStatus,
+    };
+  }
+
   return {
-    status: isPaidAccessState(accessState) ? "access_granted" : "processing",
+    status: isPaidAccessState(accessState) ? "access_granted" : "pending_access",
     message: isPaidAccessState(accessState)
       ? "Access confirmed. Redirecting to the terminal."
-      : "Subscription synced, but access is still updating. Retry in a moment.",
+      : "Access is available now while Stripe finishes billing confirmation.",
     accessState,
     stripeCustomerId,
     stripeSubscriptionId: subscription.id,
-    subscriptionStatus,
+    subscriptionStatus: nextSubscriptionStatus,
   };
 }
 
@@ -571,5 +633,5 @@ export async function getOrCreateStripeCustomerForUser(params: {
 }
 
 export function shouldAllowPaidAccess(accessState: string | null | undefined) {
-  return isPaidAccessState(accessState);
+  return hasDashboardAccessState(accessState);
 }

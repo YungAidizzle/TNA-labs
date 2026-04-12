@@ -122,6 +122,37 @@ describe("checkout success confirmation state", () => {
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
+  it("redirects immediately when provisional pending access is granted", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: "pending_access",
+          message: "Access is available now while Stripe finishes billing confirmation.",
+          accessState: "pending",
+          stripeCustomerId: "cus_123",
+          stripeSubscriptionId: "sub_123",
+          subscriptionStatus: "pending",
+        }),
+      }),
+    );
+
+    render(
+      <CheckoutSuccessState
+        sessionId="cs_test_123"
+        initialHasPaidAccess={false}
+        initialAccessState="inactive"
+        userEmail="user@example.com"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(startNavigationMock).toHaveBeenCalledWith("Opening terminal");
+      expect(replaceMock).toHaveBeenCalledWith("/dashboard");
+    });
+  });
+
   it("shows an error immediately when session id is missing", async () => {
     render(
       <CheckoutSuccessState

@@ -1,5 +1,6 @@
 export type ProfileAccessState =
   | "pending_setup"
+  | "pending"
   | "trialing"
   | "active"
   | "inactive"
@@ -14,6 +15,7 @@ export type AppOnboardingState =
   | "complete";
 
 export type SubscriptionStatus =
+  | "pending"
   | "inactive"
   | "trialing"
   | "active"
@@ -21,25 +23,34 @@ export type SubscriptionStatus =
   | "canceled";
 
 const PAID_ACCESS_STATES = new Set<ProfileAccessState>(["trialing", "active"]);
+const DASHBOARD_ACCESS_STATES = new Set<ProfileAccessState>(["pending", "trialing", "active"]);
 
 export function isPaidAccessState(value: string | null | undefined): value is "trialing" | "active" {
   return PAID_ACCESS_STATES.has((value ?? "") as ProfileAccessState);
+}
+
+export function hasDashboardAccessState(
+  value: string | null | undefined,
+): value is "pending" | "trialing" | "active" {
+  return DASHBOARD_ACCESS_STATES.has((value ?? "") as ProfileAccessState);
 }
 
 export function mapStripeStatusToSubscriptionStatus(
   value: string | null | undefined,
 ): SubscriptionStatus {
   switch ((value ?? "").toLowerCase()) {
+    case "incomplete":
+      return "pending";
     case "trialing":
       return "trialing";
     case "active":
       return "active";
     case "past_due":
-    case "unpaid":
       return "past_due";
+    case "unpaid":
+      return "inactive";
     case "canceled":
       return "canceled";
-    case "incomplete":
     case "incomplete_expired":
     case "paused":
     default:
@@ -51,12 +62,14 @@ export function mapSubscriptionStatusToAccessState(
   status: SubscriptionStatus,
 ): ProfileAccessState {
   switch (status) {
+    case "pending":
+      return "pending";
     case "trialing":
       return "trialing";
     case "active":
       return "active";
     case "past_due":
-      return "past_due";
+      return "inactive";
     case "canceled":
       return "canceled";
     case "inactive":
@@ -69,7 +82,7 @@ export function deriveOnboardingState(
   accessState: ProfileAccessState,
   hasStripeCustomer: boolean,
 ): AppOnboardingState {
-  if (isPaidAccessState(accessState)) {
+  if (hasDashboardAccessState(accessState)) {
     return "complete";
   }
 
@@ -91,9 +104,10 @@ export function compareSubscriptionStatusPriority(
   const priority: Record<SubscriptionStatus, number> = {
     active: 0,
     trialing: 1,
-    past_due: 2,
-    inactive: 3,
-    canceled: 4,
+    pending: 2,
+    past_due: 3,
+    inactive: 4,
+    canceled: 5,
   };
 
   return priority[left] - priority[right];

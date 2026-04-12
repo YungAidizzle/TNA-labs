@@ -6,6 +6,7 @@ import {
   getStripeWebhookSecret,
 } from "@/lib/stripe/server";
 import {
+  syncFailedCheckoutSession,
   syncCheckoutSession,
   syncSubscriptionFromStripe,
 } from "@/lib/billing/subscriptions";
@@ -51,7 +52,11 @@ export async function POST(request: Request) {
   try {
     switch (event.type) {
       case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded":
         await syncCheckoutSession(event.data.object as Stripe.Checkout.Session);
+        break;
+      case "checkout.session.async_payment_failed":
+        await syncFailedCheckoutSession(event.data.object as Stripe.Checkout.Session);
         break;
       case "customer.subscription.created":
       case "customer.subscription.updated":

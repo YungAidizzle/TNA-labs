@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { isPaidAccessState } from "@/lib/billing/shared";
+import { hasDashboardAccessState } from "@/lib/billing/shared";
 import {
   isProtectedPathname,
   resolveSafeRedirectTarget,
@@ -83,7 +83,7 @@ export async function updateSession(request: NextRequest) {
     isProtectedPathname(pathname) &&
     user &&
     profile &&
-    !isPaidAccessState(profile.access_state)
+    !hasDashboardAccessState(profile.access_state)
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/pricing";
@@ -97,7 +97,8 @@ export async function updateSession(request: NextRequest) {
 
   if (AUTH_PATHS.has(pathname) && user) {
     const next = request.nextUrl.searchParams.get("next");
-    const fallback = profile && isPaidAccessState(profile.access_state) ? "/dashboard" : "/pricing";
+    const fallback =
+      profile && hasDashboardAccessState(profile.access_state) ? "/dashboard" : "/pricing";
     return NextResponse.redirect(new URL(resolveSafeRedirectTarget(next, fallback), request.url));
   }
 

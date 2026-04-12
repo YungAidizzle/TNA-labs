@@ -2,7 +2,7 @@ import { Activity, ArrowRight, Clock3, Sparkles } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { buttonClassName } from "@/components/ui/button";
 import { InteractiveLink } from "@/components/ui/interactive-link";
-import { isPaidAccessState } from "@/lib/billing/shared";
+import { hasDashboardAccessState, isPaidAccessState } from "@/lib/billing/shared";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
 import { redirect } from "next/navigation";
 
@@ -19,7 +19,9 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
   const { user, profile } = await getCurrentAuthContext();
   const mode = readQueryValue(params.mode) ?? "created";
   const email = readQueryValue(params.email) ?? user?.email ?? profile?.email ?? null;
-  const hasPaidAccess = isPaidAccessState(profile?.access_state);
+  const hasDashboardAccess = hasDashboardAccessState(profile?.access_state);
+  const hasSettledAccess = isPaidAccessState(profile?.access_state);
+  const isPendingAccess = profile?.access_state === "pending";
 
   if (!user && !email) {
     redirect("/sign-up");
@@ -49,16 +51,20 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
           <h1 className="mt-6 text-[34px] font-semibold tracking-[-0.05em] text-[#f3f8ff] sm:text-[40px]">
             {needsEmailConfirmation
               ? "Confirm your email to finish access setup."
-              : hasPaidAccess
+              : hasSettledAccess
                 ? "Access is active."
+                : isPendingAccess
+                  ? "Access is available while billing finalizes."
                 : "Account created. Membership activation is the next step."}
           </h1>
           <p className="mt-4 max-w-[760px] text-[15px] leading-8 text-[#92a7bf]">
             {needsEmailConfirmation
               ? "Your account record is created. Email confirmation is required before sign-in if that setting is enabled in Supabase."
-              : hasPaidAccess
+              : hasSettledAccess
                 ? "Your subscription state is synced and the paid dashboard routes are available."
-                : "The account is ready. Subscription checkout unlocks the dashboard once the Stripe webhook syncs access state back into Supabase."}
+                : isPendingAccess
+                  ? "Payment is still finalizing, but provisional dashboard access is already available on this account."
+                  : "The account is ready. Subscription checkout unlocks the dashboard once billing is confirmed."}
           </p>
 
           <div className="mt-8 grid gap-3 md:grid-cols-3">
@@ -75,7 +81,11 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
             <div className="metric-card">
               <p className="section-kicker">Billing stage</p>
               <p className="mt-3 text-[14px] text-[#e9f1fb]">
-                {hasPaidAccess ? "Subscription active" : "Subscription required"}
+                {hasSettledAccess
+                  ? "Subscription active"
+                  : isPendingAccess
+                    ? "Payment finalizing"
+                    : "Subscription required"}
               </p>
             </div>
           </div>
@@ -83,12 +93,14 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
           <div className="mt-8 status-banner flex items-start gap-3 border-cyan/12 bg-cyan/[0.06] text-[#dbe7f4]">
             <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-cyan" />
             <span>
-              Access unlocks from webhook-synced subscription state, not just from account creation or returning from Checkout.
+              {isPendingAccess
+                ? "Dashboard access is available while Stripe finalizes billing. Access will update automatically if payment fails or succeeds."
+                : "Access unlocks from server-side checkout confirmation and stays synced through Stripe webhooks."}
             </span>
           </div>
 
           <div className="mt-8 flex flex-wrap gap-3">
-            {hasPaidAccess ? (
+            {hasDashboardAccess ? (
               <InteractiveLink
                 href="/dashboard"
                 pendingLabel="Opening platform"

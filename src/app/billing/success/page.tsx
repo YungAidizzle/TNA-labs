@@ -1,7 +1,7 @@
 import { Activity, Sparkles } from "lucide-react";
 import { CheckoutSuccessState } from "@/components/billing/checkout-success-state";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
-import { isPaidAccessState } from "@/lib/billing/shared";
+import { hasDashboardAccessState } from "@/lib/billing/shared";
 
 type BillingSuccessPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -17,7 +17,7 @@ export default async function BillingSuccessPage({
   const params = searchParams ? await searchParams : {};
   const sessionId = readQueryValue(params.session_id) ?? null;
   const { user, profile } = await getCurrentAuthContext();
-  const hasPaidAccess = isPaidAccessState(profile?.access_state);
+  const hasDashboardAccess = hasDashboardAccessState(profile?.access_state);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -41,7 +41,7 @@ export default async function BillingSuccessPage({
 
         <CheckoutSuccessState
           sessionId={sessionId}
-          initialHasPaidAccess={hasPaidAccess}
+          initialHasPaidAccess={hasDashboardAccess}
           initialAccessState={profile?.access_state}
           userEmail={user?.email ?? profile?.email ?? null}
         />

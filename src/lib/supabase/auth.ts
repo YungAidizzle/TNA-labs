@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import type { User } from "@supabase/supabase-js";
 import {
+  hasDashboardAccessState,
   isPaidAccessState,
   type AppOnboardingState,
   type ProfileAccessState,
@@ -124,7 +125,7 @@ export async function requirePaidUser() {
   const user = await requireAuthenticatedUser();
   const profile = await getCurrentProfile(user);
 
-  if (!profile || !isPaidAccessState(profile.access_state)) {
+  if (!profile || !hasDashboardAccessState(profile.access_state)) {
     redirect("/pricing");
   }
 
@@ -168,12 +169,12 @@ export async function requirePaidApiUser() {
   }
 
   const profile = await getCurrentProfile(user);
-  if (!profile || !isPaidAccessState(profile.access_state)) {
+  if (!profile || !hasDashboardAccessState(profile.access_state)) {
     return NextResponse.json(
       {
         error: {
           code: "SUBSCRIPTION_REQUIRED",
-          message: "An active subscription is required.",
+          message: "Dashboard access requires a valid billing state.",
         },
       },
       { status: 402 },

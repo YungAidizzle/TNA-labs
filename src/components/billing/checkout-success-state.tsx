@@ -20,6 +20,10 @@ type ConfirmationState =
       message: string;
     }
   | {
+      phase: "pending";
+      message: string;
+    }
+  | {
       phase: "redirecting";
       message: string;
     }
@@ -33,7 +37,7 @@ type ConfirmationState =
     };
 
 type ConfirmCheckoutResponse = {
-  status: "access_granted" | "already_active" | "processing";
+  status: "access_granted" | "pending_access" | "already_active" | "processing";
   message: string;
   accessState: string | null;
   stripeCustomerId: string | null;
@@ -88,6 +92,10 @@ export function CheckoutSuccessState({
   const statusLabel = useMemo(() => {
     if (state.phase === "redirecting") {
       return "Access confirmed";
+    }
+
+    if (state.phase === "pending") {
+      return "Access available";
     }
 
     if (state.phase === "processing") {
@@ -163,6 +171,16 @@ export function CheckoutSuccessState({
         return;
       }
 
+      if (body.status === "pending_access") {
+        setState({
+          phase: "pending",
+          message: body.message,
+        });
+
+        redirectToDashboard();
+        return;
+      }
+
       setState({
         phase: "redirecting",
         message: body.message,
@@ -208,6 +226,8 @@ export function CheckoutSuccessState({
       <h1 className="mt-4 text-[34px] font-semibold tracking-[-0.05em] text-[#f3f8ff] sm:text-[40px]">
         {state.phase === "redirecting"
           ? "Access confirmed. Opening the terminal."
+          : state.phase === "pending"
+            ? "Access is available while billing finalizes."
           : state.phase === "processing"
             ? "Payment received. Access is still being finalized."
             : state.phase === "error"
@@ -238,6 +258,13 @@ export function CheckoutSuccessState({
         <div className="mt-6 status-banner border-amber/20 bg-amber/10 text-[#f7c27b]">
           Stripe has the checkout session, but the subscription is still finalizing. This can happen
           with delayed payment confirmation methods.
+        </div>
+      ) : null}
+
+      {state.phase === "pending" ? (
+        <div className="mt-6 status-banner border-amber/20 bg-amber/10 text-[#f7d4a1]">
+          Access is open now because the checkout session is verified. Billing is still finalizing,
+          and access will update automatically if Stripe later rejects the payment.
         </div>
       ) : null}
 

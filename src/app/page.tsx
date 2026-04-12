@@ -10,7 +10,7 @@ import {
 import { MarketingHeader } from "@/components/marketing/marketing-header";
 import { buttonClassName } from "@/components/ui/button";
 import { InteractiveLink } from "@/components/ui/interactive-link";
-import { isPaidAccessState } from "@/lib/billing/shared";
+import { hasDashboardAccessState } from "@/lib/billing/shared";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
 
 const capabilityCards = [
@@ -110,15 +110,15 @@ const faqItems = [
 
 export default async function HomePage() {
   const { user, profile } = await getCurrentAuthContext();
-  const hasPaidAccess = isPaidAccessState(profile?.access_state);
-  const primaryHref = hasPaidAccess ? "/dashboard" : "/pricing";
-  const primaryLabel = hasPaidAccess ? "Open terminal" : "View membership";
+  const hasDashboardAccess = hasDashboardAccessState(profile?.access_state);
+  const primaryHref = hasDashboardAccess ? "/dashboard" : "/pricing";
+  const primaryLabel = hasDashboardAccess ? "Open terminal" : "View membership";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <MarketingHeader
         isAuthenticated={Boolean(user)}
-        hasPaidAccess={hasPaidAccess}
+        hasPaidAccess={hasDashboardAccess}
       />
 
       <main className="mx-auto flex w-full max-w-[1320px] flex-col gap-10 px-4 pb-16 pt-8 sm:px-6 lg:px-8 lg:gap-12 lg:pb-24">
@@ -139,8 +139,8 @@ export default async function HomePage() {
             <div className="mt-10 flex flex-wrap gap-3">
               <InteractiveLink
                 href={primaryHref}
-                pendingLabel={hasPaidAccess ? "Opening terminal" : "Opening pricing"}
-                navigationLabel={hasPaidAccess ? "Opening terminal" : "Opening pricing"}
+                pendingLabel={hasDashboardAccess ? "Opening terminal" : "Opening pricing"}
+                navigationLabel={hasDashboardAccess ? "Opening terminal" : "Opening pricing"}
                 className={buttonClassName({ tone: "primary", size: "lg" })}
               >
                 <span className="inline-flex items-center gap-2">
@@ -368,7 +368,7 @@ export default async function HomePage() {
               {[
                 { label: "Account", value: user ? "Ready" : "Required" },
                 { label: "Checkout", value: "Secure" },
-                { label: "Access", value: hasPaidAccess ? "Live" : "Members only" },
+                { label: "Access", value: hasDashboardAccess ? "Live" : "Members only" },
               ].map((item) => (
                 <div key={item.label} className="metric-card">
                   <p className="section-kicker">{item.label}</p>
@@ -387,8 +387,8 @@ export default async function HomePage() {
             <div className="mt-8 flex flex-wrap gap-3">
               <InteractiveLink
                 href={primaryHref}
-                pendingLabel={hasPaidAccess ? "Opening terminal" : "Opening pricing"}
-                navigationLabel={hasPaidAccess ? "Opening terminal" : "Opening pricing"}
+                pendingLabel={hasDashboardAccess ? "Opening terminal" : "Opening pricing"}
+                navigationLabel={hasDashboardAccess ? "Opening terminal" : "Opening pricing"}
                 className={buttonClassName({ tone: "primary", size: "lg" })}
               >
                 <span className="inline-flex items-center gap-2">

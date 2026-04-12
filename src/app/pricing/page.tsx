@@ -12,7 +12,7 @@ import { ActionButtonForm } from "@/components/ui/action-button-form";
 import { buttonClassName } from "@/components/ui/button";
 import { InteractiveLink } from "@/components/ui/interactive-link";
 import { getCurrentViewerSubscription } from "@/lib/billing/subscriptions";
-import { isPaidAccessState } from "@/lib/billing/shared";
+import { hasDashboardAccessState, isPaidAccessState } from "@/lib/billing/shared";
 import {
   hasStripeCheckoutConfig,
   hasStripeServerConfig,
@@ -95,7 +95,9 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
   const error = readQueryValue(params.error);
   const { user, profile } = await getCurrentAuthContext();
   const subscription = await getCurrentViewerSubscription(user?.id);
-  const hasPaidAccess = isPaidAccessState(profile?.access_state);
+  const hasDashboardAccess = hasDashboardAccessState(profile?.access_state);
+  const hasSettledAccess = isPaidAccessState(profile?.access_state);
+  const isPendingAccess = profile?.access_state === "pending";
   const stripeServerConfigured = hasStripeServerConfig();
   const stripeWebhookConfigured = hasStripeWebhookConfig();
   const stripeCheckoutConfigured = hasStripeCheckoutConfig();
@@ -123,7 +125,7 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
     <div className="min-h-screen bg-background text-foreground">
       <MarketingHeader
         isAuthenticated={Boolean(user)}
-        hasPaidAccess={hasPaidAccess}
+        hasPaidAccess={hasDashboardAccess}
       />
 
       <main className="mx-auto flex w-full max-w-[1320px] flex-col gap-8 px-4 pb-16 pt-8 sm:px-6 lg:px-8 lg:gap-10 lg:pb-24">
@@ -197,7 +199,9 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
                   {profile?.access_state ?? "guest"}
                 </p>
                 <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
-                  {subscription?.current_period_end
+                  {isPendingAccess
+                    ? "Access is available while Stripe finishes confirming the payment."
+                    : subscription?.current_period_end
                     ? `Membership renews through ${new Date(subscription.current_period_end).toLocaleString()}.`
                     : "No active membership is attached to this account yet."}
                 </p>
@@ -232,7 +236,7 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
             ) : null}
 
             <div className="mt-8 flex flex-wrap gap-3">
-              {hasPaidAccess ? (
+              {hasDashboardAccess ? (
                 <InteractiveLink
                   href="/dashboard"
                   pendingLabel="Opening terminal"
@@ -283,7 +287,11 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
               <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-cyan" />
               <span>
                 {user
-                  ? "After payment, you return here. Access usually opens within moments once the membership is confirmed."
+                  ? hasSettledAccess
+                    ? "Membership is active and the dashboard is unlocked."
+                    : isPendingAccess
+                      ? "Access is available now while Stripe finishes billing confirmation. If payment fails later, access will be removed automatically."
+                      : "After payment, the return flow verifies checkout and opens access as soon as billing can be confirmed."
                   : "If you are not signed in yet, the flow takes you through account access before billing continues."}
               </span>
             </div>

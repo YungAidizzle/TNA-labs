@@ -89,6 +89,37 @@ describe("stripe checkout confirmation route", () => {
     });
   });
 
+  it("returns provisional access when billing is still finalizing", async () => {
+    hasStripeServerConfigMock.mockReturnValue(true);
+    getCurrentAuthContextMock.mockResolvedValue({
+      user: { id: "user_123" },
+      profile: { access_state: "inactive", stripe_customer_id: "cus_123" },
+    });
+    confirmCheckoutSessionForUserMock.mockResolvedValue({
+      status: "pending_access",
+      message: "Access is available now while Stripe finishes billing confirmation.",
+      accessState: "pending",
+      stripeCustomerId: "cus_123",
+      stripeSubscriptionId: "sub_123",
+      subscriptionStatus: "pending",
+    });
+
+    const route = await loadRouteModule();
+    const response = await route.POST(
+      new Request("http://localhost/api/stripe/checkout/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: "cs_test_123" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "pending_access",
+      accessState: "pending",
+    });
+  });
+
   it("rejects checkout sessions that do not belong to the current user", async () => {
     hasStripeServerConfigMock.mockReturnValue(true);
     getCurrentAuthContextMock.mockResolvedValue({
