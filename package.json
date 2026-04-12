@@ -12,6 +12,7 @@
     "worker:trend-names:backfill": "python scripts/backfill_trend_titles.py",
     "build": "next build",
     "start": "next start",
+    "export:dashboard-hero": "node scripts/export-dashboard-hero.mjs",
     "fetch:reddit": "python scripts/fetch_reddit_live.py --all",
     "fetch:reddit:live": "python scripts/fetch_reddit_live.py --all",
     "fetch:reddit:live:once": "python scripts/fetch_reddit_live.py",

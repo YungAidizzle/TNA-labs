@@ -9,6 +9,10 @@ type TerminalScreenshotFrameProps = {
   priority?: boolean;
 };
 
+const MASTER_SCREENSHOT_SRC = "/marketing/dashboard-terminal-hero-hq.png";
+const MASTER_SCREENSHOT_WIDTH = 4280;
+const MASTER_SCREENSHOT_HEIGHT = 2160;
+
 const CALLOUTS = [
   {
     label: "Narrative tracking",
@@ -75,12 +79,12 @@ export function TerminalScreenshotFrame({
             )}
           >
             <Image
-              src="/marketing/dashboard-terminal-hero.png"
+              src={MASTER_SCREENSHOT_SRC}
               alt="Actual dashboard screenshot showing ranked narratives, momentum-ranked memecoins, and the validation workflow."
-              width={3200}
-              height={1880}
+              width={MASTER_SCREENSHOT_WIDTH}
+              height={MASTER_SCREENSHOT_HEIGHT}
               priority={priority}
-              quality={100}
+              unoptimized
               className={cn(
                 isHero ? "h-auto w-full" : "h-full w-full object-cover object-[68%_center]",
                 imageClassName,
