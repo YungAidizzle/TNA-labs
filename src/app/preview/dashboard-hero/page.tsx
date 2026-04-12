@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { DashboardPreviewSurface } from "@/components/marketing/dashboard-preview-surface";
+import { BRAND_NAME } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: "Dashboard Hero Preview",
+  title: `${BRAND_NAME} Dashboard Preview`,
   robots: {
     index: false,
     follow: false,

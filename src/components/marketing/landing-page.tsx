@@ -4,6 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
 import { TerminalScreenshotFrame } from "@/components/marketing/terminal-screenshot-frame";
 import { TerminalWorkflowDiagram } from "@/components/marketing/terminal-workflow-diagram";
+import { BRAND_ACCESS_NAME, BRAND_DESCRIPTOR, BRAND_NAME } from "@/lib/brand";
 import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
 import { SHORT_MARKETING_DISCLAIMER } from "@/lib/legal/disclaimers";
 
@@ -45,6 +46,24 @@ const PLATFORM_DETAILS = [
   {
     title: "Built for repeated monitoring",
     text: "The terminal is designed for repeated narrative scanning, linked-asset review, and follow-up validation rather than decorative dashboard browsing.",
+  },
+] as const;
+
+const DETAIL_PROOF_POINTS = [
+  {
+    title: "Narrative ranking",
+    text: "Attention velocity, post volume, and platform spread stay visible while you review the linked move.",
+    metrics: "Attention velocity · Post volume · Platform spread",
+  },
+  {
+    title: "Linked memecoins",
+    text: "The board keeps momentum, liquidity, and confidence in the same view instead of sending you into a second tab.",
+    metrics: "Momentum · Liquidity · Confidence",
+  },
+  {
+    title: "Validation context",
+    text: "Chart preview, transactions, market cap, and recent response help pressure-test the asset before acting.",
+    metrics: "Chart context · Transactions · Market cap",
   },
 ] as const;
 
@@ -134,7 +153,7 @@ export function LandingPage({
       ? "/pricing"
       : "/sign-up";
 
-  const accessLabel = pricing?.productName ?? "Operator Access";
+  const accessLabel = pricing?.productName ?? BRAND_ACCESS_NAME;
   const priceLabel = pricing?.displayPrice ?? "Configured in Stripe";
   const billingLabel = pricing?.billingInterval ?? "Recurring";
 
@@ -153,13 +172,13 @@ export function LandingPage({
             <div className="mx-auto grid w-full max-w-[1440px] gap-12 px-4 pb-24 pt-12 sm:px-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(780px,1.3fr)] lg:gap-10 lg:px-8 lg:pb-32 lg:pt-24">
               <div className="max-w-[560px] lg:pt-12">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
-                  Narrative Intelligence Terminal
+                  {BRAND_NAME}
                 </p>
                 <h1 className="mt-6 text-[44px] font-semibold leading-[0.93] tracking-[-0.065em] text-[#f4f8fd] sm:text-[58px] lg:text-[78px]">
                   Track narratives before the trade gets crowded.
                 </h1>
                 <p className="mt-7 max-w-[560px] text-[17px] leading-8 text-[#9cb1c7]">
-                  Rank emerging narratives, surface the memecoins attached to them, and validate market response from one narrative-first research terminal.
+                  Rank emerging narratives, surface the memecoins attached to them, and validate market response from one workflow inside {BRAND_NAME}.
                 </p>
 
                 <div className="mt-9 flex flex-wrap gap-3">
@@ -241,32 +260,47 @@ export function LandingPage({
           </section>
 
           <section id="product" className="border-b border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.01),rgba(255,255,255,0))]">
-            <div className="mx-auto grid w-full max-w-[1320px] gap-12 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,1.16fr)_minmax(300px,0.84fr)] lg:px-8 lg:py-24">
-              <div>
-                <SectionIntro
-                  eyebrow="Platform View"
-                  title="A closer view of the asset and validation side."
-                  text="The detail crop keeps focus on the linked memecoin board and the validation panel where market response, chart context, and confidence are reviewed together."
-                />
+            <div className="mx-auto grid w-full max-w-[1320px] items-start gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,1.02fr)_minmax(320px,0.82fr)] lg:gap-12 lg:px-8 lg:py-24">
+              <div className="min-w-0">
+                <div className="max-w-[640px]">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
+                    Product Zoom-In
+                  </p>
+                  <h2 className="mt-4 text-[34px] font-semibold leading-[1.02] tracking-[-0.05em] text-[#f2f7fd] sm:text-[42px]">
+                    Validate the move without leaving the terminal.
+                  </h2>
+                  <p className="mt-5 max-w-[620px] text-[16px] leading-8 text-[#97abc2]">
+                    Narrative ranking, linked memecoins, and market response stay in one workflow so users can move from signal to asset to validation without breaking context.
+                  </p>
+                </div>
 
-                <div className="mt-10">
+                <div className="mt-8 rounded-[30px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(10,14,21,0.58),rgba(6,9,14,0.26))] p-3 shadow-[0_24px_72px_rgba(0,0,0,0.32)] sm:p-4">
                   <TerminalScreenshotFrame
                     variant="detail"
-                    className="mx-auto w-full max-w-[860px]"
-                    imageClassName="max-h-[640px]"
+                    className="mx-auto w-full max-w-[760px]"
+                    imageClassName="max-h-[540px] object-[63%_center]"
                   />
                 </div>
               </div>
 
-              <div className="lg:pt-12">
-                <div className="space-y-7">
-                  {PLATFORM_DETAILS.map((item) => (
-                    <div key={item.title} className="border-t border-white/[0.08] pt-6">
-                      <h3 className="text-[19px] font-semibold text-[#eef4fb]">
+              <div className="lg:pt-14">
+                <div className="space-y-4">
+                  {DETAIL_PROOF_POINTS.map((item, index) => (
+                    <div
+                      key={item.title}
+                      className="border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-5 py-5 shadow-[0_16px_38px_rgba(0,0,0,0.18)]"
+                    >
+                      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#6f849c]">
+                        {String(index + 1).padStart(2, "0")}
+                      </p>
+                      <h3 className="mt-3 text-[18px] font-semibold text-[#eef4fb]">
                         {item.title}
                       </h3>
-                      <p className="mt-3 text-[15px] leading-7 text-[#8ea4bc]">
+                      <p className="mt-2 text-[14px] leading-7 text-[#8ea4bc]">
                         {item.text}
+                      </p>
+                      <p className="mt-4 text-[11px] uppercase tracking-[0.16em] text-[#b6c6d7]">
+                        {item.metrics}
                       </p>
                     </div>
                   ))}
@@ -375,13 +409,13 @@ export function LandingPage({
         <footer className="mx-auto flex w-full max-w-[1320px] flex-col gap-6 px-4 py-10 sm:px-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
-              Narrative To Asset
+              {BRAND_NAME}
             </p>
             <p className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-[#eef4fb]">
-              Research Terminal
+              {BRAND_DESCRIPTOR}
             </p>
             <p className="mt-3 max-w-[520px] text-[14px] leading-7 text-[#859ab2]">
-              Track internet narratives, review linked memecoins, and validate market context from one research terminal built for serious crypto monitoring.
+              Track internet narratives, review linked memecoins, and validate market context from one platform built for serious crypto monitoring.
             </p>
           </div>
 

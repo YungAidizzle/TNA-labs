@@ -1,6 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
+import { BRAND_NAME } from "@/lib/brand";
 
 type TerminalCommandBarProps = {
   search: string;
@@ -16,7 +17,7 @@ export function TerminalCommandBar({
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] lg:items-center lg:gap-x-4">
         <div className="min-w-0 lg:pr-2">
           <h1 className="text-[22px] font-semibold leading-[1.05] tracking-[-0.03em] text-[#eef5ff] sm:text-[24px]">
-            Narrative Research Terminal
+            {BRAND_NAME} terminal
           </h1>
           <p className="mt-1 max-w-2xl text-[12px] leading-[1.45] text-[#9fb1c7]">
             Ranked narrative views, live narrative briefs, and market-linked correlation context in a

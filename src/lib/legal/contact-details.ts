@@ -1,3 +1,5 @@
+import { BRAND_NAME } from "@/lib/brand";
+
 /*
   TODO(founder): replace the fallback values below with the actual operating entity,
   support inboxes, and service address before broad commercial rollout.
@@ -9,10 +11,10 @@ function readPublicValue(value: string | undefined, fallback: string) {
 }
 
 export const LEGAL_CONTACT = {
-  serviceName: readPublicValue(process.env.NEXT_PUBLIC_SERVICE_NAME, "Narrative To Asset"),
+  serviceName: readPublicValue(process.env.NEXT_PUBLIC_SERVICE_NAME, BRAND_NAME),
   companyLegalName: readPublicValue(
     process.env.NEXT_PUBLIC_COMPANY_LEGAL_NAME,
-    "Narrative To Asset",
+    BRAND_NAME,
   ),
   supportEmail: readPublicValue(process.env.NEXT_PUBLIC_SUPPORT_EMAIL, "contact@example.com"),
   billingSupportEmail: readPublicValue(

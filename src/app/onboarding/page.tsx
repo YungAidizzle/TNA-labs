@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Activity, ArrowRight, Clock3 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { BRAND_NAME } from "@/lib/brand";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
 import { isPaidAccessState } from "@/lib/billing/shared";
 
@@ -34,7 +35,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
             <Activity className="h-4 w-4" />
           </span>
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#6e8299]">Narrative To Asset</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#6e8299]">{BRAND_NAME}</p>
             <p className="text-[15px] font-semibold text-[#eef5ff]">Access setup</p>
           </div>
         </div>

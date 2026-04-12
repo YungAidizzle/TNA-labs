@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, BadgeCheck, ShieldCheck } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
+import { BRAND_ACCESS_NAME, BRAND_NAME } from "@/lib/brand";
 import { getCurrentViewerSubscription } from "@/lib/billing/subscriptions";
 import { formatBillingIntervalLabel, getConfiguredBillingPlanSummary } from "@/lib/billing/plan";
 import { isPaidAccessState } from "@/lib/billing/shared";
@@ -53,10 +54,10 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
               Paid research access
             </p>
             <h1 className="mt-5 max-w-[680px] text-[42px] font-semibold leading-[0.98] tracking-[-0.05em] text-[#f4f8ff]">
-              Subscription access for the research terminal.
+              Subscription access for {BRAND_NAME}.
             </h1>
             <p className="mt-5 max-w-[720px] text-[15px] leading-7 text-[#92a8c0]">
-              The public site stays open. Paid access covers the narrative research terminal, correlated asset
+              The public site stays open. Paid access covers the {BRAND_NAME} platform, correlated asset
               views, and market context workflows for traders and researchers who want structured information
               without execution tooling.
             </p>
@@ -85,7 +86,7 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
               <div>
                 <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Membership</p>
                 <h2 className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-[#f4f9ff]">
-                  {plan?.productName ?? "Research Subscription"}
+                  {plan?.productName ?? BRAND_ACCESS_NAME}
                 </h2>
               </div>
               <span className="border border-cyan/20 bg-cyan/10 px-3 py-1 text-[11px] uppercase tracking-[0.14em] text-cyan">
@@ -166,7 +167,7 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
                     href="/dashboard"
                     className="inline-flex h-11 items-center gap-2 border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
                   >
-                    Open research terminal
+                    Open {BRAND_NAME}
                     <ArrowRight className="h-4 w-4" />
                   </Link>
 

@@ -13,7 +13,7 @@ export const TERMS_DOCUMENT = {
   version: TERMS_VERSION,
   effectiveDate: EFFECTIVE_DATE,
   summary:
-    "These Terms govern access to the Narrative To Asset platform as a paid financial information and research software service. They are designed to keep the product positioned as information infrastructure, not execution, brokerage, or personal advice.",
+    "These Terms govern access to the Attentra platform as a paid financial information and research software service. They are designed to keep the product positioned as information infrastructure, not execution, brokerage, or personal advice.",
   sections: [
     {
       title: "1. Service Description",
@@ -122,7 +122,7 @@ export const PRIVACY_DOCUMENT = {
   version: PRIVACY_VERSION,
   effectiveDate: EFFECTIVE_DATE,
   summary:
-    "This Privacy Policy explains how we collect, use, disclose, store, and protect personal information for the Narrative To Asset service.",
+    "This Privacy Policy explains how we collect, use, disclose, store, and protect personal information for the Attentra service.",
   sections: [
     {
       title: "1. Controller and Contact",

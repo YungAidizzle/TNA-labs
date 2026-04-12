@@ -1,6 +1,7 @@
 import "server-only";
 
 import Stripe from "stripe";
+import { BRAND_ACCESS_NAME } from "@/lib/brand";
 import { getStripePriceId, getStripeServerClient, hasStripeServerConfig } from "@/lib/stripe/server";
 
 export type BillingPlanSummary = {
@@ -41,9 +42,6 @@ export async function getConfiguredBillingPlanSummary() {
     const price = await stripe.prices.retrieve(getStripePriceId(), {
       expand: ["product"],
     });
-
-    const product =
-      typeof price.product === "string" || !price.product ? null : price.product;
     const recurring = price.recurring;
 
     if (!recurring) {
@@ -55,8 +53,7 @@ export async function getConfiguredBillingPlanSummary() {
     const intervalCount = recurring.interval_count ?? 1;
 
     return {
-      productName:
-        product && !("deleted" in product && product.deleted) ? product.name : "Subscription",
+      productName: BRAND_ACCESS_NAME,
       amount,
       currency,
       interval: recurring.interval,

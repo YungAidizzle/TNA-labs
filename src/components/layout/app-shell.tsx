@@ -12,6 +12,7 @@ import {
 } from "@/lib/constants/navigation";
 import { PageTransition } from "@/components/layout/page-transition";
 import { TerminalSidebar } from "@/components/layout/terminal-sidebar";
+import { BRAND_NAME } from "@/lib/brand";
 import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
 import { EXPANDED_PRODUCT_DISCLAIMER, SHORT_PRODUCT_DISCLAIMER } from "@/lib/legal/disclaimers";
 import { cn } from "@/lib/utils/cn";
@@ -91,7 +92,7 @@ export function AppShell({ children }: AppShellProps) {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-[12px] font-medium text-[#70859f]">
-                  Narrative To Asset
+                  {BRAND_NAME}
                 </p>
                 <p className="truncate text-[18px] font-semibold text-[#e9f0fb]">
                   {activeRouteLabel}

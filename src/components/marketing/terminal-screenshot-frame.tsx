@@ -114,10 +114,16 @@ export function TerminalScreenshotFrame({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
-            <p>Live ranking, linked assets, and market response in one terminal</p>
-            <p>Built for narrative-first crypto research</p>
-          </div>
+          {isHero ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
+              <p>Live ranking, linked assets, and market response in one terminal</p>
+              <p>Built for narrative-first crypto research</p>
+            </div>
+          ) : (
+            <div className="px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
+              Linked assets and validation context in one view
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Activity, ArrowLeft, BadgeCheck, ShieldCheck, Zap } from "lucide-react";
+import { BRAND_DESCRIPTOR, BRAND_NAME } from "@/lib/brand";
 
 type AuthShellProps = {
   eyebrow: string;
@@ -37,10 +38,10 @@ export function AuthShell({
             </span>
             <span>
               <span className="block text-[10px] font-medium uppercase tracking-[0.2em] text-[#6e8299]">
-                Narrative To Asset
+                {BRAND_NAME}
               </span>
               <span className="block text-[15px] font-semibold text-[#eef5ff]">
-                Research Terminal
+                {BRAND_DESCRIPTOR}
               </span>
             </span>
           </Link>
@@ -52,7 +53,7 @@ export function AuthShell({
               Access surface
             </p>
             <h1 className="mt-5 max-w-[520px] text-[38px] font-semibold leading-[1.02] tracking-[-0.05em] text-[#f2f8ff]">
-              The account flow now matches the research terminal it leads into.
+              The account flow now matches the platform it leads into.
             </h1>
             <p className="mt-5 max-w-[520px] text-[15px] leading-7 text-[#94a9c1]">
               Account creation is the first step. Legal assent, billing disclosure, and premium activation are wired so the service is harder to misread as advice or execution.

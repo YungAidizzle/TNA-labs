@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Activity } from "lucide-react";
 import { useEffect, useEffectEvent, useState } from "react";
+import { BRAND_DESCRIPTOR, BRAND_NAME } from "@/lib/brand";
 
 type MarketingHeaderProps = {
   isAuthenticated: boolean;
@@ -66,14 +67,14 @@ export function MarketingHeader({
             <Activity className="h-4 w-4" />
           </span>
 
-          <span className="min-w-0">
-            <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
-              Narrative To Asset
+            <span className="min-w-0">
+              <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
+                {BRAND_NAME}
+              </span>
+              <span className="block truncate text-[15px] font-semibold tracking-[-0.03em] text-[#eef4fb]">
+                {BRAND_DESCRIPTOR}
+              </span>
             </span>
-            <span className="block truncate text-[15px] font-semibold tracking-[-0.03em] text-[#eef4fb]">
-              Research Terminal
-            </span>
-          </span>
         </Link>
 
         <nav className="hidden items-center gap-8 lg:flex">

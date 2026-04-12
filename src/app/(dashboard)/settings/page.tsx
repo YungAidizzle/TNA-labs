@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getConfiguredBillingPlanSummary, formatBillingIntervalLabel } from "@/lib/billing/plan";
 import { getCurrentViewerSubscription } from "@/lib/billing/subscriptions";
+import { BRAND_ACCESS_NAME } from "@/lib/brand";
 import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
 import { getCurrentPolicyAcceptanceMap } from "@/lib/legal/policy-acceptances";
 import {
@@ -42,7 +43,7 @@ export default async function SettingsPage() {
           <div>
             <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Subscription</p>
             <h2 className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-[#eef5ff]">
-              {plan?.productName ?? "Research Subscription"}
+              {plan?.productName ?? BRAND_ACCESS_NAME}
             </h2>
           </div>
           <div className="border border-white/[0.08] bg-[#07101a] px-4 py-3 text-right">

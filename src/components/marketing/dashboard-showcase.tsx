@@ -1,4 +1,5 @@
 import { TerminalPanel } from "@/components/trends/terminal-panel";
+import { BRAND_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils/cn";
 
 type DashboardShowcaseProps = {
@@ -318,7 +319,7 @@ export function DashboardShowcase({
         <div className="relative flex items-center justify-between border-b border-white/[0.08] px-4 py-3 text-[11px] uppercase tracking-[0.18em] text-[#6f849c]">
           <span>{isHero ? "Live terminal workflow" : "Focused validation view"}</span>
           <span className="font-mono text-[#cfd9e5]">
-            {isHero ? "Narrative to asset monitoring" : "Selected narrative workspace"}
+            {isHero ? `${BRAND_NAME} workflow` : `${BRAND_NAME} workspace`}
           </span>
         </div>
 
