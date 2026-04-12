@@ -44,7 +44,7 @@ export function TerminalScreenshotFrame({
   const isHero = variant === "hero";
 
   return (
-    <div className={cn("relative", isHero ? "lg:[perspective:2200px]" : "", className)}>
+    <div className={cn("relative", isHero ? "lg:[perspective:3200px]" : "", className)}>
       <div className="pointer-events-none absolute inset-0 rounded-[34px] bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.16),transparent_34%),radial-gradient(circle_at_85%_18%,rgba(88,217,160,0.12),transparent_22%)] blur-2xl" />
       <div
         className={cn(
@@ -57,7 +57,7 @@ export function TerminalScreenshotFrame({
         className={cn(
           "relative",
           isHero
-            ? "lg:[transform-style:preserve-3d] lg:[transform-origin:18%_56%] lg:[transform:rotateY(-8deg)_rotateX(1.6deg)_translateZ(0)]"
+            ? "lg:[transform-style:preserve-3d] lg:[transform-origin:20%_56%] lg:[transform:rotateY(-4.75deg)_rotateX(0.7deg)]"
             : "",
         )}
       >
@@ -65,7 +65,7 @@ export function TerminalScreenshotFrame({
           className={cn(
             "relative rounded-[30px] border border-white/[0.1] bg-[linear-gradient(180deg,rgba(10,16,24,0.98),rgba(5,8,13,0.995))] p-3 shadow-[0_38px_110px_rgba(0,0,0,0.46)]",
             isHero
-              ? "lg:shadow-[22px_44px_130px_rgba(0,0,0,0.5),-18px_18px_44px_rgba(5,11,18,0.14)]"
+              ? "lg:shadow-[18px_36px_110px_rgba(0,0,0,0.46),-14px_14px_34px_rgba(5,11,18,0.12)]"
               : "",
           )}
         >
