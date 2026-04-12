@@ -22,6 +22,7 @@ import { applyTrendDashboardSelection, pinTrendIntoRows } from "@/lib/dashboard/
 import { createZeroTrendDashboardVM } from "@/lib/dashboard/zero-state";
 import { RUNTIME_REQUEST_PROFILE_PATH } from "@/lib/runtime/paths";
 import { allowLegacyTrendFallbackOnSupabaseError } from "@/lib/supabase/server";
+import { compareTrendsByPosts } from "@/lib/utils/trend-ranking";
 import {
   DashboardDataStatus,
   DashboardRuntimeBundleOrigin,
@@ -35,6 +36,16 @@ const variantDashboardStateCache = new Map<string, TrendDashboardVM>();
 const DASHBOARD_VARIANT_CACHE_LIMIT = 24;
 const DASHBOARD_RESPONSE_LEADERBOARD_LIMIT = 250;
 const DASHBOARD_DEBUG = process.env.NODE_ENV !== "production";
+const FORCE_DATABASE_TREND_SOURCE = (() => {
+  if (process.env.NODE_ENV === "test") {
+    return false;
+  }
+  const raw = (process.env.FORCE_DATABASE_TREND_SOURCE ?? "true").trim().toLowerCase();
+  if (["0", "false", "no", "off"].includes(raw)) {
+    return false;
+  }
+  return true;
+})();
 
 function buildRuntimeVariantCacheKey(
   query: TrendDashboardQuery,
@@ -111,10 +122,12 @@ function compactDashboardState(vm: TrendDashboardVM): TrendDashboardVM {
 }
 
 function buildLegacyLeaderboards(rows: RankedTrend[]) {
-  const established = [...rows].map((trend, index) => ({
-    ...trend,
-    rank: index + 1,
-  }));
+  const established = [...rows]
+    .sort(compareBySort("established", "posts"))
+    .map((trend, index) => ({
+      ...trend,
+      rank: index + 1,
+    }));
   const emerging = [...rows]
     .filter((trend) => trend.isEarlyTrend || (trend.emergingScore ?? 0) > 0)
     .sort(compareBySort("emerging", "breakout"))
@@ -159,144 +172,80 @@ function compareBySort(
 ) {
   const interactionCount = (row: RankedTrend) =>
     row.totalInteractions24h ?? row.mentions ?? row.attentionInteractions ?? 0;
-  const tierWeight = (row: RankedTrend) => {
-    switch (row.leaderboardTier) {
-      case "primary_grouped":
-        return 4;
-      case "secondary_singleton":
-        return 3;
-      case "audit_low_information":
-        return 2;
-      case "audit_template":
-        return 1;
-      case "audit_fallback":
-      default:
-        return 0;
-    }
-  };
-  const byTierAndQuality = (left: RankedTrend, right: RankedTrend) =>
-    tierWeight(right) - tierWeight(left) ||
+  const byQualityTiebreak = (left: RankedTrend, right: RankedTrend) =>
     (right.qualityAdjustedScore ?? right.totalInteractions24h ?? right.attentionInteractions) -
       (left.qualityAdjustedScore ?? left.totalInteractions24h ?? left.attentionInteractions) ||
-    (right.totalInteractions24h ?? right.attentionInteractions) -
-      (left.totalInteractions24h ?? left.attentionInteractions) ||
+    right.attentionScore - left.attentionScore ||
     left.id.localeCompare(right.id);
-  const byEstablishedInteractions = (left: RankedTrend, right: RankedTrend) =>
+  const byInteractionVolume = (left: RankedTrend, right: RankedTrend) =>
     interactionCount(right) - interactionCount(left) ||
     right.attentionInteractions - left.attentionInteractions ||
     left.id.localeCompare(right.id);
 
+  if (sort === "posts") {
+    return compareTrendsByPosts;
+  }
+
   if (mode === "emerging") {
     if (sort === "velocity") {
       return (left: RankedTrend, right: RankedTrend) =>
-        byTierAndQuality(left, right) ||
+        byInteractionVolume(left, right) ||
         (right.velocityScore ?? 0) - (left.velocityScore ?? 0) ||
         (right.breakoutScore ?? right.emergingScore ?? 0) -
           (left.breakoutScore ?? left.emergingScore ?? 0) ||
-        right.attentionInteractions - left.attentionInteractions ||
-        left.id.localeCompare(right.id);
+        byQualityTiebreak(left, right);
     }
 
     if (sort === "novelty") {
       return (left: RankedTrend, right: RankedTrend) =>
-        byTierAndQuality(left, right) ||
+        byInteractionVolume(left, right) ||
         (right.noveltyScore ?? 0) - (left.noveltyScore ?? 0) ||
         (right.breakoutScore ?? right.emergingScore ?? 0) -
           (left.breakoutScore ?? left.emergingScore ?? 0) ||
-        right.attentionInteractions - left.attentionInteractions ||
-        left.id.localeCompare(right.id);
+        byQualityTiebreak(left, right);
     }
 
     if (sort === "confirmation") {
       return (left: RankedTrend, right: RankedTrend) =>
-        byTierAndQuality(left, right) ||
+        byInteractionVolume(left, right) ||
         (right.confirmationScore ?? 0) - (left.confirmationScore ?? 0) ||
         (right.breakoutScore ?? right.emergingScore ?? 0) -
           (left.breakoutScore ?? left.emergingScore ?? 0) ||
-        right.attentionInteractions - left.attentionInteractions ||
-        left.id.localeCompare(right.id);
+        byQualityTiebreak(left, right);
     }
 
     return (left: RankedTrend, right: RankedTrend) =>
-      byTierAndQuality(left, right) ||
+      byInteractionVolume(left, right) ||
       (right.breakoutScore ?? right.emergingScore ?? 0) -
         (left.breakoutScore ?? left.emergingScore ?? 0) ||
       (right.velocityScore ?? 0) - (left.velocityScore ?? 0) ||
-      left.id.localeCompare(right.id);
+      byQualityTiebreak(left, right);
   }
 
   if (sort === "growth") {
     return (left: RankedTrend, right: RankedTrend) =>
-      byEstablishedInteractions(left, right) ||
+      byInteractionVolume(left, right) ||
       right.growthRate - left.growthRate ||
-      right.attentionScore - left.attentionScore ||
-      left.id.localeCompare(right.id);
+      byQualityTiebreak(left, right);
   }
 
   if (sort === "mentions") {
     return (left: RankedTrend, right: RankedTrend) =>
-      byEstablishedInteractions(left, right) ||
+      byInteractionVolume(left, right) ||
       right.mentions - left.mentions ||
-      right.attentionScore - left.attentionScore ||
-      left.id.localeCompare(right.id);
+      byQualityTiebreak(left, right);
   }
 
   if (sort === "strength") {
     return (left: RankedTrend, right: RankedTrend) =>
-      byEstablishedInteractions(left, right) ||
+      byInteractionVolume(left, right) ||
       right.trendStrengthScore - left.trendStrengthScore ||
-      right.attentionScore - left.attentionScore ||
-      left.id.localeCompare(right.id);
+      byQualityTiebreak(left, right);
   }
 
-  return byEstablishedInteractions;
-}
-
-function getTrendDisplayPriority(row: RankedTrend) {
-  if (row.leaderboardTier) {
-    switch (row.leaderboardTier) {
-      case "primary_grouped":
-        return 0;
-      case "secondary_singleton":
-        return 1;
-      case "audit_low_information":
-        return 2;
-      case "audit_template":
-        return 3;
-      case "audit_fallback":
-      default:
-        return 4;
-    }
-  }
-
-  const normalizedName = (row.name ?? "").trim().toLowerCase();
-
-  if (
-    row.lowInformation ||
-    normalizedName.includes("empty or no-content") ||
-    normalizedName.includes("empty post") ||
-    normalizedName.includes("placeholder")
-  ) {
-    return 5;
-  }
-
-  if (row.templateSeries || (row.spamLikelihood ?? 0) >= 0.72) {
-    return 4;
-  }
-
-  if (row.labelType === "fallback_generated") {
-    return 3;
-  }
-
-  if (row.lowQualityLabel) {
-    return 2;
-  }
-
-  if (row.isSingleton) {
-    return 1;
-  }
-
-  return 0;
+  return (left: RankedTrend, right: RankedTrend) =>
+    byInteractionVolume(left, right) ||
+    byQualityTiebreak(left, right);
 }
 
 function prioritizeDisplayRows(
@@ -305,18 +254,7 @@ function prioritizeDisplayRows(
   sort: TrendDashboardQuery["sort"],
 ) {
   const compare = compareBySort(mode, sort);
-  if (mode === "established") {
-    return [...rows].sort(compare);
-  }
-  return [...rows].sort((left, right) => {
-    const leftPriority = getTrendDisplayPriority(left);
-    const rightPriority = getTrendDisplayPriority(right);
-    if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority;
-    }
-
-    return compare(left, right);
-  });
+  return [...rows].sort(compare);
 }
 
 function alignDashboardChartsToLiveWindow(
@@ -655,17 +593,50 @@ function applyBlueskyReplayFreshness(
 
 type DashboardStateOptions = {
   forceRebuild?: boolean;
+  readProfile?: "summary" | "detail";
 };
 
 export async function getTrendDashboardState(
   query: TrendDashboardQuery,
   options: DashboardStateOptions = {},
 ) {
+  // The dashboard is database-first by default. This prevents stale local
+  // runtime snapshots from diverging from the read-model source of truth.
+  if (FORCE_DATABASE_TREND_SOURCE) {
+    try {
+      return await getSupabaseTrendDashboardState(query, {
+        readProfile: options.readProfile,
+      });
+    } catch (error) {
+      console.error("[dashboard] database-backed trend source failed", {
+        query,
+        error,
+      });
+      return attachDataStatus(createZeroTrendDashboardVM(query), {
+        stateSource: "zero_state",
+        bundleOrigin: null,
+        showing: "zero_state",
+        serverNow: new Date().toISOString(),
+        runtimeSnapshotGeneratedAt: null,
+        sourceSnapshotGeneratedAt: null,
+        latestFetchedAt: null,
+        runtimeSnapshotAvailable: false,
+        localRawDataAvailable: false,
+        runtimeSnapshotStale: false,
+        sourceFreshness: [],
+        refresh: null,
+        timings: null,
+      });
+    }
+  }
+
   // Supabase-backed dashboard source is the primary path when enabled.
   // The runtime-store path below is retained as an explicit legacy fallback.
   if (shouldUseSupabaseTrendSource()) {
     try {
-      return await getSupabaseTrendDashboardState(query);
+      return await getSupabaseTrendDashboardState(query, {
+        readProfile: options.readProfile,
+      });
     } catch (error) {
       const allowFallback = allowLegacyTrendFallbackOnSupabaseError();
       console.error("[dashboard] Supabase trend source failed", {

@@ -26,7 +26,7 @@ export type TrendLeaderboardTier =
   | "audit_template"
   | "audit_fallback";
 
-export type EstablishedTrendSort = "attention" | "growth" | "mentions" | "strength";
+export type EstablishedTrendSort = "posts" | "attention" | "growth" | "mentions" | "strength";
 
 export type EmergingTrendSort = "breakout" | "velocity" | "novelty" | "confirmation";
 
@@ -57,17 +57,41 @@ export type TrendAttentionDriver = {
 
 export type TrendAiEnrichment = {
   rawLabel: string;
-  canonicalName: string;
-  shortDescription: string;
-  contextParagraph: string;
+  status: "ok" | "mixed" | "insufficient_evidence" | "junk";
+  canonicalName: string | null;
+  aiDisplayName?: string | null;
+  fallbackLabel?: string | null;
+  nameStatus?: TrendNameStatus;
+  aiNameStatus?: TrendNameStatus;
+  nameSource?: TrendNameSource;
+  shortDescription: string | null;
+  contextParagraph: string | null;
+  narrativeSummary: string | null;
+  whyAttention: string | null;
+  evidencePostIds: string[];
   keyEntities: string[];
   trendCategory: string | null;
+  mixedSignals: string[];
+  abstainReason: string | null;
   summaryConfidence: number;
   modelName: string | null;
   promptVersion: string | null;
   generatedAt: string | null;
   refreshedAt: string | null;
+  aiNameGeneratedAt?: string | null;
+  aiNameRefreshedAt?: string | null;
+  aiNameSourceVersion?: string | null;
 };
+
+export type TrendNameStatus = "ready" | "pending" | "failed";
+
+export type TrendNameSource =
+  | "ai_exact"
+  | "historical_exact"
+  | "historical_alias"
+  | "fallback_cleaned"
+  | "raw"
+  | "none";
 
 export type TrendPlatformBreakdown = Array<{
   platformId: PlatformId;
@@ -239,10 +263,17 @@ export type RankedTrend = {
   id: string;
   rank: number;
   name: string;
+  displayName: string | null;
+  nameStatus: TrendNameStatus;
+  nameSource: TrendNameSource;
   trendDescription?: string | null;
   trendContextParagraph?: string | null;
+  trendNarrativeSummary?: string | null;
   trendRawLabel?: string | null;
+  trendFallbackLabel?: string | null;
   trendSummaryConfidence?: number | null;
+  trendEnrichmentStatus?: TrendAiEnrichment["status"] | null;
+  trendEnrichmentAbstainReason?: string | null;
   trendKeyEntities?: string[] | null;
   trendEnrichment?: TrendAiEnrichment | null;
   scope: TrendScope;
@@ -281,6 +312,26 @@ export type RankedTrend = {
   contextualCoherence?: number;
   lowInformation?: boolean;
   templateSeries?: boolean;
+  seriesExpectedBucketCount?: number;
+  seriesObservedBucketCount?: number;
+  seriesObservedCoverageRatio?: number;
+  seriesNonZeroBucketCount?: number;
+  seriesPreviousWindowObservedBucketCount?: number;
+  seriesRecentWindowObservedBucketCount?: number;
+  seriesPreviousWindowCoverageRatio?: number;
+  seriesRecentWindowCoverageRatio?: number;
+  seriesPreviousAccelerationWindowObservedBucketCount?: number;
+  seriesRecentAccelerationWindowObservedBucketCount?: number;
+  seriesPreviousAccelerationWindowCoverageRatio?: number;
+  seriesRecentAccelerationWindowCoverageRatio?: number;
+  momentumSupportQualified?: boolean;
+  momentumTrustScore?: number;
+  growthTrusted?: boolean;
+  accelerationTrusted?: boolean;
+  velocityTrusted?: boolean;
+  noveltyTrusted?: boolean;
+  attentionMetricTrusted?: boolean;
+  breakoutMomentumTrusted?: boolean;
   confidenceScore: number;
   freshnessScore: number;
   freshnessState: TrendFreshnessState;
@@ -311,6 +362,7 @@ export type RankedTrend = {
   googleSearchInterest: TrendGoogleSearchInterest | null;
   blueskySummary?: TrendBlueskySummary | null;
   blueskyDetail?: TrendBlueskyDetail | null;
+  linkedCoins?: NarrativeLinkedCoin[];
 };
 
 export type TrendLabelType =
@@ -358,6 +410,182 @@ export type TrendDetailVM = {
   topPosts: TrendTopPost[];
   relatedTrends: RelatedTrend[];
   blueskyDetail?: TrendBlueskyDetail | null;
+};
+
+export type CorrelatedMemecoinLink = {
+  topicKey: string;
+  topicLabel: string;
+  trendCategory?: string | null;
+  narrativeSummary?: string | null;
+  lexicalScore: number;
+  mentionScore: number;
+  timingScore: number;
+  cultureFitScore: number;
+  linkScore: number;
+  supportPostCount: number;
+  supportInteractionScore: number;
+  isPrimary: boolean;
+  whyLinked?: string | null;
+  matchReasons?: string[] | null;
+  rawMatchSignals?: Record<string, unknown> | null;
+};
+
+export type MemecoinExternalLink = {
+  label?: string | null;
+  type?: string | null;
+  url: string;
+};
+
+export type CorrelatedMemecoinRow = {
+  id: string;
+  rank: number;
+  chainId: string;
+  chainLabel: string;
+  dexId?: string | null;
+  tokenAddress: string;
+  pairAddress: string;
+  pairLabels?: string[] | null;
+  name: string;
+  symbol: string;
+  quoteSymbol?: string | null;
+  quoteTokenName?: string | null;
+  strongestTrendKey: string;
+  strongestTrendLabel: string;
+  strongestTrendCategory?: string | null;
+  strongestTrendSummary?: string | null;
+  correlationScore: number;
+  correlationLabel: string;
+  marketScore?: number | null;
+  liquidityUsd?: number | null;
+  volume24hUsd?: number | null;
+  volume6hUsd?: number | null;
+  volume1hUsd?: number | null;
+  priceUsd?: number | null;
+  priceChange5mPct?: number | null;
+  priceChange1hPct?: number | null;
+  priceChange6hPct?: number | null;
+  priceChange24hPct?: number | null;
+  pairAgeHours?: number | null;
+  buys24h?: number | null;
+  sells24h?: number | null;
+  txns24h?: number | null;
+  txns6h?: number | null;
+  txns1h?: number | null;
+  fdvUsd?: number | null;
+  marketCapUsd?: number | null;
+  iconUrl?: string | null;
+  headerUrl?: string | null;
+  description?: string | null;
+  websites?: MemecoinExternalLink[] | null;
+  socials?: MemecoinExternalLink[] | null;
+  tradingviewSymbol?: string | null;
+  tradingviewExchange?: string | null;
+  hasVerifiedTradingviewPreview?: boolean | null;
+  tvResolutionStatus?: string | null;
+  tvLastCheckedAt?: string | null;
+  tvFailureReason?: string | null;
+  isLive?: boolean | null;
+  lastValidatedAt?: string | null;
+  validationStatus?: string | null;
+  validationReason?: string | null;
+  lastSeenLiquidityUsd?: number | null;
+  lastSeenVolume24hUsd?: number | null;
+  lastSeenTxns24h?: number | null;
+  tvSearchAttempts?: number | null;
+  memecoinFitScore?: number | null;
+  seedTerms?: string[] | null;
+  discoverySources?: string[] | null;
+  matchedTrendKeys?: string[] | null;
+  communityTakeover?: boolean | null;
+  links?: CorrelatedMemecoinLink[] | null;
+  confidenceBand?: string | null;
+  whyLinked?: string | null;
+  matchReasons?: string[] | null;
+  rawMatchSignals?: Record<string, unknown> | null;
+  momentumScore?: number | null;
+  momentumRank?: number | null;
+  momentumSignal?: string | null;
+  dexscreenerUrl: string;
+  updatedAt: string | null;
+};
+
+export type CorrelatedMemecoinBoardDiagnostics = {
+  runsUsed: number;
+  rowsConsidered: number;
+  rowsVerified: number;
+  rowsExcluded: number;
+  displayedRows: number;
+  coverageRatePct: number;
+  schemaCompatibility?: {
+    assetLiveValidationColumnsAvailable: boolean;
+    assetColumns?: string[] | null;
+  } | null;
+  producerStageCounts?: Record<string, number> | null;
+  dbStageCounts?: Record<string, number> | null;
+  readValidationStageCounts?: Record<string, number> | null;
+  unresolvedReasonCounts?: Record<string, number> | null;
+  statusCounts?: Record<string, number> | null;
+  liveValidationRejectCounts?: Record<string, number> | null;
+  liveValidationDecisionSourceCounts?: Record<string, number> | null;
+  liveValidationFallbackReasonCounts?: Record<string, number> | null;
+  thresholdDiagnostics?:
+    | {
+        producer?: Record<string, number> | null;
+        read?: Record<string, number> | null;
+        mismatchKeys?: string[] | null;
+        producerSource?: string | null;
+      }
+    | null;
+  averageSearchAttemptsPerCoin?: number | null;
+  latestRunPreviewDiagnostics?: Record<string, unknown> | null;
+};
+
+export type CorrelatedMemecoinBoard = {
+  runId: number | null;
+  updatedAt: string | null;
+  rows: CorrelatedMemecoinRow[];
+  diagnostics?: CorrelatedMemecoinBoardDiagnostics | null;
+};
+
+export type NarrativeLinkedCoin = {
+  id: string;
+  symbol: string;
+  name: string;
+  address: string;
+  confidence: number;
+  confidenceBand?: string | null;
+  liquidity?: number | null;
+  volume?: number | null;
+  age?: number | null;
+  priceUsd?: number | null;
+  priceChange1hPct?: number | null;
+  priceChange6hPct?: number | null;
+  priceChange24hPct?: number | null;
+  marketCap?: number | null;
+  fdv?: number | null;
+  iconUrl?: string | null;
+  quoteSymbol?: string | null;
+  websites?: MemecoinExternalLink[] | null;
+  socials?: MemecoinExternalLink[] | null;
+  tradingviewSymbol?: string | null;
+  mentionCount?: number | null;
+  engagementScore?: number | null;
+  chainId?: string | null;
+  pairAddress?: string | null;
+  dexscreenerUrl?: string | null;
+  isLive?: boolean | null;
+  lastValidatedAt?: string | null;
+  validationStatus?: string | null;
+  validationReason?: string | null;
+  lastSeenLiquidityUsd?: number | null;
+  lastSeenVolume24hUsd?: number | null;
+  lastSeenTxns24h?: number | null;
+  marketScore?: number | null;
+  memecoinFitScore?: number | null;
+  whyLinked?: string | null;
+  matchReasons?: string[] | null;
+  rawMatchSignals?: Record<string, unknown> | null;
+  lastUpdatedAt: string | null;
 };
 
 export type TrendDashboardQuery = {
@@ -452,6 +680,17 @@ export type DashboardFreshnessDiagnostics = {
   workerRunStatus: string | null;
   workerLastEventAt: string | null;
   workerRowsInserted: number | null;
+  workerHeartbeatAt?: string | null;
+  workerCurrentStage?: string | null;
+  workerLastSuccessfulWriteAt?: string | null;
+  maxSourceTimestampSeen?: string | null;
+  maxWrittenTimestamp?: string | null;
+  maxProcessedTimestamp?: string | null;
+  maxAggregateTimestamp?: string | null;
+  pipelineLagSeconds?: number | null;
+  backlogSize?: number | null;
+  unprocessedBacklogSize?: number | null;
+  pipelineHealthState?: "live" | "delayed" | "degraded" | "stale" | "disconnected" | null;
   apiResponseAt: string | null;
   sourceSnapshotAt: string | null;
   selectedTrendLatestDataAt: string | null;
@@ -557,6 +796,7 @@ export type TrendDashboardVM = {
   dataStatus?: DashboardDataStatus | null;
   blueskyOverview?: BlueskyFirehoseOverview | null;
   trendCoverage?: TrendCoverageDebug | null;
+  correlatedMemecoins?: CorrelatedMemecoinBoard | null;
   leaderboards: Record<TrendLeaderboardMode, RankedTrend[]>;
   leaderboard: RankedTrend[];
   overviewSeries: Array<{
