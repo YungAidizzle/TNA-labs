@@ -277,8 +277,8 @@ export function LandingPage({
                 <div className="mt-8 rounded-[30px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(10,14,21,0.58),rgba(6,9,14,0.26))] p-3 shadow-[0_24px_72px_rgba(0,0,0,0.32)] sm:p-4">
                   <TerminalScreenshotFrame
                     variant="detail"
-                    className="mx-auto w-full max-w-[760px]"
-                    imageClassName="max-h-[540px] object-[63%_center]"
+                    className="mx-auto w-full max-w-[720px]"
+                    imageClassName="object-[63%_center]"
                   />
                 </div>
               </div>
