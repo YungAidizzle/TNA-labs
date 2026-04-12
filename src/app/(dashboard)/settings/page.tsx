@@ -70,8 +70,10 @@ export default async function SettingsPage() {
           </div>
           <div className="border border-white/[0.08] bg-[#07101a] p-4">
             <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Support</p>
-            <p className="mt-2 text-[14px] text-[#eef5ff]">{LEGAL_CONTACT.billingSupportEmail}</p>
-            <p className="mt-1 text-[13px] text-[#8ea4bc]">{LEGAL_CONTACT.serviceAddress}</p>
+            <p className="mt-2 text-[13px] text-[#8ea4bc]">{LEGAL_CONTACT.serviceAddress}</p>
+            <p className="mt-2 text-[13px] text-[#8ea4bc]">
+              Billing management and cancellation stay available through the Stripe customer portal.
+            </p>
           </div>
         </div>
 

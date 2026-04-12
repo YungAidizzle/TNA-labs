@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { DashboardShowcase } from "@/components/marketing/dashboard-showcase";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
+import { TerminalScreenshotFrame } from "@/components/marketing/terminal-screenshot-frame";
+import { TerminalWorkflowDiagram } from "@/components/marketing/terminal-workflow-diagram";
 import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
 import { SHORT_MARKETING_DISCLAIMER } from "@/lib/legal/disclaimers";
 
@@ -28,59 +29,22 @@ const HERO_NOTES = [
   "No execution tooling",
 ] as const;
 
-const PROOF_ITEMS = [
-  {
-    title: "Cross-platform narrative tracking",
-    text: "Monitor fast-moving themes from one terminal instead of stitching together separate feeds and screeners.",
-  },
-  {
-    title: "Linked memecoin discovery",
-    text: "See which coins are being pulled into the move while the narrative is still forming.",
-  },
-  {
-    title: "Momentum monitoring",
-    text: "Keep price response, liquidity, and transaction flow next to the narrative instead of in another tab.",
-  },
-  {
-    title: "Real-time dashboard workflow",
-    text: "Scan, compare, validate, and move on without losing the original context that surfaced the setup.",
-  },
-] as const;
-
-const WORKFLOW_STEPS = [
-  {
-    step: "01",
-    title: "Track narratives",
-    text: "Rank the themes gathering attention across the internet before the move gets fully crowded.",
-  },
-  {
-    step: "02",
-    title: "Review linked assets",
-    text: "Open the memecoin board and see which names are being pulled into the same attention cluster.",
-  },
-  {
-    step: "03",
-    title: "Validate and act",
-    text: "Check liquidity, volume, recent price response, and transaction activity before committing attention or capital.",
-  },
-] as const;
-
-const PRODUCT_DETAILS = [
+const PLATFORM_DETAILS = [
   {
     title: "Narrative board first",
-    text: "The left side of the terminal stays focused on the themes actually gaining attention so the product is understandable at a glance.",
+    text: "The terminal starts with the narrative layer, so attention shifts are visible before the page ever asks the user to think about a ticker.",
   },
   {
     title: "Assets tied to the story",
-    text: "The center board keeps linked memecoins and momentum context visible, so you move from narrative to asset without tab-hopping.",
+    text: "Linked memecoins stay in the same view as the narrative so the move from attention to tradable name happens without tab-hopping.",
   },
   {
     title: "Validation beside the signal",
-    text: "The right panel keeps market context close to the thesis: liquidity, volume, transaction flow, and recent price response.",
+    text: "Market context sits next to the selected asset: liquidity, volume, transaction flow, and chart preview in one working surface.",
   },
   {
     title: "Built for repeated monitoring",
-    text: "This is a working terminal for scanning and validating setups, not a marketing dashboard full of decorative widgets.",
+    text: "This is a working research terminal for scanning and validating setups, not a decorative SaaS dashboard full of filler panels.",
   },
 ] as const;
 
@@ -186,8 +150,8 @@ export function LandingPage({
 
         <main>
           <section className="border-b border-white/[0.06]">
-            <div className="mx-auto grid w-full max-w-[1360px] gap-16 px-4 pb-24 pt-12 sm:px-6 lg:grid-cols-[minmax(0,0.76fr)_minmax(680px,1.24fr)] lg:px-8 lg:pb-32 lg:pt-24">
-              <div className="max-w-[580px] lg:pt-10">
+            <div className="mx-auto grid w-full max-w-[1380px] gap-16 px-4 pb-24 pt-12 sm:px-6 lg:grid-cols-[minmax(0,0.68fr)_minmax(720px,1.32fr)] lg:px-8 lg:pb-32 lg:pt-24">
+              <div className="max-w-[560px] lg:pt-12">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
                   Narrative Intelligence Terminal
                 </p>
@@ -223,8 +187,13 @@ export function LandingPage({
                 </div>
               </div>
 
-              <div className="relative lg:pt-3">
-                <DashboardShowcase variant="hero" showCallouts className="mx-auto w-full max-w-[940px]" />
+              <div className="relative lg:pt-2">
+                <TerminalScreenshotFrame
+                  variant="hero"
+                  showCallouts
+                  priority
+                  className="mx-auto w-full max-w-[980px]"
+                />
               </div>
             </div>
           </section>
@@ -232,13 +201,25 @@ export function LandingPage({
           <section id="proof" className="border-b border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.012),rgba(255,255,255,0))]">
             <div className="mx-auto w-full max-w-[1320px] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
               <SectionIntro
-                eyebrow="Proof"
-                title="The pitch is simple because the workflow is visible."
-                text="People should understand the product quickly: it tracks attention, links that attention to tradable names, and keeps validation close to the signal."
+                eyebrow="Workflow"
+                title="Narrative detection to validation, in one readable sequence."
+                text="The supporting diagram reinforces the real screenshot above: find the narrative, review the linked assets, then validate market context without leaving the terminal."
+              />
+
+              <TerminalWorkflowDiagram />
+            </div>
+          </section>
+
+          <section id="workflow" className="border-b border-white/[0.06]">
+            <div className="mx-auto w-full max-w-[1320px] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+              <SectionIntro
+                eyebrow="Inside The Terminal"
+                title="A product surface built to be scanned quickly."
+                text="The real screenshot does the heavy lifting. This section just clarifies what each major region of the terminal is responsible for."
               />
 
               <div className="mt-12 grid gap-10 lg:grid-cols-4 lg:gap-0">
-                {PROOF_ITEMS.map((item, index) => (
+                {PLATFORM_DETAILS.map((item, index) => (
                   <div
                     key={item.title}
                     className={[
@@ -259,48 +240,27 @@ export function LandingPage({
             </div>
           </section>
 
-          <section id="workflow" className="border-b border-white/[0.06]">
-            <div className="mx-auto w-full max-w-[1320px] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
-              <SectionIntro
-                eyebrow="How It Works"
-                title="Track it. Review it. Validate it."
-                text="The page follows the same logic as the product. Each step has one job, so the workflow stays fast to understand."
-              />
-
-              <ol className="mt-12 grid gap-10 lg:grid-cols-3 lg:gap-12">
-                {WORKFLOW_STEPS.map((item) => (
-                  <li key={item.step} className="relative border-t border-white/[0.08] pt-6 lg:pt-8">
-                    <span className="pointer-events-none absolute right-0 top-0 hidden h-px w-[44%] bg-white/[0.08] lg:block" />
-                    <p className="font-mono text-[13px] text-cyan">{item.step}</p>
-                    <h3 className="mt-4 text-[24px] font-semibold tracking-[-0.04em] text-[#eef4fb]">
-                      {item.title}
-                    </h3>
-                    <p className="mt-4 max-w-[360px] text-[15px] leading-7 text-[#8fa4bc]">
-                      {item.text}
-                    </p>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </section>
-
           <section id="product" className="border-b border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.01),rgba(255,255,255,0))]">
             <div className="mx-auto grid w-full max-w-[1320px] gap-12 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,1.16fr)_minmax(300px,0.84fr)] lg:px-8 lg:py-24">
               <div>
                 <SectionIntro
                   eyebrow="Platform View"
-                  title="A closer product view, not another marketing diagram."
-                  text="The second product section now zooms into the working surface that matters most once a narrative is selected: the linked assets and the validation panel."
+                  title="A tighter crop on the working surface."
+                  text="The second visual stays grounded in the same real screenshot, focused on the asset board and validation area where decisions are actually pressure-tested."
                 />
 
                 <div className="mt-10">
-                  <DashboardShowcase variant="detail" />
+                  <TerminalScreenshotFrame
+                    variant="detail"
+                    className="mx-auto w-full max-w-[860px]"
+                    imageClassName="max-h-[640px]"
+                  />
                 </div>
               </div>
 
               <div className="lg:pt-12">
                 <div className="space-y-7">
-                  {PRODUCT_DETAILS.map((item) => (
+                  {PLATFORM_DETAILS.map((item) => (
                     <div key={item.title} className="border-t border-white/[0.08] pt-6">
                       <h3 className="text-[19px] font-semibold text-[#eef4fb]">
                         {item.title}
