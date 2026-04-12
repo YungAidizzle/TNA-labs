@@ -1,8 +1,11 @@
-import Link from "next/link";
-import { getCurrentAuthContext } from "@/lib/supabase/auth";
+import { ArrowRight, ShieldCheck, Sparkles } from "lucide-react";
+import { SignOutButton } from "@/components/auth/sign-out-button";
+import { ActionButtonForm } from "@/components/ui/action-button-form";
+import { buttonClassName } from "@/components/ui/button";
+import { InteractiveLink } from "@/components/ui/interactive-link";
 import { getCurrentViewerSubscription } from "@/lib/billing/subscriptions";
 import { isPaidAccessState } from "@/lib/billing/shared";
-import { SignOutButton } from "@/components/auth/sign-out-button";
+import { getCurrentAuthContext } from "@/lib/supabase/auth";
 
 export default async function DashboardPage() {
   const { user, profile } = await getCurrentAuthContext();
@@ -11,53 +14,68 @@ export default async function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <section className="mx-auto flex min-h-screen w-full max-w-[960px] flex-col justify-center gap-8 px-4 py-16 sm:px-6 lg:px-8">
-        <div className="surface-panel border border-white/[0.08] p-8">
-          <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-[#6e8299]">
+      <section className="mx-auto flex min-h-screen w-full max-w-[1040px] flex-col justify-center gap-8 px-4 py-16 sm:px-6 lg:px-8">
+        <div className="surface-panel panel-glow-cyan border border-white/[0.08] p-8 lg:p-10">
+          <span className="eyebrow-chip">
+            <Sparkles className="h-3.5 w-3.5 text-cyan" />
             Protected route
-          </p>
-          <h1 className="mt-4 text-[36px] font-semibold tracking-[-0.05em] text-[#f4f8ff]">
+          </span>
+
+          <h1 className="mt-6 text-[36px] font-semibold tracking-[-0.05em] text-[#f4f8ff] sm:text-[44px]">
             Access state: {profile?.access_state ?? "unknown"}
           </h1>
-          <p className="mt-4 max-w-[720px] text-[15px] leading-7 text-[#92a8c0]">
-            This placeholder confirms the Supabase session and Stripe-backed access state are
-            working. The full dashboard surface is intentionally excluded from this branch.
+          <p className="mt-4 max-w-[760px] text-[15px] leading-8 text-[#92a8c0]">
+            This placeholder confirms the Supabase session and Stripe-backed access state are working.
+            The full dashboard surface is intentionally excluded from this branch, but the protected
+            route now matches the public system language.
           </p>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            <div className="border border-white/[0.07] bg-[#07101a] p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">User</p>
+          <div className="mt-8 grid gap-3 md:grid-cols-3">
+            <div className="metric-card">
+              <p className="section-kicker">User</p>
               <p className="mt-3 text-[14px] text-[#e9f1fb]">{user?.email ?? "Unavailable"}</p>
             </div>
-            <div className="border border-white/[0.07] bg-[#07101a] p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Paid access</p>
-              <p className="mt-3 text-[14px] text-[#e9f1fb]">{hasPaidAccess ? "Active" : "Inactive"}</p>
+            <div className="metric-card">
+              <p className="section-kicker">Paid access</p>
+              <p className="mt-3 text-[14px] text-[#e9f1fb]">
+                {hasPaidAccess ? "Active" : "Inactive"}
+              </p>
             </div>
-            <div className="border border-white/[0.07] bg-[#07101a] p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Stripe customer</p>
+            <div className="metric-card">
+              <p className="section-kicker">Stripe customer</p>
               <p className="mt-3 break-all text-[14px] text-[#e9f1fb]">
                 {subscription?.stripe_customer_id ?? profile?.stripe_customer_id ?? "Missing"}
               </p>
             </div>
           </div>
 
+          <div className="mt-8 status-banner flex items-start gap-3 border-cyan/12 bg-cyan/[0.06] text-[#dbe7f4]">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-cyan" />
+            <span>Membership state is being enforced at the route level, not only in the UI.</span>
+          </div>
+
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link
+            <InteractiveLink
               href="/pricing"
-              className="inline-flex h-11 items-center border border-white/[0.1] bg-white/[0.02] px-5 text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e0ee]"
+              pendingLabel="Opening pricing"
+              navigationLabel="Opening pricing"
+              className={buttonClassName({ tone: "secondary", size: "lg" })}
             >
               Back to pricing
-            </Link>
+            </InteractiveLink>
+
             {subscription?.stripe_customer_id ? (
-              <form action="/api/stripe/portal" method="post">
-                <button
-                  type="submit"
-                  className="inline-flex h-11 items-center border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
-                >
-                  Manage billing
-                </button>
-              </form>
+              <ActionButtonForm
+                action="/api/stripe/portal"
+                pendingLabel="Opening billing portal"
+                navigationLabel="Opening billing portal"
+                size="lg"
+                trailingAdornment={<ArrowRight className="h-4 w-4" />}
+              >
+                Manage billing
+              </ActionButtonForm>
             ) : null}
+
             <SignOutButton />
           </div>
         </div>

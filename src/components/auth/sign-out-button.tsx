@@ -1,33 +1,48 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouteFeedback } from "@/components/navigation/route-feedback-provider";
+import { Button } from "@/components/ui/button";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 export function SignOutButton() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const { startNavigation } = useRouteFeedback();
+  const [submitting, setSubmitting] = useState(false);
+  const [isRouting, startRoutingTransition] = useTransition();
+  const pending = submitting || isRouting;
 
   async function handleSignOut() {
-    setLoading(true);
+    setSubmitting(true);
+    let shouldReset = true;
+
     try {
       const supabase = getSupabaseBrowserClient();
       await supabase.auth.signOut();
-      router.replace("/");
-      router.refresh();
+      startNavigation("Signing out");
+      startRoutingTransition(() => {
+        router.replace("/");
+        router.refresh();
+      });
+      shouldReset = false;
     } finally {
-      setLoading(false);
+      if (shouldReset) {
+        setSubmitting(false);
+      }
     }
   }
 
   return (
-    <button
+    <Button
       type="button"
+      tone="secondary"
+      size="md"
+      pending={pending}
+      pendingLabel="Signing out"
       onClick={handleSignOut}
-      disabled={loading}
-      className="inline-flex h-10 items-center border border-white/[0.1] bg-white/[0.02] px-4 text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e0ee] transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
     >
-      {loading ? "Signing out..." : "Sign out"}
-    </button>
+      Sign out
+    </Button>
   );
 }

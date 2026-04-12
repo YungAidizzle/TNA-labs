@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useTransition } from "react";
+import { useRouteFeedback } from "@/components/navigation/route-feedback-provider";
+import { Button } from "@/components/ui/button";
+import { InteractiveLink } from "@/components/ui/interactive-link";
 import { getSupabaseBrowserClient, hasSupabaseBrowserConfig } from "@/lib/supabase/browser";
 
 function validateEmail(email: string) {
@@ -11,13 +13,16 @@ function validateEmail(email: string) {
 
 export function SignUpForm() {
   const router = useRouter();
+  const { startNavigation } = useRouteFeedback();
   const authConfigured = hasSupabaseBrowserConfig();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [isRouting, startRoutingTransition] = useTransition();
+  const pending = submitting || isRouting;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -25,7 +30,9 @@ export function SignUpForm() {
     setSuccessMessage(null);
 
     if (!authConfigured) {
-      setError("Supabase auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+      setError(
+        "Supabase auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+      );
       return;
     }
 
@@ -44,7 +51,8 @@ export function SignUpForm() {
       return;
     }
 
-    setLoading(true);
+    setSubmitting(true);
+    let shouldReset = true;
 
     try {
       const supabase = getSupabaseBrowserClient();
@@ -65,19 +73,50 @@ export function SignUpForm() {
         return;
       }
 
-      setSuccessMessage("Account created. Preparing access setup.");
       const mode = data.session ? "created" : "check-email";
-      router.replace(`/onboarding?mode=${mode}&email=${encodeURIComponent(email)}`);
-      router.refresh();
+      setSuccessMessage(
+        mode === "check-email"
+          ? "Account created. Confirmation email is required before sign-in."
+          : "Account created. Opening access setup.",
+      );
+      startNavigation("Opening access setup");
+      startRoutingTransition(() => {
+        router.replace(`/onboarding?mode=${mode}&email=${encodeURIComponent(email)}`);
+        router.refresh();
+      });
+      shouldReset = false;
     } finally {
-      setLoading(false);
+      if (shouldReset) {
+        setSubmitting(false);
+      }
     }
   }
 
   return (
     <form className="space-y-5" onSubmit={handleSubmit}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="metric-card">
+          <p className="section-kicker">Account state</p>
+          <p className="mt-3 text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
+            Production-style entry
+          </p>
+          <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
+            The form is staged around account creation first, then pricing and paid access.
+          </p>
+        </div>
+        <div className="metric-card">
+          <p className="section-kicker">Continuation</p>
+          <p className="mt-3 text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
+            Onboarding handoff
+          </p>
+          <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
+            After sign-up, the user moves directly into the next access step instead of stalling on a blank success state.
+          </p>
+        </div>
+      </div>
+
       <div className="space-y-2">
-        <label htmlFor="email" className="block text-[12px] font-medium uppercase tracking-[0.16em] text-[#8ea4bc]">
+        <label htmlFor="email" className="field-label">
           Email
         </label>
         <input
@@ -86,13 +125,15 @@ export function SignUpForm() {
           autoComplete="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="h-12 w-full border border-white/[0.1] bg-[#07101a] px-4 text-[15px] text-[#eef5ff] outline-none transition-colors placeholder:text-[#5f748d] focus:border-cyan/35"
+          disabled={pending}
+          aria-invalid={error?.toLowerCase().includes("email") || undefined}
+          className="field-input"
           placeholder="operator@desk.com"
         />
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="password" className="block text-[12px] font-medium uppercase tracking-[0.16em] text-[#8ea4bc]">
+        <label htmlFor="password" className="field-label">
           Password
         </label>
         <input
@@ -101,13 +142,16 @@ export function SignUpForm() {
           autoComplete="new-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-12 w-full border border-white/[0.1] bg-[#07101a] px-4 text-[15px] text-[#eef5ff] outline-none transition-colors placeholder:text-[#5f748d] focus:border-cyan/35"
+          disabled={pending}
+          aria-invalid={error?.toLowerCase().includes("password") || undefined}
+          className="field-input"
           placeholder="Minimum 8 characters"
         />
+        <p className="field-note">Use a durable password. Password reset can be layered in separately.</p>
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="confirm-password" className="block text-[12px] font-medium uppercase tracking-[0.16em] text-[#8ea4bc]">
+        <label htmlFor="confirm-password" className="field-label">
           Confirm password
         </label>
         <input
@@ -116,10 +160,18 @@ export function SignUpForm() {
           autoComplete="new-password"
           value={confirmPassword}
           onChange={(event) => setConfirmPassword(event.target.value)}
-          className="h-12 w-full border border-white/[0.1] bg-[#07101a] px-4 text-[15px] text-[#eef5ff] outline-none transition-colors placeholder:text-[#5f748d] focus:border-cyan/35"
+          disabled={pending}
+          aria-invalid={error?.toLowerCase().includes("match") || undefined}
+          className="field-input"
           placeholder="Repeat password"
         />
       </div>
+
+      {pending ? (
+        <div className="status-banner border-cyan/12 bg-cyan/[0.06]" aria-live="polite">
+          Provisioning account and preparing the next access step.
+        </div>
+      ) : null}
 
       {successMessage ? (
         <div className="border border-emerald/20 bg-emerald/10 px-4 py-3 text-[13px] text-emerald">
@@ -139,19 +191,28 @@ export function SignUpForm() {
         </div>
       ) : null}
 
-      <button
+      <Button
         type="submit"
-        disabled={loading || !authConfigured}
-        className="inline-flex h-12 w-full items-center justify-center border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff] transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+        tone="primary"
+        size="lg"
+        fullWidth
+        pending={pending}
+        pendingLabel="Creating account"
+        disabled={!authConfigured}
       >
-        {loading ? "Creating account..." : "Create account"}
-      </button>
+        Create account
+      </Button>
 
       <p className="text-[13px] text-[#8ba1b8]">
         Already have an account?{" "}
-        <Link href="/sign-in" className="text-cyan hover:text-[#b8f2ff]">
+        <InteractiveLink
+          href="/sign-in"
+          pendingLabel="Opening sign in"
+          navigationLabel="Opening sign in"
+          className="text-cyan transition-colors hover:text-[#b8f2ff]"
+        >
           Sign in
-        </Link>
+        </InteractiveLink>
       </p>
     </form>
   );

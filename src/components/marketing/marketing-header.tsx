@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { Activity } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useEffect, useEffectEvent, useState } from "react";
+import { buttonClassName, joinClasses } from "@/components/ui/button";
+import { InteractiveLink } from "@/components/ui/interactive-link";
 
 type MarketingHeaderProps = {
   isAuthenticated: boolean;
@@ -20,6 +22,7 @@ export function MarketingHeader({
   isAuthenticated,
   hasPaidAccess = false,
 }: MarketingHeaderProps) {
+  const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
 
   const updateScrollState = useEffectEvent(() => {
@@ -38,13 +41,18 @@ export function MarketingHeader({
       className={[
         "sticky top-0 z-50 border-b transition-all duration-200",
         scrolled
-          ? "border-white/[0.1] bg-[rgba(5,9,14,0.92)] backdrop-blur-xl"
+          ? "border-white/[0.08] bg-[rgba(3,7,12,0.88)] backdrop-blur-2xl"
           : "border-transparent bg-transparent",
       ].join(" ")}
     >
-      <div className="mx-auto flex w-full max-w-[1280px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-        <Link href="/" className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center border border-white/[0.08] bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.16),transparent_62%),rgba(6,11,17,0.92)] text-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="mx-auto flex w-full max-w-[1320px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <InteractiveLink
+          href="/"
+          pendingLabel="Opening site home"
+          navigationLabel="Opening site home"
+          className="group flex items-center gap-3"
+        >
+          <span className="flex h-10 w-10 items-center justify-center border border-white/[0.08] bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.18),transparent_62%),rgba(6,11,17,0.92)] text-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] transition-transform duration-200 group-hover:-translate-y-[1px]">
             <Activity className="h-4 w-4" />
           </span>
           <span>
@@ -55,33 +63,76 @@ export function MarketingHeader({
               Execution Surface
             </span>
           </span>
-        </Link>
+        </InteractiveLink>
 
-        <nav className="hidden items-center gap-7 md:flex">
+        <nav className="hidden items-center gap-2 md:flex">
           {NAV_LINKS.map((item) => (
-            <Link
+            <InteractiveLink
               key={item.href}
               href={item.href}
-              className="text-[12px] font-medium uppercase tracking-[0.16em] text-[#9ab0c7] transition-colors hover:text-[#eef5ff]"
+              pendingLabel={
+                item.href.startsWith("/#")
+                  ? item.label
+                  : `Opening ${item.label.toLowerCase()}`
+              }
+              navigationLabel={
+                item.href.startsWith("/#")
+                  ? undefined
+                  : `Opening ${item.label.toLowerCase()}`
+              }
+              className="nav-link"
+              ariaLabel={item.label}
+              active={
+                item.href === "/"
+                  ? pathname === "/"
+                  : item.href === "/pricing"
+                    ? pathname === "/pricing"
+                    : false
+              }
             >
               {item.label}
-            </Link>
+            </InteractiveLink>
           ))}
         </nav>
 
         <div className="flex items-center gap-2">
-          <Link
+          <InteractiveLink
             href={hasPaidAccess ? "/dashboard" : isAuthenticated ? "/pricing" : "/sign-in"}
-            className="inline-flex h-10 items-center border border-white/[0.1] bg-white/[0.02] px-4 text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e0ee] transition-colors hover:border-white/[0.16] hover:bg-white/[0.05]"
+            pendingLabel="Opening access controls"
+            navigationLabel="Opening access controls"
+            className={buttonClassName({
+              tone: "secondary",
+              size: "sm",
+            })}
           >
             {hasPaidAccess ? "Dashboard" : isAuthenticated ? "Pricing" : "Sign In"}
-          </Link>
-          <Link
+          </InteractiveLink>
+          <InteractiveLink
             href={hasPaidAccess ? "/dashboard" : isAuthenticated ? "/pricing" : "/sign-up"}
-            className="inline-flex h-10 items-center border border-cyan/25 bg-[linear-gradient(180deg,rgba(13,42,53,0.9),rgba(6,18,24,0.92))] px-4 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#eefdff] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(86,217,255,0.06)] transition-colors hover:border-cyan/40 hover:text-white"
+            pendingLabel={
+              hasPaidAccess
+                ? "Opening terminal"
+                : isAuthenticated
+                  ? "Opening membership controls"
+                  : "Opening account setup"
+            }
+            navigationLabel={
+              hasPaidAccess
+                ? "Opening terminal"
+                : isAuthenticated
+                  ? "Opening membership controls"
+                  : "Opening account setup"
+            }
+            className={joinClasses(
+              buttonClassName({
+                tone: "primary",
+                size: "sm",
+              }),
+              "hidden sm:inline-flex",
+            )}
           >
             {hasPaidAccess ? "Open Terminal" : isAuthenticated ? "Unlock Access" : "Get Access"}
-          </Link>
+          </InteractiveLink>
         </div>
       </div>
     </header>

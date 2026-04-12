@@ -1,8 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, useTransition } from "react";
+import { useRouteFeedback } from "@/components/navigation/route-feedback-provider";
+import { Button } from "@/components/ui/button";
+import { InteractiveLink } from "@/components/ui/interactive-link";
 import { getSupabaseBrowserClient, hasSupabaseBrowserConfig } from "@/lib/supabase/browser";
 import { resolveSafeRedirectTarget } from "@/lib/supabase/shared";
 
@@ -13,11 +15,14 @@ function validateEmail(email: string) {
 export function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { startNavigation } = useRouteFeedback();
   const authConfigured = hasSupabaseBrowserConfig();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [isRouting, startRoutingTransition] = useTransition();
+  const pending = submitting || isRouting;
   const successMessage = useMemo(() => {
     if (searchParams.get("verified") === "1") {
       return "Email confirmed. Sign in to continue.";
@@ -31,7 +36,9 @@ export function SignInForm() {
     setError(null);
 
     if (!authConfigured) {
-      setError("Supabase auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+      setError(
+        "Supabase auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+      );
       return;
     }
 
@@ -45,7 +52,8 @@ export function SignInForm() {
       return;
     }
 
-    setLoading(true);
+    setSubmitting(true);
+    let shouldReset = true;
 
     try {
       const supabase = getSupabaseBrowserClient();
@@ -60,17 +68,44 @@ export function SignInForm() {
       }
 
       const next = resolveSafeRedirectTarget(searchParams.get("next"), "/dashboard");
-      router.replace(next);
-      router.refresh();
+      startNavigation("Opening operator workspace");
+      startRoutingTransition(() => {
+        router.replace(next);
+        router.refresh();
+      });
+      shouldReset = false;
     } finally {
-      setLoading(false);
+      if (shouldReset) {
+        setSubmitting(false);
+      }
     }
   }
 
   return (
     <form className="space-y-5" onSubmit={handleSubmit}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="metric-card">
+          <p className="section-kicker">Session handling</p>
+          <p className="mt-3 text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
+            Immediate progress feedback
+          </p>
+          <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
+            Sign-in shows button and route feedback as soon as the request starts.
+          </p>
+        </div>
+        <div className="metric-card">
+          <p className="section-kicker">Redirect target</p>
+          <p className="mt-3 text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
+            Protected access resumes cleanly
+          </p>
+          <p className="mt-3 text-[13px] leading-6 text-[#8ca2ba]">
+            Safe redirect handling returns the user to the right surface after authentication.
+          </p>
+        </div>
+      </div>
+
       <div className="space-y-2">
-        <label htmlFor="email" className="block text-[12px] font-medium uppercase tracking-[0.16em] text-[#8ea4bc]">
+        <label htmlFor="email" className="field-label">
           Email
         </label>
         <input
@@ -79,17 +114,19 @@ export function SignInForm() {
           autoComplete="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="h-12 w-full border border-white/[0.1] bg-[#07101a] px-4 text-[15px] text-[#eef5ff] outline-none transition-colors placeholder:text-[#5f748d] focus:border-cyan/35"
+          disabled={pending}
+          aria-invalid={error?.toLowerCase().includes("email") || undefined}
+          className="field-input"
           placeholder="operator@desk.com"
         />
       </div>
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <label htmlFor="password" className="block text-[12px] font-medium uppercase tracking-[0.16em] text-[#8ea4bc]">
+          <label htmlFor="password" className="field-label">
             Password
           </label>
-          <span className="text-[12px] text-[#6f86a1]">Forgot password coming soon</span>
+          <span className="field-note">Password reset flow can be added next</span>
         </div>
         <input
           id="password"
@@ -97,10 +134,18 @@ export function SignInForm() {
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-12 w-full border border-white/[0.1] bg-[#07101a] px-4 text-[15px] text-[#eef5ff] outline-none transition-colors placeholder:text-[#5f748d] focus:border-cyan/35"
+          disabled={pending}
+          aria-invalid={error?.toLowerCase().includes("password") || undefined}
+          className="field-input"
           placeholder="Enter password"
         />
       </div>
+
+      {pending ? (
+        <div className="status-banner border-cyan/12 bg-cyan/[0.06]" aria-live="polite">
+          Validating credentials and loading the next surface.
+        </div>
+      ) : null}
 
       {successMessage ? (
         <div className="border border-emerald/20 bg-emerald/10 px-4 py-3 text-[13px] text-emerald">
@@ -120,19 +165,28 @@ export function SignInForm() {
         </div>
       ) : null}
 
-      <button
+      <Button
         type="submit"
-        disabled={loading || !authConfigured}
-        className="inline-flex h-12 w-full items-center justify-center border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff] transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+        tone="primary"
+        size="lg"
+        fullWidth
+        pending={pending}
+        pendingLabel="Signing in"
+        disabled={!authConfigured}
       >
-        {loading ? "Signing in..." : "Sign in"}
-      </button>
+        Sign in
+      </Button>
 
       <p className="text-[13px] text-[#8ba1b8]">
         Need an account?{" "}
-        <Link href="/sign-up" className="text-cyan hover:text-[#b8f2ff]">
+        <InteractiveLink
+          href="/sign-up"
+          pendingLabel="Opening account setup"
+          navigationLabel="Opening account setup"
+          className="text-cyan transition-colors hover:text-[#b8f2ff]"
+        >
           Create one
-        </Link>
+        </InteractiveLink>
       </p>
     </form>
   );
