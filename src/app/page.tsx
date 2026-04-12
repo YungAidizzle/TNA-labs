@@ -2,9 +2,8 @@ import {
   Activity,
   ArrowRight,
   BadgeCheck,
-  Binary,
+  Search,
   ShieldCheck,
-  Sparkles,
   Waypoints,
 } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
@@ -13,23 +12,44 @@ import { InteractiveLink } from "@/components/ui/interactive-link";
 import { isPaidAccessState } from "@/lib/billing/shared";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
 
+const heroPoints = [
+  {
+    title: "Catch attention shifts earlier",
+    description: "See which narratives are building before they become obvious everywhere else.",
+  },
+  {
+    title: "Move from narrative to asset fast",
+    description: "Find linked memecoins and related symbols without losing the thread of the move.",
+  },
+  {
+    title: "Check whether it is real or just noise",
+    description: "Keep validation context next to the idea before you decide whether it is worth acting on.",
+  },
+] as const;
+
 const featureCards = [
   {
     title: "Narrative ranking",
     description:
-      "See which market narratives are gaining force, fading, or colliding before the move feels obvious elsewhere.",
+      "Rank internet narratives by momentum so it is clear what is building, fading, or fragmenting.",
     icon: Activity,
   },
   {
-    title: "Linked asset context",
+    title: "Linked memecoin discovery",
     description:
-      "Move from narrative to related assets and back without losing the thread of the idea or the speed of the scan.",
+      "Jump from the narrative to the memecoins tied to it instead of piecing the trade together across multiple feeds.",
     icon: Waypoints,
   },
   {
-    title: "Membership-backed access",
+    title: "Validation context",
     description:
-      "Reserve the live terminal for paying members with clear account continuity and hosted billing controls.",
+      "Keep supporting context beside the narrative so you can judge whether the move has enough signal to matter.",
+    icon: Search,
+  },
+  {
+    title: "Member terminal access",
+    description:
+      "Paid access opens the live dashboard and keeps billing, account access, and the terminal tied together.",
     icon: ShieldCheck,
   },
 ] as const;
@@ -37,58 +57,49 @@ const featureCards = [
 const workflowSteps = [
   {
     step: "01",
-    title: "Scan",
-    description:
-      "Surface ranked narrative changes fast enough to support repeat monitoring, not just one-off research.",
+    title: "Track narratives",
+    description: "Monitor which internet narratives are gaining or losing attention.",
   },
   {
     step: "02",
-    title: "Validate",
-    description:
-      "Keep linked assets, market context, and operational notes inside one controlled environment with cleaner handoff between views.",
+    title: "Review linked assets",
+    description: "See the memecoins and related symbols being pulled into that attention.",
   },
   {
     step: "03",
-    title: "Operate",
-    description:
-      "Gate the live terminal behind authenticated membership so the operator workspace stays intentional and monetizable.",
+    title: "Validate the setup",
+    description: "Check the context and decide whether the move is worth acting on.",
   },
-] as const;
-
-const controlNotes = [
-  "The public site filters for serious users before they enter the member product.",
-  "Account access, membership, and the live terminal follow one clear path.",
-  "Primary actions respond immediately, even when the next page takes a moment.",
+  {
+    step: "04",
+    title: "Continue in the live dashboard",
+    description: "Member access opens the terminal where the live workflow continues.",
+  },
 ] as const;
 
 const faqItems = [
   {
-    question: "Who is this built for?",
+    question: "Who is this for?",
     answer:
-      "Operators who want a repeatable narrative-monitoring workflow with a more disciplined public entry point and paid access control.",
+      "Traders and researchers who want earlier context on internet narratives and the assets tied to them.",
   },
   {
-    question: "What unlocks after membership?",
+    question: "What happens after payment?",
     answer:
-      "Member access opens the live terminal, linked asset context, and billing controls attached to the same account.",
+      "Checkout runs in Stripe. When payment completes, access opens on the same account and the live dashboard becomes available.",
   },
   {
-    question: "What happens after I subscribe?",
+    question: "Why is the dashboard members-only?",
     answer:
-      "Checkout completes in Stripe, then access opens as soon as your account confirms the membership.",
-  },
-  {
-    question: "Why keep the public site restrained?",
-    answer:
-      "Because this is software for repeat use. Precision and trust matter more than noise.",
+      "The public site explains the workflow. The live dashboard is the paid product where the ongoing tracking lives.",
   },
 ] as const;
 
 export default async function HomePage() {
   const { user, profile } = await getCurrentAuthContext();
   const hasPaidAccess = isPaidAccessState(profile?.access_state);
-  const primaryHref = hasPaidAccess ? "/dashboard" : user ? "/pricing" : "/sign-up";
-  const primaryLabel = hasPaidAccess ? "Open terminal" : user ? "Review access" : "Get access";
+  const primaryHref = hasPaidAccess ? "/dashboard" : "/pricing";
+  const primaryLabel = hasPaidAccess ? "Open terminal" : "View pricing";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -97,41 +108,25 @@ export default async function HomePage() {
         hasPaidAccess={hasPaidAccess}
       />
 
-      <main className="mx-auto flex w-full max-w-[1320px] flex-col gap-8 px-4 pb-16 pt-8 sm:px-6 lg:px-8 lg:gap-10 lg:pb-24">
-        <section className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
+      <main className="mx-auto flex w-full max-w-[1280px] flex-col gap-8 px-4 pb-16 pt-8 sm:px-6 lg:px-8 lg:gap-10 lg:pb-24">
+        <section className="grid gap-6 lg:grid-cols-[1.12fr_0.88fr] lg:items-start">
           <div className="surface-panel panel-glow-cyan p-8 sm:p-10 lg:p-12">
-            <span className="eyebrow-chip">
-              <Sparkles className="h-3.5 w-3.5 text-cyan" />
-              Narrative signal terminal
-            </span>
+            <p className="section-kicker">Narrative Intelligence for Memecoins</p>
 
-            <h1 className="mt-8 max-w-[820px] text-[42px] font-semibold leading-[0.96] tracking-[-0.06em] text-[#f7fbff] sm:text-[56px] lg:text-[68px]">
-              Premium market context for narrative-driven operators.
+            <h1 className="mt-6 max-w-[820px] text-[42px] font-semibold leading-[0.96] tracking-[-0.06em] text-[#f7fbff] sm:text-[56px] lg:text-[66px]">
+              Spot internet narratives before they become crowded trades.
             </h1>
 
             <p className="mt-6 max-w-[720px] text-[16px] leading-8 text-[#9bb0c8] sm:text-[17px]">
-              Narrative To Asset brings ranked narrative signals, linked asset context, and
-              member access into one sharp workflow. Public pages stay clear and credible. The live
-              terminal stays reserved for subscribers.
+              Track narrative momentum, linked memecoins, and validation signals in one place.
+              Built for traders and researchers who want earlier context, not more noise.
             </p>
 
             <div className="mt-10 flex flex-wrap gap-3">
               <InteractiveLink
                 href={primaryHref}
-                pendingLabel={
-                  hasPaidAccess
-                    ? "Opening terminal"
-                    : user
-                      ? "Opening access controls"
-                      : "Opening account setup"
-                }
-                navigationLabel={
-                  hasPaidAccess
-                    ? "Opening terminal"
-                    : user
-                      ? "Opening access controls"
-                      : "Opening account setup"
-                }
+                pendingLabel={hasPaidAccess ? "Opening terminal" : "Opening pricing"}
+                navigationLabel={hasPaidAccess ? "Opening terminal" : "Opening pricing"}
                 className={buttonClassName({ tone: "primary", size: "lg" })}
               >
                 <span className="inline-flex items-center gap-2">
@@ -141,116 +136,63 @@ export default async function HomePage() {
               </InteractiveLink>
 
               <InteractiveLink
-                href="/#workflow"
-                pendingLabel="Opening workflow details"
+                href="/#how-it-works"
+                pendingLabel="Opening workflow"
                 className={buttonClassName({ tone: "secondary", size: "lg" })}
               >
-                See how it works
+                How it works
               </InteractiveLink>
             </div>
 
-            <div className="mt-12 grid gap-3 md:grid-cols-3">
-              <div className="metric-card metric-gloss">
-                <p className="section-kicker">Operator fit</p>
-                <p className="mt-4 text-[18px] font-semibold tracking-[-0.03em] text-[#f2f8ff]">
-                  Structured for repeat scanning
-                </p>
-                <p className="mt-3 text-[14px] leading-7 text-[#8ea4bc]">
-                  The interface is tuned for ongoing monitoring rather than one-time onboarding.
-                </p>
-              </div>
-              <div className="metric-card metric-gloss">
-                <p className="section-kicker">Access model</p>
-                <p className="mt-4 text-[18px] font-semibold tracking-[-0.03em] text-[#f2f8ff]">
-                  Stripe-backed membership control
-                </p>
-                <p className="mt-3 text-[14px] leading-7 text-[#8ea4bc]">
-                  Billing, subscription state, and protected routes stay aligned through the same system.
-                </p>
-              </div>
-              <div className="metric-card metric-gloss">
-                <p className="section-kicker">Product posture</p>
-                <p className="mt-4 text-[18px] font-semibold tracking-[-0.03em] text-[#f2f8ff]">
-                  Serious public face, controlled core
-                </p>
-                <p className="mt-3 text-[14px] leading-7 text-[#8ea4bc]">
-                  Minimal public copy up front. Protected routes and account workflows where they belong.
-                </p>
-              </div>
-            </div>
+            {!user ? (
+              <p className="mt-5 text-[13px] text-[#8ea4bc]">
+                Already have an account?{" "}
+                <InteractiveLink
+                  href="/sign-in"
+                  pendingLabel="Opening sign in"
+                  navigationLabel="Opening sign in"
+                  className="text-cyan transition-colors hover:text-[#b8f2ff]"
+                >
+                  Sign in
+                </InteractiveLink>
+              </p>
+            ) : null}
           </div>
 
-          <aside className="surface-panel panel-glow-emerald flex flex-col p-8 sm:p-10">
-            <p className="section-kicker">Operator frame</p>
-            <h2 className="mt-5 max-w-[520px] text-[30px] font-semibold tracking-[-0.05em] text-[#f2f8ff] sm:text-[36px]">
-              A sharper public layer for a serious member product.
-            </h2>
-            <p className="mt-5 text-[15px] leading-8 text-[#94aac2]">
-              The objective is not louder marketing. It is to make every public touchpoint feel
-              deliberate, responsive, and worthy of the member surface behind it.
-            </p>
-
-            <div className="mt-8 space-y-3">
-              {controlNotes.map((note) => (
-                <div key={note} className="panel-list-row flex items-start gap-3">
-                  <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald" />
-                  <p className="text-[14px] leading-7 text-[#dce6f2]">{note}</p>
+          <aside className="surface-panel p-8 sm:p-10">
+            <p className="section-kicker">Why People Use It</p>
+            <div className="mt-6 space-y-3">
+              {heroPoints.map((item) => (
+                <div key={item.title} className="panel-list-row flex items-start gap-3">
+                  <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-cyan" />
+                  <div>
+                    <h2 className="text-[18px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
+                      {item.title}
+                    </h2>
+                    <p className="mt-2 text-[14px] leading-7 text-[#8ea4bc]">
+                      {item.description}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>
 
-            <div className="mt-8 grid gap-3 sm:grid-cols-2">
-              <div className="metric-card">
-                <p className="section-kicker">Surface discipline</p>
-                <p className="mt-3 text-[16px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
-                  Calm by default
-                </p>
-                <p className="mt-3 text-[14px] leading-7 text-[#8fa6bf]">
-                  Strong hierarchy and restrained motion keep the site sharp without softening the identity.
-                </p>
-              </div>
-              <div className="metric-card">
-                <p className="section-kicker">System trust</p>
-                <p className="mt-3 text-[16px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
-                  Immediate feedback
-                </p>
-                <p className="mt-3 text-[14px] leading-7 text-[#8fa6bf]">
-                  Buttons, navigation, and account actions acknowledge intent immediately instead of waiting in silence.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-auto border-t border-white/[0.08] pt-8">
-              <p className="section-kicker">Next step</p>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <InteractiveLink
-                  href="/pricing"
-                  pendingLabel="Opening membership surface"
-                  navigationLabel="Opening membership surface"
-                  className={buttonClassName({ tone: "secondary", size: "md" })}
-                >
-                  See membership
-                </InteractiveLink>
-                <InteractiveLink
-                  href="/#features"
-                  pendingLabel="Opening product details"
-                  className={buttonClassName({ tone: "quiet", size: "md" })}
-                >
-                  Product details
-                </InteractiveLink>
-              </div>
+            <div className="mt-8 border-t border-white/[0.08] pt-6">
+              <p className="text-[13px] leading-7 text-[#93a8c0]">
+                The live dashboard is available to members. Billing is handled in Stripe and tied to
+                the same account you use to sign in.
+              </p>
             </div>
           </aside>
         </section>
 
-        <section id="features" className="grid gap-4 lg:grid-cols-3">
+        <section id="features" className="grid gap-4 md:grid-cols-2">
           {featureCards.map((item) => (
             <article key={item.title} className="surface-panel p-7 sm:p-8">
               <div className="flex h-11 w-11 items-center justify-center border border-white/[0.08] bg-[#08111c] text-cyan">
                 <item.icon className="h-4 w-4" />
               </div>
-              <p className="mt-6 section-kicker">Core capability</p>
-              <h2 className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-[#f4f9ff]">
+              <h2 className="mt-6 text-[24px] font-semibold tracking-[-0.04em] text-[#f4f9ff]">
                 {item.title}
               </h2>
               <p className="mt-4 text-[15px] leading-8 text-[#92a7bf]">{item.description}</p>
@@ -259,23 +201,27 @@ export default async function HomePage() {
         </section>
 
         <section
-          id="workflow"
-          className="surface-panel grid gap-8 p-8 sm:p-10 lg:grid-cols-[0.88fr_1.12fr] lg:items-start lg:p-12"
+          id="how-it-works"
+          className="surface-panel grid gap-8 p-8 sm:p-10 lg:grid-cols-[0.9fr_1.1fr] lg:p-12"
         >
           <div>
-            <p className="section-kicker">How it works</p>
+            <p className="section-kicker">How It Works</p>
             <h2 className="mt-5 max-w-[420px] text-[32px] font-semibold leading-[1.02] tracking-[-0.05em] text-[#f3f8ff] sm:text-[40px]">
-              One public path, one protected operator surface.
+              Track the narrative. Review the assets. Validate the setup.
             </h2>
-            <p className="mt-5 max-w-[500px] text-[15px] leading-8 text-[#94aac2]">
-              The entry path is simple by design: arrive, sign in, confirm membership in Stripe,
-              then continue into the live terminal once access is confirmed.
+            <p className="mt-5 max-w-[520px] text-[15px] leading-8 text-[#94aac2]">
+              The workflow is simple: follow attention as it moves, inspect the assets tied to it,
+              decide whether the setup is real, then continue into the live dashboard if you want the
+              full member view.
             </p>
           </div>
 
           <div className="grid gap-4">
             {workflowSteps.map((step) => (
-              <div key={step.step} className="panel-list-row grid gap-4 sm:grid-cols-[88px_1fr] sm:items-start">
+              <div
+                key={step.step}
+                className="panel-list-row grid gap-4 sm:grid-cols-[88px_1fr] sm:items-start"
+              >
                 <div className="border border-cyan/14 bg-cyan/[0.06] px-4 py-3">
                   <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-cyan">
                     Step {step.step}
@@ -294,30 +240,6 @@ export default async function HomePage() {
 
         <section id="faq" className="grid gap-4 lg:grid-cols-[1.04fr_0.96fr]">
           <div className="surface-panel p-8 sm:p-10">
-            <p className="section-kicker">Operational notes</p>
-            <h2 className="mt-5 text-[30px] font-semibold tracking-[-0.05em] text-[#f3f8ff] sm:text-[36px]">
-              Professional outside, controlled inside.
-            </h2>
-            <p className="mt-5 text-[15px] leading-8 text-[#94aac2]">
-              The public site should explain the product without diluting it. Every visible state is
-              designed to reduce hesitation and make the path into membership feel intentional.
-            </p>
-
-            <div className="mt-8 grid gap-3">
-              {[
-                "Immediate response on key clicks and page changes",
-                "Clean sign-in, checkout, and billing handoff between states",
-                "Loading shells that land close to the final layout instead of flashing a mismatch",
-              ].map((item) => (
-                <div key={item} className="panel-list-row flex items-start gap-3">
-                  <Binary className="mt-0.5 h-4 w-4 shrink-0 text-cyan" />
-                  <p className="text-[14px] leading-7 text-[#d9e5f1]">{item}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="surface-panel p-8 sm:p-10">
             <p className="section-kicker">FAQ</p>
             <div className="mt-5 space-y-3">
               {faqItems.map((item) => (
@@ -330,25 +252,26 @@ export default async function HomePage() {
               ))}
             </div>
           </div>
-        </section>
 
-        <section className="surface-panel border border-cyan/14 px-8 py-8 sm:px-10 lg:px-12 lg:py-10">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="section-kicker">Ready state</p>
-              <h2 className="mt-4 text-[30px] font-semibold tracking-[-0.05em] text-[#f4f9ff] sm:text-[38px]">
-                Review membership and continue into the live member flow.
-              </h2>
-            </div>
-            <div className="flex flex-wrap gap-3">
+          <aside className="surface-panel border border-cyan/14 p-8 sm:p-10">
+            <p className="section-kicker">Member Access</p>
+            <h2 className="mt-5 text-[30px] font-semibold tracking-[-0.05em] text-[#f4f9ff] sm:text-[36px]">
+              Start with pricing. Continue into the live dashboard when you are ready.
+            </h2>
+            <p className="mt-5 text-[15px] leading-8 text-[#93a8c0]">
+              Review access, create an account if needed, and continue into secure checkout. If you
+              already have access, go straight to the terminal.
+            </p>
+
+            <div className="mt-8 flex flex-wrap gap-3">
               <InteractiveLink
-                href="/pricing"
-                pendingLabel="Opening membership surface"
-                navigationLabel="Opening membership surface"
+                href={primaryHref}
+                pendingLabel={hasPaidAccess ? "Opening terminal" : "Opening pricing"}
+                navigationLabel={hasPaidAccess ? "Opening terminal" : "Opening pricing"}
                 className={buttonClassName({ tone: "primary", size: "lg" })}
               >
                 <span className="inline-flex items-center gap-2">
-                  Review membership
+                  {primaryLabel}
                   <ArrowRight className="h-4 w-4" />
                 </span>
               </InteractiveLink>
@@ -363,7 +286,7 @@ export default async function HomePage() {
                 </InteractiveLink>
               ) : null}
             </div>
-          </div>
+          </aside>
         </section>
       </main>
     </div>

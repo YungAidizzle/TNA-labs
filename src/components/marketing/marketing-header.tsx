@@ -14,7 +14,7 @@ type MarketingHeaderProps = {
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/#features", label: "Features" },
-  { href: "/pricing", label: "Membership" },
+  { href: "/pricing", label: "Pricing" },
   { href: "/#faq", label: "FAQ" },
 ] as const;
 
@@ -60,7 +60,7 @@ export function MarketingHeader({
               Narrative To Asset
             </span>
             <span className="block text-[15px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
-              Execution Surface
+              Live Terminal
             </span>
           </span>
         </InteractiveLink>
@@ -98,14 +98,18 @@ export function MarketingHeader({
         <div className="flex items-center gap-2">
           <InteractiveLink
             href={hasPaidAccess ? "/dashboard" : isAuthenticated ? "/pricing" : "/sign-in"}
-            pendingLabel="Opening access controls"
-            navigationLabel="Opening access controls"
+            pendingLabel={
+              hasPaidAccess ? "Opening dashboard" : isAuthenticated ? "Opening pricing" : "Opening sign in"
+            }
+            navigationLabel={
+              hasPaidAccess ? "Opening dashboard" : isAuthenticated ? "Opening pricing" : "Opening sign in"
+            }
             className={buttonClassName({
               tone: "secondary",
               size: "sm",
             })}
           >
-            {hasPaidAccess ? "Dashboard" : isAuthenticated ? "Membership" : "Sign In"}
+            {hasPaidAccess ? "Dashboard" : isAuthenticated ? "Pricing" : "Sign In"}
           </InteractiveLink>
           <InteractiveLink
             href={hasPaidAccess ? "/dashboard" : isAuthenticated ? "/pricing" : "/sign-up"}
@@ -113,14 +117,14 @@ export function MarketingHeader({
               hasPaidAccess
                 ? "Opening terminal"
                 : isAuthenticated
-                  ? "Opening membership controls"
+                  ? "Opening pricing"
                   : "Opening account setup"
             }
             navigationLabel={
               hasPaidAccess
                 ? "Opening terminal"
                 : isAuthenticated
-                  ? "Opening membership controls"
+                  ? "Opening pricing"
                   : "Opening account setup"
             }
             className={joinClasses(
@@ -131,7 +135,7 @@ export function MarketingHeader({
               "hidden sm:inline-flex",
             )}
           >
-            {hasPaidAccess ? "Open Terminal" : isAuthenticated ? "Unlock Access" : "Get Access"}
+            {hasPaidAccess ? "Open Terminal" : isAuthenticated ? "View Pricing" : "Get Access"}
           </InteractiveLink>
         </div>
       </div>
