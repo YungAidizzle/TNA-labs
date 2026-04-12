@@ -3,6 +3,9 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+from psycopg import errors
+from psycopg.pq import TransactionStatus
+
 from backend.db import PostgresStore
 
 
@@ -85,7 +88,11 @@ SCHEMA_ROWS = [
     ("ingestion_runs", "ended_at", "timestamp with time zone", "timestamptz"),
     ("ingestion_runs", "status", "text", "text"),
     ("ingestion_runs", "rows_inserted", "bigint", "int8"),
-    ("ingestion_runs", "notes", "text", "text"),
+    ("ingestion_runs", "last_heartbeat_at", "timestamp with time zone", "timestamptz"),
+    ("ingestion_runs", "current_stage", "text", "text"),
+    ("ingestion_runs", "rows_written_this_cycle", "bigint", "int8"),
+    ("ingestion_runs", "last_successful_write_at", "timestamp with time zone", "timestamptz"),
+    ("ingestion_runs", "notes", "jsonb", "jsonb"),
 ]
 
 
@@ -104,6 +111,7 @@ class FakeCursor:
 
     def execute(self, query, params=None):
         self.connection.execute_calls.append((query, params))
+        self.connection.info.transaction_status = TransactionStatus.INTRANS
         normalized = " ".join(str(query).split()).lower()
         if "from information_schema.columns" in normalized:
             self._fetchall = list(SCHEMA_ROWS)
@@ -161,6 +169,69 @@ class FakeCursor:
             self._fetchall = []
             self.rowcount = 1
             return
+        if "from public.raw_posts" in normalized and "source_post_id = any" in normalized:
+            self._fetchall = [
+                (
+                    42,
+                    "bluesky",
+                    "at://did:plc:abc/app.bsky.feed.post/xyz",
+                    "at://did:plc:abc/app.bsky.feed.post/xyz",
+                    "did:plc:abc",
+                    "test.bsky.social",
+                    None,
+                    None,
+                    datetime(2026, 3, 25, tzinfo=timezone.utc),
+                    datetime(2026, 3, 25, tzinfo=timezone.utc),
+                    datetime(2026, 3, 25, tzinfo=timezone.utc),
+                    "test",
+                    "test",
+                    "en",
+                    ["https://example.com"],
+                    ["ai"],
+                    None,
+                    None,
+                    {"likeCount": 1},
+                    {"id": "at://did:plc:abc/app.bsky.feed.post/xyz"},
+                    False,
+                )
+            ]
+            self._fetchone = None
+            self.rowcount = len(self._fetchall)
+            return
+        if "from public.raw_posts" in normalized and "coalesce(processed, false) = false" in normalized and "count(*)" in normalized:
+            self._fetchone = (7,)
+            self._fetchall = []
+            self.rowcount = 1
+            return
+        if "from public.raw_posts" in normalized and "coalesce(processed, false) = false" in normalized and "limit %s" in normalized:
+            self._fetchall = [
+                (
+                    42,
+                    "bluesky",
+                    "at://did:plc:abc/app.bsky.feed.post/xyz",
+                    "at://did:plc:abc/app.bsky.feed.post/xyz",
+                    "did:plc:abc",
+                    "test.bsky.social",
+                    None,
+                    None,
+                    datetime(2026, 3, 25, tzinfo=timezone.utc),
+                    datetime(2026, 3, 25, tzinfo=timezone.utc),
+                    datetime(2026, 3, 25, tzinfo=timezone.utc),
+                    "test",
+                    "test",
+                    "en",
+                    ["https://example.com"],
+                    ["ai"],
+                    None,
+                    None,
+                    {"likeCount": 1},
+                    {"id": "at://did:plc:abc/app.bsky.feed.post/xyz"},
+                    False,
+                )
+            ]
+            self._fetchone = None
+            self.rowcount = len(self._fetchall)
+            return
         if "with deleted as" in normalized and "delete from public.raw_posts" in normalized:
             self._fetchone = (5,)
             self._fetchall = []
@@ -175,6 +246,23 @@ class FakeCursor:
             self._fetchall = []
             self.rowcount = 1
             return
+        if "from public.processed_posts" in normalized and "where raw_post_id = any" in normalized:
+            self._fetchall = [
+                (
+                    501,
+                    42,
+                    "at://did:plc:abc/app.bsky.feed.post/xyz",
+                    "bluesky",
+                    datetime(2026, 3, 25, 10, 0, tzinfo=timezone.utc),
+                    ["AI"],
+                    "en",
+                    datetime(2026, 3, 25, 9, 30, tzinfo=timezone.utc),
+                    datetime(2026, 3, 25, 9, 30, tzinfo=timezone.utc),
+                )
+            ]
+            self._fetchone = None
+            self.rowcount = len(self._fetchall)
+            return
         self.rowcount = 1
         self._fetchall = []
         self._fetchone = None
@@ -182,6 +270,7 @@ class FakeCursor:
     def executemany(self, query, params_seq):
         payload = list(params_seq)
         self.connection.executemany_calls.append((query, payload))
+        self.connection.info.transaction_status = TransactionStatus.INTRANS
         self.rowcount = len(payload)
         self._fetchall = []
         self._fetchone = None
@@ -197,6 +286,7 @@ class FakeConnection:
     def __init__(self):
         self.closed = False
         self.autocommit = False
+        self.info = type("FakeInfo", (), {"transaction_status": TransactionStatus.IDLE})()
         self.execute_calls = []
         self.executemany_calls = []
         self.commits = 0
@@ -207,15 +297,207 @@ class FakeConnection:
 
     def commit(self):
         self.commits += 1
+        self.info.transaction_status = TransactionStatus.IDLE
 
     def rollback(self):
         self.rollbacks += 1
+        self.info.transaction_status = TransactionStatus.IDLE
 
     def close(self):
         self.closed = True
 
 
 class WorkerDbTests(unittest.TestCase):
+    def test_prepare_topic_ai_enrichment_row_promotes_authoritative_canonical_name(self):
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        payload = store._prepare_topic_ai_enrichment_row(
+            {
+                "topic_key": "mahmouds",
+                "raw_label": "Mahmouds",
+                "canonical_name": "Mahmouds Treasury Rumor",
+                "fallback_label": "",
+                "status": "ok",
+                "name_status": "pending",
+                "name_source": "none",
+                "writer_identity": "backend.main:trend_title_generation",
+                "writer_role": "authoritative_title_worker",
+                "metadata_json": {},
+            }
+        )
+
+        self.assertEqual(payload["canonical_name"], "Mahmouds Treasury Rumor")
+        self.assertEqual(payload["fallback_label"], "Mahmouds")
+        self.assertEqual(payload["name_status"], "ready")
+        self.assertEqual(payload["name_source"], "ai_exact")
+
+    def test_prepare_topic_ai_enrichment_row_marks_foreign_writer_promotions_as_historical(self):
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        payload = store._prepare_topic_ai_enrichment_row(
+            {
+                "topic_key": "mahmouds",
+                "raw_label": "Mahmouds",
+                "canonical_name": "Mahmouds Treasury Rumor",
+                "fallback_label": "",
+                "status": "ok",
+                "name_status": "pending",
+                "name_source": "none",
+                "writer_identity": "legacy.topic_aggregator",
+                "writer_role": "legacy_worker",
+                "metadata_json": {},
+            }
+        )
+
+        self.assertEqual(payload["canonical_name"], "Mahmouds Treasury Rumor")
+        self.assertEqual(payload["name_status"], "ready")
+        self.assertEqual(payload["name_source"], "historical_alias")
+
+    def test_prepare_topic_ai_enrichment_row_keeps_fallback_when_runtime_failure_signals_exist(self):
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        payload = store._prepare_topic_ai_enrichment_row(
+            {
+                "topic_key": "twitter",
+                "raw_label": "Twitter",
+                "canonical_name": "Mixed Discussion Cluster",
+                "fallback_label": "",
+                "status": "ok",
+                "name_status": "pending",
+                "name_source": "none",
+                "narrative_summary": "Trusted naming is queued. Using the cleaned fallback label for now.",
+                "mixed_signals": ["visible_runtime_openai_failure"],
+                "writer_identity": "legacy.topic_aggregator",
+                "writer_role": "legacy_worker",
+                "metadata_json": {"used_fallback": True},
+            }
+        )
+
+        self.assertIsNone(payload["canonical_name"])
+        self.assertEqual(payload["fallback_label"], "Twitter")
+        self.assertEqual(payload["name_status"], "pending")
+        self.assertEqual(payload["name_source"], "fallback_cleaned")
+
+    def test_prepare_topic_ai_enrichment_row_rejects_one_word_canonical_titles(self):
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        payload = store._prepare_topic_ai_enrichment_row(
+            {
+                "topic_key": "republicans",
+                "raw_label": "Republicans",
+                "canonical_name": "Republicans",
+                "fallback_label": "",
+                "status": "ok",
+                "name_status": "pending",
+                "name_source": "none",
+                "writer_identity": "backend.main:trend_title_generation",
+                "writer_role": "authoritative_title_worker",
+                "metadata_json": {},
+            }
+        )
+
+        self.assertIsNone(payload["canonical_name"])
+        self.assertEqual(payload["fallback_label"], "Republicans")
+        self.assertEqual(payload["name_status"], "pending")
+        self.assertEqual(payload["name_source"], "fallback_cleaned")
+
+    def test_prepare_topic_ai_enrichment_row_repairs_fragmentary_fallback_labels(self):
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        payload = store._prepare_topic_ai_enrichment_row(
+            {
+                "topic_key": "mahmouds",
+                "raw_label": "Mahmouds",
+                "canonical_name": "",
+                "fallback_label": "Ahmouds",
+                "status": "mixed",
+                "name_status": "pending",
+                "name_source": "fallback_cleaned",
+                "writer_identity": "legacy.topic_aggregator",
+                "writer_role": "legacy_worker",
+                "metadata_json": {},
+            }
+        )
+
+        self.assertEqual(payload["fallback_label"], "Mahmouds")
+
+    def test_prepare_topic_ai_enrichment_row_rejects_missing_writer_role(self):
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        with self.assertRaisesRegex(ValueError, "writer_role is required"):
+            store._prepare_topic_ai_enrichment_row(
+                {
+                    "topic_key": "mahmouds",
+                    "raw_label": "Mahmouds",
+                    "canonical_name": "Mahmouds Treasury Rumor",
+                    "status": "ok",
+                    "name_status": "pending",
+                    "name_source": "none",
+                    "writer_identity": "backend.main:trend_title_generation",
+                    "metadata_json": {},
+                }
+            )
+
+    def test_prepare_topic_ai_enrichment_row_flattens_usage_and_writer_metadata(self):
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        payload = store._prepare_topic_ai_enrichment_row(
+            {
+                "topic_key": "tariffs",
+                "raw_label": "Tariffs",
+                "canonical_name": "Trump tariff rhetoric",
+                "status": "ok",
+                "name_status": "ready",
+                "name_source": "ai_exact",
+                "writer_identity": "backend.main:trend_title_generation",
+                "writer_role": "authoritative_title_worker",
+                "deployment_id": "railway-prod",
+                "instance_id": "replica-1",
+                "code_version": "abcdef1",
+                "refresh_reason": "manual_targeted",
+                "usage_prompt_tokens": 120,
+                "usage_completion_tokens": 18,
+                "usage_total_tokens": 138,
+                "duration_ms": 412.5,
+                "replaced_existing_title": True,
+                "metadata_json": {},
+            }
+        )
+
+        self.assertEqual(payload["writer_identity"], "backend.main:trend_title_generation")
+        self.assertEqual(payload["writer_role"], "authoritative_title_worker")
+        self.assertTrue(payload["authoritative_writer"])
+        self.assertEqual(payload["deployment_id"], "railway-prod")
+        self.assertEqual(payload["instance_id"], "replica-1")
+        self.assertEqual(payload["code_version"], "abcdef1")
+        self.assertEqual(payload["refresh_reason"], "manual_targeted")
+        self.assertEqual(payload["usage_prompt_tokens"], 120)
+        self.assertEqual(payload["usage_completion_tokens"], 18)
+        self.assertEqual(payload["usage_total_tokens"], 138)
+        self.assertEqual(payload["duration_ms"], 412.5)
+        self.assertTrue(payload["replaced_existing_title"])
+
     @patch("backend.db.psycopg.connect")
     def test_verify_connection_executes_select_one(self, connect_mock):
         fake_connection = FakeConnection()
@@ -230,6 +512,7 @@ class WorkerDbTests(unittest.TestCase):
         self.assertTrue(
             any("SELECT 1" in str(query) for query, _params in fake_connection.execute_calls)
         )
+        self.assertGreaterEqual(fake_connection.commits, 1)
 
     @patch("backend.db.psycopg.connect")
     def test_disable_legacy_topic_bucket_refresh_jobs_unschedules_pg_cron_jobs(self, connect_mock):
@@ -260,6 +543,31 @@ class WorkerDbTests(unittest.TestCase):
         cursor = store.fetch_resume_cursor(source="bluesky_firehose_worker")
 
         self.assertEqual(cursor, 987654321)
+        self.assertGreaterEqual(fake_connection.commits, 1)
+
+    @patch("backend.db.psycopg.connect")
+    def test_connect_skips_core_schema_sync_when_lock_timeout_occurs(self, connect_mock):
+        fake_connection = FakeConnection()
+        connect_mock.return_value = fake_connection
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        with (
+            patch.object(
+                store,
+                "_ensure_core_tables",
+                side_effect=errors.LockNotAvailable("canceling statement due to lock timeout"),
+            ),
+            patch.object(store, "_load_column_metadata") as load_metadata_mock,
+            patch.object(store, "_verify_required_schema") as verify_schema_mock,
+        ):
+            store.connect()
+
+        self.assertEqual(fake_connection.rollbacks, 1)
+        load_metadata_mock.assert_called_once()
+        verify_schema_mock.assert_called_once()
 
     @patch("backend.db.psycopg.connect")
     def test_upsert_raw_posts_uses_conflict_protection(self, connect_mock):
@@ -363,6 +671,37 @@ class WorkerDbTests(unittest.TestCase):
         self.assertIn("ON CONFLICT (platform, source_post_id) DO UPDATE", ingest_query)
 
     @patch("backend.db.psycopg.connect")
+    def test_fetch_raw_posts_by_source_ids_returns_decoded_rows(self, connect_mock):
+        fake_connection = FakeConnection()
+        connect_mock.return_value = fake_connection
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        rows = store.fetch_raw_posts_by_source_ids(
+            platform="bluesky",
+            source_post_ids=["at://did:plc:abc/app.bsky.feed.post/xyz"],
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], 42)
+        self.assertEqual(rows[0]["processed"], False)
+
+    @patch("backend.db.psycopg.connect")
+    def test_count_unprocessed_raw_posts_counts_false_processed_rows(self, connect_mock):
+        fake_connection = FakeConnection()
+        connect_mock.return_value = fake_connection
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        count = store.count_unprocessed_raw_posts()
+
+        self.assertEqual(count, 7)
+
+    @patch("backend.db.psycopg.connect")
     def test_upsert_processed_post_uses_raw_post_id_conflict(self, connect_mock):
         fake_connection = FakeConnection()
         connect_mock.return_value = fake_connection
@@ -407,6 +746,59 @@ class WorkerDbTests(unittest.TestCase):
         processed_query = next(query for query in queries if "INSERT INTO public.processed_posts" in query)
         self.assertIn("ON CONFLICT (raw_post_id) DO UPDATE", processed_query)
         self.assertTrue(any("UPDATE public.raw_posts" in query for query in queries))
+
+    @patch("backend.db.psycopg.connect")
+    def test_upsert_processed_posts_batches_and_fetches_summaries(self, connect_mock):
+        fake_connection = FakeConnection()
+        connect_mock.return_value = fake_connection
+        store = PostgresStore(
+            database_url="postgresql://example",
+            batch_size=50,
+        )
+
+        rows = store.upsert_processed_posts(
+            [
+                {
+                    "raw_post_id": 42,
+                    "platform": "bluesky",
+                    "source_post_id": "at://did:plc:abc/app.bsky.feed.post/xyz",
+                    "post_id": "at://did:plc:abc/app.bsky.feed.post/xyz",
+                    "author_id": "did:plc:abc",
+                    "source_created_at": datetime(2026, 3, 25, 9, 30, tzinfo=timezone.utc),
+                    "created_at": datetime(2026, 3, 25, 9, 30, tzinfo=timezone.utc),
+                    "processed_at": datetime(2026, 3, 25, 10, 0, tzinfo=timezone.utc),
+                    "bucket_minute": datetime(2026, 3, 25, 9, 30, tzinfo=timezone.utc),
+                    "clean_text": "test",
+                    "normalized_text": "test",
+                    "language": "en",
+                    "quality_score": 0.9,
+                    "topic_key_candidate": "ai",
+                    "tokens": ["test", "ai"],
+                    "hashtags": ["ai"],
+                    "mentions": ["alice"],
+                    "urls": ["https://example.com"],
+                    "domains": ["example.com"],
+                    "tags": ["general"],
+                    "topic_entities": ["AI"],
+                    "topic_records": [
+                        {
+                            "topic_text": "AI",
+                            "normalized_topic": "AI",
+                            "topic_type": "entity",
+                        }
+                    ],
+                    "sentiment_label": "positive",
+                    "sentiment_positive_score": 2,
+                    "sentiment_negative_score": 0,
+                    "sentiment_neutral_score": 1,
+                    "topic": "ai",
+                }
+            ]
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["raw_post_id"], 42)
+        self.assertEqual(rows[0]["topic_records"][0]["normalized_topic"], "AI")
 
     @patch("backend.db.psycopg.connect")
     def test_persist_post_topics_upserts_by_raw_topic_type(self, connect_mock):

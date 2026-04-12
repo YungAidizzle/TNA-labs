@@ -35,9 +35,12 @@ class WorkerConfig:
     batch_size: int
     firehose_window_max_seconds: int
     firehose_window_max_events: int
+    backlog_firehose_window_max_seconds: int
+    backlog_firehose_window_max_events: int
     loop_sleep_seconds: float
     retry_seconds: float
     topic_aggregate_interval_seconds: float
+    topic_aggregate_timeout_seconds: float
     topic_cleanup_interval_seconds: float
     topic_fact_sync_lookback_hours: int
     topic_read_model_lag_minutes: int
@@ -45,7 +48,17 @@ class WorkerConfig:
     topic_read_model_series_max_topics: int
     topic_read_model_series_min_mentions: int
     worker_stale_run_minutes: int
+    worker_heartbeat_interval_seconds: float
+    worker_heartbeat_stale_seconds: int
     progress_update_seconds: float
+    processing_stage_max_seconds: float
+    process_max_rows_per_cycle: int
+    unprocessed_backlog_threshold: int
+    aggregate_skip_after_write_stage_seconds: float
+    secondary_stage_failure_backoff_seconds: float
+    secondary_stage_failure_threshold: int
+    parse_workers: int
+    parse_parallel_min_posts: int
     raw_retention_hours: float
     raw_cleanup_interval_seconds: float
     log_level: str
@@ -79,6 +92,16 @@ class WorkerConfig:
             12000,
             minimum=1,
         )
+        backlog_firehose_window_max_seconds = _parse_int_env(
+            "BLUESKY_WORKER_BACKLOG_FIREHOSE_MAX_SECONDS_PER_CYCLE",
+            3,
+            minimum=1,
+        )
+        backlog_firehose_window_max_events = _parse_int_env(
+            "BLUESKY_WORKER_BACKLOG_FIREHOSE_MAX_EVENTS_PER_CYCLE",
+            3000,
+            minimum=1,
+        )
         configured_sleep_seconds = _parse_float_env(
             "BLUESKY_WORKER_LOOP_SLEEP_SECONDS",
             2.0,
@@ -93,6 +116,11 @@ class WorkerConfig:
             "BLUESKY_TOPIC_AGGREGATE_INTERVAL_SECONDS",
             20.0,
             minimum=0.0,
+        )
+        configured_topic_aggregate_timeout_seconds = _parse_float_env(
+            "BLUESKY_TOPIC_AGGREGATE_TIMEOUT_SECONDS",
+            20.0,
+            minimum=1.0,
         )
         configured_topic_cleanup_interval_seconds = _parse_float_env(
             "BLUESKY_TOPIC_CLEANUP_INTERVAL_SECONDS",
@@ -129,10 +157,60 @@ class WorkerConfig:
             30,
             minimum=5,
         )
+        worker_heartbeat_interval_seconds = _parse_float_env(
+            "BLUESKY_WORKER_HEARTBEAT_INTERVAL_SECONDS",
+            5.0,
+            minimum=1.0,
+        )
+        worker_heartbeat_stale_seconds = _parse_int_env(
+            "BLUESKY_WORKER_HEARTBEAT_STALE_SECONDS",
+            60,
+            minimum=15,
+        )
         progress_update_seconds = _parse_float_env(
             "BLUESKY_WORKER_PROGRESS_UPDATE_SECONDS",
-            15.0,
+            5.0,
             minimum=1.0,
+        )
+        processing_stage_max_seconds = _parse_float_env(
+            "BLUESKY_WORKER_PROCESSING_STAGE_MAX_SECONDS",
+            20.0,
+            minimum=1.0,
+        )
+        process_max_rows_per_cycle = _parse_int_env(
+            "BLUESKY_WORKER_PROCESS_MAX_ROWS_PER_CYCLE",
+            max(200, batch_size * 2),
+            minimum=1,
+        )
+        unprocessed_backlog_threshold = _parse_int_env(
+            "BLUESKY_WORKER_UNPROCESSED_BACKLOG_THRESHOLD",
+            1000,
+            minimum=1,
+        )
+        aggregate_skip_after_write_stage_seconds = _parse_float_env(
+            "BLUESKY_WORKER_AGGREGATE_SKIP_AFTER_WRITE_STAGE_SECONDS",
+            12.0,
+            minimum=1.0,
+        )
+        secondary_stage_failure_backoff_seconds = _parse_float_env(
+            "BLUESKY_WORKER_SECONDARY_STAGE_FAILURE_BACKOFF_SECONDS",
+            120.0,
+            minimum=5.0,
+        )
+        secondary_stage_failure_threshold = _parse_int_env(
+            "BLUESKY_WORKER_SECONDARY_STAGE_FAILURE_THRESHOLD",
+            3,
+            minimum=1,
+        )
+        parse_workers = _parse_int_env(
+            "BLUESKY_WORKER_PARSE_WORKERS",
+            4,
+            minimum=1,
+        )
+        parse_parallel_min_posts = _parse_int_env(
+            "BLUESKY_WORKER_PARSE_PARALLEL_MIN_POSTS",
+            150,
+            minimum=1,
         )
         raw_retention_hours = _parse_float_env(
             "BLUESKY_RAW_RETENTION_HOURS",
@@ -166,6 +244,28 @@ class WorkerConfig:
                     else configured_firehose_window_max_events
                 ),
             ),
+            backlog_firehose_window_max_seconds=max(
+                1,
+                min(
+                    backlog_firehose_window_max_seconds,
+                    int(
+                        firehose_window_max_seconds
+                        if firehose_window_max_seconds is not None
+                        else configured_firehose_window_max_seconds
+                    ),
+                ),
+            ),
+            backlog_firehose_window_max_events=max(
+                1,
+                min(
+                    backlog_firehose_window_max_events,
+                    int(
+                        firehose_window_max_events
+                        if firehose_window_max_events is not None
+                        else configured_firehose_window_max_events
+                    ),
+                ),
+            ),
             loop_sleep_seconds=max(0.0, sleep_seconds if sleep_seconds is not None else configured_sleep_seconds),
             retry_seconds=max(0.5, retry_seconds if retry_seconds is not None else configured_retry_seconds),
             topic_aggregate_interval_seconds=max(
@@ -174,6 +274,7 @@ class WorkerConfig:
                 if topic_aggregate_interval_seconds is not None
                 else configured_topic_aggregate_interval_seconds,
             ),
+            topic_aggregate_timeout_seconds=configured_topic_aggregate_timeout_seconds,
             topic_cleanup_interval_seconds=configured_topic_cleanup_interval_seconds,
             topic_fact_sync_lookback_hours=topic_fact_sync_lookback_hours,
             topic_read_model_lag_minutes=topic_read_model_lag_minutes,
@@ -181,7 +282,17 @@ class WorkerConfig:
             topic_read_model_series_max_topics=topic_read_model_series_max_topics,
             topic_read_model_series_min_mentions=topic_read_model_series_min_mentions,
             worker_stale_run_minutes=worker_stale_run_minutes,
+            worker_heartbeat_interval_seconds=worker_heartbeat_interval_seconds,
+            worker_heartbeat_stale_seconds=worker_heartbeat_stale_seconds,
             progress_update_seconds=progress_update_seconds,
+            processing_stage_max_seconds=processing_stage_max_seconds,
+            process_max_rows_per_cycle=process_max_rows_per_cycle,
+            unprocessed_backlog_threshold=unprocessed_backlog_threshold,
+            aggregate_skip_after_write_stage_seconds=aggregate_skip_after_write_stage_seconds,
+            secondary_stage_failure_backoff_seconds=secondary_stage_failure_backoff_seconds,
+            secondary_stage_failure_threshold=secondary_stage_failure_threshold,
+            parse_workers=parse_workers,
+            parse_parallel_min_posts=parse_parallel_min_posts,
             raw_retention_hours=max(
                 MIN_RAW_RETENTION_HOURS_FOR_24H_TRENDS,
                 raw_retention_hours,

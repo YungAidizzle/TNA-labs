@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS public.topic_ai_enrichments (
     canonical_name TEXT NOT NULL,
     short_description TEXT NOT NULL,
     context_paragraph TEXT NOT NULL,
+    narrative_summary TEXT,
     key_entities JSONB NOT NULL DEFAULT '[]'::jsonb,
     trend_category TEXT,
     summary_confidence DOUBLE PRECISION NOT NULL DEFAULT 0,

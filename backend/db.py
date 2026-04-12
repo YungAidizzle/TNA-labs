@@ -3,12 +3,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import re
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import psycopg
+from psycopg.pq import TransactionStatus
 from psycopg.types.json import Jsonb
 
 from backend.topic_rules import (
@@ -47,9 +50,260 @@ def _normalize_text_list(values: Any) -> list[str]:
     return normalized
 
 
+_TRUSTED_TOPIC_AI_NAME_SOURCES = {"ai_exact", "historical_exact", "historical_alias"}
+_AUTHORITATIVE_TOPIC_AI_WRITER_IDENTITIES = {
+    "backend.main:trend_title_generation",
+    "backend.main:trend_enrichment",
+}
+_GENERIC_TOPIC_AI_NAME_PHRASES = {
+    "broad discussion",
+    "general conversation",
+    "general discussion",
+    "generic discussion",
+    "mixed discussion",
+    "mixed discussion cluster",
+    "online conversation",
+    "recent posts",
+    "social discussion",
+    "social media discussion",
+    "trend discussion",
+}
+_GENERIC_TOPIC_AI_NAME_TOKENS = {
+    "about",
+    "broad",
+    "cluster",
+    "content",
+    "conversation",
+    "discussion",
+    "event",
+    "general",
+    "mixed",
+    "miscellaneous",
+    "narrative",
+    "online",
+    "posts",
+    "recent",
+    "social",
+    "topic",
+    "trend",
+    "update",
+    "updates",
+}
+_NARRATIVE_TOPIC_AI_NAME_TOKENS = {
+    "appeals",
+    "backlash",
+    "campaign",
+    "controversy",
+    "debate",
+    "discourse",
+    "escalation",
+    "fallout",
+    "fight",
+    "fundraising",
+    "movie",
+    "policy",
+    "reactions",
+    "response",
+    "responses",
+    "rhetoric",
+    "rumor",
+    "rumors",
+    "speculation",
+    "trial",
+    "vote",
+}
+_FRAGMENTARY_TOPIC_AI_NAME_PATTERN = re.compile(
+    r"(?:apital|eneral|etting|hased|arket|tion|ment|ally|ized)$"
+)
+
+
+def _normalize_topic_ai_name_identity(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _compact_topic_ai_name_identity(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _is_generic_topic_ai_name(value: str | None) -> bool:
+    normalized = _normalize_topic_ai_name_identity(value)
+    if not normalized:
+        return True
+    if normalized in _GENERIC_TOPIC_AI_NAME_PHRASES:
+        return True
+    tokens = normalized.split()
+    generic_token_count = sum(1 for token in tokens if token in _GENERIC_TOPIC_AI_NAME_TOKENS)
+    return generic_token_count >= max(2, len(tokens))
+
+
+def _is_fragment_like_topic_ai_name(value: str | None) -> bool:
+    compact = _compact_topic_ai_name_identity(value)
+    if not compact:
+        return True
+    if len(compact) < 3 and compact not in {"ai", "uk", "us", "eu"}:
+        return True
+    return bool(_FRAGMENTARY_TOPIC_AI_NAME_PATTERN.search(compact))
+
+
+def _is_fragment_variant_topic_ai_name(candidate: str | None, other: str | None) -> bool:
+    left = _compact_topic_ai_name_identity(candidate)
+    right = _compact_topic_ai_name_identity(other)
+    if not left or not right or left == right:
+        return False
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    if len(shorter) < 4 or len(longer) < 5:
+        return False
+    if shorter == longer[1:] or shorter == longer[:-1]:
+        return True
+    if shorter in longer and len(longer) - len(shorter) <= 2:
+        return True
+
+    if abs(len(left) - len(right)) > 1:
+        return False
+    edits = 0
+    left_index = 0
+    right_index = 0
+    while left_index < len(left) and right_index < len(right):
+        if left[left_index] == right[right_index]:
+            left_index += 1
+            right_index += 1
+            continue
+        edits += 1
+        if edits > 1:
+            return False
+        if len(left) > len(right):
+            left_index += 1
+            continue
+        if len(right) > len(left):
+            right_index += 1
+            continue
+        left_index += 1
+        right_index += 1
+    edits += (len(left) - left_index) + (len(right) - right_index)
+    return edits <= 1
+
+
+def _has_narrative_topic_ai_shape(value: str | None) -> bool:
+    normalized = _normalize_topic_ai_name_identity(value)
+    if not normalized:
+        return False
+    tokens = [token for token in normalized.split() if token]
+    if len(tokens) >= 2:
+        return True
+    return any(token in _NARRATIVE_TOPIC_AI_NAME_TOKENS for token in tokens)
+
+
+def _sanitize_topic_ai_fallback_label(*values: str | None) -> str | None:
+    normalized_values = [str(value or "").strip() or None for value in values]
+    for index, value in enumerate(normalized_values):
+        candidate = str(value or "").strip() or None
+        if not candidate:
+            continue
+        if _is_generic_topic_ai_name(candidate) or _is_fragment_like_topic_ai_name(candidate):
+            continue
+        if any(
+            other
+            and len(_compact_topic_ai_name_identity(other)) > len(_compact_topic_ai_name_identity(candidate))
+            and _is_fragment_variant_topic_ai_name(candidate, other)
+            for other in normalized_values[index + 1 :]
+        ):
+            continue
+        return candidate
+    return None
+
+
+def _resolve_topic_ai_name_fields(
+    *,
+    raw_label: str | None,
+    canonical_name: str | None,
+    fallback_label: str | None,
+    status: str,
+    name_status: str | None,
+    name_source: str | None,
+    narrative_summary: str | None,
+    abstain_reason: str | None,
+    mixed_signals: list[str],
+    metadata_json: dict[str, Any],
+    writer_identity: str,
+) -> tuple[str | None, str | None, str, str]:
+    raw_label_value = str(raw_label or "").strip() or None
+    canonical_name_value = str(canonical_name or "").strip() or None
+    if (
+        canonical_name_value
+        and raw_label_value
+        and canonical_name_value.lower() == raw_label_value.lower()
+    ):
+        canonical_name_value = None
+    fallback_label_value = _sanitize_topic_ai_fallback_label(
+        fallback_label,
+        raw_label_value,
+        canonical_name_value,
+    )
+
+    normalized_mixed_signals = {
+        str(value or "").strip().lower()
+        for value in mixed_signals
+        if str(value or "").strip()
+    }
+    narrative_text = " ".join(
+        part
+        for part in (
+            str(narrative_summary or "").strip(),
+            str(abstain_reason or "").strip(),
+        )
+        if part
+    ).lower()
+    used_fallback = bool(metadata_json.get("used_fallback"))
+    has_runtime_failure = (
+        "visible_runtime_openai_failure" in normalized_mixed_signals
+        or "safe fallback because ai enrichment was unavailable" in narrative_text
+        or "using the cleaned fallback label" in narrative_text
+        or "visible runtime ai naming failed" in narrative_text
+    )
+    canonical_is_trustworthy = bool(
+        canonical_name_value
+        and status in {"ok", "mixed"}
+        and not used_fallback
+        and not has_runtime_failure
+        and not _is_generic_topic_ai_name(canonical_name_value)
+        and not _is_fragment_like_topic_ai_name(canonical_name_value)
+        and _has_narrative_topic_ai_shape(canonical_name_value)
+    )
+    normalized_name_status = str(name_status or "").strip().lower()
+    normalized_name_source = str(name_source or "").strip().lower()
+
+    if canonical_is_trustworthy:
+        resolved_status = "ready"
+        if normalized_name_source in _TRUSTED_TOPIC_AI_NAME_SOURCES:
+            resolved_source = normalized_name_source
+        elif writer_identity in _AUTHORITATIVE_TOPIC_AI_WRITER_IDENTITIES:
+            resolved_source = "ai_exact"
+        else:
+            resolved_source = "historical_alias"
+    elif status in {"insufficient_evidence", "junk"} and not has_runtime_failure:
+        canonical_name_value = None
+        resolved_status = "failed"
+        resolved_source = "fallback_cleaned" if fallback_label_value else "none"
+    else:
+        canonical_name_value = None
+        resolved_status = "pending"
+        resolved_source = "fallback_cleaned" if fallback_label_value else "none"
+
+    return canonical_name_value, fallback_label_value, resolved_status, resolved_source
+
+
 def _worker_lock_key(source: str) -> int:
     digest = hashlib.sha1(str(source or "worker").encode("utf-8")).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=False) & 0x7FFFFFFFFFFFFFFF
+
+
+def is_lock_timeout_error(error: Exception) -> bool:
+    sqlstate = str(getattr(error, "sqlstate", "") or "").strip()
+    if sqlstate == "55P03":
+        return True
+
+    message = str(error or "").strip().lower()
+    return "lock timeout" in message or "canceling statement due to lock timeout" in message
 
 
 class PostgresStore:
@@ -58,10 +312,12 @@ class PostgresStore:
         *,
         database_url: str,
         batch_size: int,
+        schema_lock_timeout_ms: int = 5_000,
         logger: logging.Logger | None = None,
     ) -> None:
         self._database_url = database_url
         self._batch_size = max(1, int(batch_size))
+        self._schema_lock_timeout_ms = max(0, int(schema_lock_timeout_ms))
         self._logger = logger or logging.getLogger("backend.db")
         self._conn: psycopg.Connection[Any] | None = None
         self._column_types: dict[tuple[str, str], tuple[str, str]] = {}
@@ -72,7 +328,19 @@ class PostgresStore:
             return
         self._conn = psycopg.connect(self._database_url)
         self._conn.autocommit = False
-        self._ensure_core_tables()
+        try:
+            self._ensure_core_tables()
+        except Exception as error:
+            if not is_lock_timeout_error(error):
+                self.close()
+                raise
+            self._logger.warning(
+                "core_schema_sync_skipped_lock_timeout timeout_ms=%s error=%s",
+                self._schema_lock_timeout_ms,
+                error,
+            )
+            if self._conn is not None:
+                self._conn.rollback()
         self._load_column_metadata()
         self._verify_required_schema()
 
@@ -159,26 +427,46 @@ class PostgresStore:
         source: str,
         started_at: datetime,
         notes: dict[str, Any],
+        last_heartbeat_at: datetime | None = None,
+        current_stage: str | None = None,
+        rows_written_this_cycle: int = 0,
+        last_successful_write_at: datetime | None = None,
     ) -> None:
         def operation(connection: psycopg.Connection[Any]) -> None:
+            columns = [
+                "source",
+                "started_at",
+                "status",
+                "rows_inserted",
+                "notes",
+            ]
+            values: list[Any] = [
+                source,
+                started_at,
+                "running",
+                0,
+                self._adapt_notes(notes),
+            ]
+            if self._has_column("ingestion_runs", "last_heartbeat_at"):
+                columns.append("last_heartbeat_at")
+                values.append(last_heartbeat_at or started_at)
+            if self._has_column("ingestion_runs", "current_stage"):
+                columns.append("current_stage")
+                values.append(str(current_stage or "startup").strip() or "startup")
+            if self._has_column("ingestion_runs", "rows_written_this_cycle"):
+                columns.append("rows_written_this_cycle")
+                values.append(max(0, int(rows_written_this_cycle)))
+            if self._has_column("ingestion_runs", "last_successful_write_at"):
+                columns.append("last_successful_write_at")
+                values.append(last_successful_write_at)
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     INSERT INTO public.ingestion_runs (
-                        source,
-                        started_at,
-                        status,
-                        rows_inserted,
-                        notes
-                    ) VALUES (%s, %s, %s, %s, %s)
+                        {", ".join(columns)}
+                    ) VALUES ({", ".join(["%s"] * len(columns))})
                     """,
-                    (
-                        source,
-                        started_at,
-                        "running",
-                        0,
-                        self._adapt_notes(notes),
-                    ),
+                    tuple(values),
                 )
 
         self._execute_write("create_ingestion_run", operation)
@@ -192,47 +480,50 @@ class PostgresStore:
         rows_inserted: int,
         notes: dict[str, Any],
         ended_at: datetime | None = None,
+        last_heartbeat_at: datetime | None = None,
+        current_stage: str | None = None,
+        rows_written_this_cycle: int | None = None,
+        last_successful_write_at: datetime | None = None,
     ) -> None:
         def operation(connection: psycopg.Connection[Any]) -> None:
+            assignments = [
+                "status = %s",
+                "rows_inserted = %s",
+                "notes = %s",
+            ]
+            params: list[Any] = [
+                status,
+                max(0, int(rows_inserted)),
+                self._adapt_notes(notes),
+            ]
+            if ended_at is not None:
+                assignments.insert(0, "ended_at = %s")
+                params.insert(0, ended_at)
+            if self._has_column("ingestion_runs", "last_heartbeat_at"):
+                assignments.append("last_heartbeat_at = %s")
+                params.append(last_heartbeat_at)
+            if self._has_column("ingestion_runs", "current_stage"):
+                assignments.append("current_stage = %s")
+                params.append(str(current_stage or "").strip() or None)
+            if self._has_column("ingestion_runs", "rows_written_this_cycle"):
+                assignments.append("rows_written_this_cycle = %s")
+                params.append(
+                    None if rows_written_this_cycle is None else max(0, int(rows_written_this_cycle))
+                )
+            if self._has_column("ingestion_runs", "last_successful_write_at"):
+                assignments.append("last_successful_write_at = %s")
+                params.append(last_successful_write_at)
+            params.extend([source, started_at])
             with connection.cursor() as cursor:
-                if ended_at is None:
-                    cursor.execute(
-                        """
-                        UPDATE public.ingestion_runs
-                        SET status = %s,
-                            rows_inserted = %s,
-                            notes = %s
-                        WHERE source = %s
-                          AND started_at = %s
-                        """,
-                        (
-                            status,
-                            max(0, int(rows_inserted)),
-                            self._adapt_notes(notes),
-                            source,
-                            started_at,
-                        ),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        UPDATE public.ingestion_runs
-                        SET ended_at = %s,
-                            status = %s,
-                            rows_inserted = %s,
-                            notes = %s
-                        WHERE source = %s
-                          AND started_at = %s
-                        """,
-                        (
-                            ended_at,
-                            status,
-                            max(0, int(rows_inserted)),
-                            self._adapt_notes(notes),
-                            source,
-                            started_at,
-                        ),
-                    )
+                cursor.execute(
+                    f"""
+                    UPDATE public.ingestion_runs
+                    SET {", ".join(assignments)}
+                    WHERE source = %s
+                      AND started_at = %s
+                    """,
+                    tuple(params),
+                )
 
                 if cursor.rowcount <= 0:
                     raise RuntimeError(
@@ -253,6 +544,19 @@ class PostgresStore:
         global_lock_key = _worker_lock_key("bluesky_firehose_worker_singleton")
 
         def operation(connection: psycopg.Connection[Any]) -> dict[str, Any]:
+            heartbeat_cutoff_seconds = max(30, stale_after_minutes * 60)
+            heartbeat_expression = "r.started_at"
+            if self._has_column("ingestion_runs", "last_heartbeat_at"):
+                heartbeat_expression = "COALESCE(r.last_heartbeat_at, r.started_at)"
+            notes_value_expression = (
+                "r.notes"
+                if self._expects_json("ingestion_runs", "notes")
+                else "r.notes::jsonb"
+            )
+            notes_heartbeat_expression = (
+                f"NULLIF(TRIM(COALESCE({notes_value_expression}->>'last_heartbeat_at', '')), '')::timestamptz"
+            )
+            heartbeat_expression = f"COALESCE({heartbeat_expression}, {notes_heartbeat_expression}, r.started_at)"
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_try_advisory_lock(%s)", (global_lock_key,))
                 global_acquired = bool((cursor.fetchone() or [False])[0])
@@ -278,7 +582,7 @@ class PostgresStore:
                     }
 
                 cursor.execute(
-                    """
+                    f"""
                     WITH stale AS (
                         UPDATE public.ingestion_runs r
                         SET ended_at = now(),
@@ -289,12 +593,12 @@ class PostgresStore:
                             END
                         WHERE r.source = %s
                           AND r.ended_at IS NULL
-                          AND r.started_at < now() - make_interval(mins => %s)
+                          AND {heartbeat_expression} < now() - (%s * interval '1 second')
                         RETURNING 1
                     )
                     SELECT COUNT(*)::bigint FROM stale
                     """,
-                    (source_value, stale_after_minutes),
+                    (source_value, heartbeat_cutoff_seconds),
                 )
                 closed_stale_runs = int((cursor.fetchone() or [0])[0] or 0)
 
@@ -319,12 +623,13 @@ class PostgresStore:
                 closed_open_runs = int((cursor.fetchone() or [0])[0] or 0)
 
                 return {
-                    "acquired": True,
-                    "lock_key": lock_key,
-                    "global_lock_key": global_lock_key,
-                    "closed_stale_runs": closed_stale_runs,
-                    "closed_open_runs": closed_open_runs,
-                }
+                        "acquired": True,
+                        "lock_key": lock_key,
+                        "global_lock_key": global_lock_key,
+                        "closed_stale_runs": closed_stale_runs,
+                        "closed_open_runs": closed_open_runs,
+                        "stale_after_seconds": heartbeat_cutoff_seconds,
+                    }
 
         return self._execute_write("acquire_worker_lease", operation)
 
@@ -444,6 +749,118 @@ class PostgresStore:
             return inserted_total
 
         return self._execute_write("upsert_raw_posts", operation)
+
+    def fetch_raw_posts_by_source_ids(
+        self,
+        *,
+        platform: str,
+        source_post_ids: Iterable[str],
+    ) -> list[dict[str, Any]]:
+        normalized_ids = [
+            str(source_post_id or "").strip()
+            for source_post_id in source_post_ids
+            if str(source_post_id or "").strip()
+        ]
+        if not normalized_ids:
+            return []
+
+        def operation(connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        platform,
+                        source_post_id,
+                        post_id,
+                        author_id,
+                        author_handle,
+                        root_post_id,
+                        reply_parent_id,
+                        created_at,
+                        inserted_at,
+                        ingested_at,
+                        raw_text,
+                        text_content,
+                        language,
+                        urls,
+                        hashtags,
+                        reply_to_uri,
+                        repost_of_uri,
+                        metrics_json,
+                        raw_json,
+                        processed
+                    FROM public.raw_posts
+                    WHERE platform = %s
+                      AND source_post_id = ANY(%s)
+                    ORDER BY COALESCE(ingested_at, inserted_at, created_at) DESC, id DESC
+                    """,
+                    (str(platform or "bluesky").strip() or "bluesky", normalized_ids),
+                )
+                return [self._decode_ingested_raw_post_row(row) for row in cursor.fetchall()]
+
+        return self._run_with_retry("fetch_raw_posts_by_source_ids", operation)
+
+    def count_unprocessed_raw_posts(self) -> int:
+        def operation(connection: psycopg.Connection[Any]) -> int:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)::bigint
+                    FROM public.raw_posts
+                    WHERE COALESCE(processed, false) = false
+                    """
+                )
+                row = cursor.fetchone()
+                return int((row or [0])[0] or 0)
+
+        return self._run_with_retry("count_unprocessed_raw_posts", operation)
+
+    def fetch_raw_posts_for_processing(
+        self,
+        *,
+        limit: int,
+        newest_first: bool = False,
+    ) -> list[dict[str, Any]]:
+        requested_limit = max(1, int(limit))
+        ordering = "DESC" if newest_first else "ASC"
+
+        def operation(connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT
+                        id,
+                        platform,
+                        source_post_id,
+                        post_id,
+                        author_id,
+                        author_handle,
+                        root_post_id,
+                        reply_parent_id,
+                        created_at,
+                        inserted_at,
+                        ingested_at,
+                        raw_text,
+                        text_content,
+                        language,
+                        urls,
+                        hashtags,
+                        reply_to_uri,
+                        repost_of_uri,
+                        metrics_json,
+                        raw_json,
+                        processed
+                    FROM public.raw_posts
+                    WHERE COALESCE(processed, false) = false
+                    ORDER BY COALESCE(created_at, ingested_at, inserted_at) {ordering}, id {ordering}
+                    LIMIT %s
+                    """,
+                    (requested_limit,),
+                )
+                return [self._decode_ingested_raw_post_row(row) for row in cursor.fetchall()]
+
+        return self._run_with_retry("fetch_raw_posts_for_processing", operation)
 
     def ingest_raw_post(self, row: dict[str, Any]) -> dict[str, Any] | None:
         payload = self._prepare_raw_post_row(row)
@@ -738,6 +1155,193 @@ class PostgresStore:
         processed = self.upsert_processed_post_record(row)
         return 1 if processed else 0
 
+    def upsert_processed_posts(self, rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        payload: list[dict[str, Any]] = []
+        for row in rows:
+            prepared = self._prepare_processed_post_row(row)
+            prepared["topic_records"] = list(row.get("topic_records") or [])
+            payload.append(prepared)
+        payload = [
+            row
+            for row in payload
+            if row.get("raw_post_id") not in {None, 0}
+            and str(row.get("source_post_id") or "").strip()
+        ]
+        if not payload:
+            return []
+
+        def operation(connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+            collected_rows: list[dict[str, Any]] = []
+            with connection.cursor() as cursor:
+                for chunk in _chunked(payload, self._batch_size):
+                    chunk_payload = list(chunk)
+                    cursor.executemany(
+                        """
+                        INSERT INTO public.processed_posts (
+                            raw_post_id,
+                            platform,
+                            source_post_id,
+                            post_id,
+                            author_id,
+                            source_created_at,
+                            created_at,
+                            processed_at,
+                            bucket_minute,
+                            clean_text,
+                            normalized_text,
+                            language,
+                            has_media,
+                            is_reply,
+                            is_repost,
+                            is_quote,
+                            author_hash,
+                            token_count,
+                            fingerprint,
+                            tokens,
+                            hashtags,
+                            cashtags,
+                            mentions,
+                            domains,
+                            urls,
+                            key_phrases,
+                            topic_seeds,
+                            topic_key_candidate,
+                            tags,
+                            spam_score,
+                            quality_score,
+                            topic_entities,
+                            sentiment_label,
+                            sentiment_positive_score,
+                            sentiment_negative_score,
+                            sentiment_neutral_score,
+                            topic
+                        ) VALUES (
+                            %(raw_post_id)s,
+                            %(platform)s,
+                            %(source_post_id)s,
+                            %(post_id)s,
+                            %(author_id)s,
+                            %(source_created_at)s,
+                            %(created_at)s,
+                            %(processed_at)s,
+                            %(bucket_minute)s,
+                            %(clean_text)s,
+                            %(normalized_text)s,
+                            %(language)s,
+                            %(has_media)s,
+                            %(is_reply)s,
+                            %(is_repost)s,
+                            %(is_quote)s,
+                            %(author_hash)s,
+                            %(token_count)s,
+                            %(fingerprint)s,
+                            %(tokens)s,
+                            %(hashtags)s,
+                            %(cashtags)s,
+                            %(mentions)s,
+                            %(domains)s,
+                            %(urls)s,
+                            %(key_phrases)s,
+                            %(topic_seeds)s,
+                            %(topic_key_candidate)s,
+                            %(tags)s,
+                            %(spam_score)s,
+                            %(quality_score)s,
+                            %(topic_entities)s,
+                            %(sentiment_label)s,
+                            %(sentiment_positive_score)s,
+                            %(sentiment_negative_score)s,
+                            %(sentiment_neutral_score)s,
+                            %(topic)s
+                        )
+                        ON CONFLICT (raw_post_id) DO UPDATE
+                        SET platform = EXCLUDED.platform,
+                            source_post_id = EXCLUDED.source_post_id,
+                            post_id = EXCLUDED.post_id,
+                            author_id = EXCLUDED.author_id,
+                            source_created_at = COALESCE(EXCLUDED.source_created_at, public.processed_posts.source_created_at),
+                            created_at = COALESCE(EXCLUDED.created_at, public.processed_posts.created_at),
+                            processed_at = COALESCE(EXCLUDED.processed_at, public.processed_posts.processed_at),
+                            bucket_minute = COALESCE(EXCLUDED.bucket_minute, public.processed_posts.bucket_minute),
+                            clean_text = COALESCE(EXCLUDED.clean_text, public.processed_posts.clean_text),
+                            normalized_text = COALESCE(EXCLUDED.normalized_text, public.processed_posts.normalized_text),
+                            language = COALESCE(EXCLUDED.language, public.processed_posts.language),
+                            has_media = COALESCE(EXCLUDED.has_media, public.processed_posts.has_media),
+                            is_reply = COALESCE(EXCLUDED.is_reply, public.processed_posts.is_reply),
+                            is_repost = COALESCE(EXCLUDED.is_repost, public.processed_posts.is_repost),
+                            is_quote = COALESCE(EXCLUDED.is_quote, public.processed_posts.is_quote),
+                            author_hash = COALESCE(EXCLUDED.author_hash, public.processed_posts.author_hash),
+                            token_count = COALESCE(EXCLUDED.token_count, public.processed_posts.token_count),
+                            fingerprint = COALESCE(EXCLUDED.fingerprint, public.processed_posts.fingerprint),
+                            tokens = COALESCE(EXCLUDED.tokens, public.processed_posts.tokens),
+                            hashtags = COALESCE(EXCLUDED.hashtags, public.processed_posts.hashtags),
+                            cashtags = COALESCE(EXCLUDED.cashtags, public.processed_posts.cashtags),
+                            mentions = COALESCE(EXCLUDED.mentions, public.processed_posts.mentions),
+                            domains = COALESCE(EXCLUDED.domains, public.processed_posts.domains),
+                            urls = COALESCE(EXCLUDED.urls, public.processed_posts.urls),
+                            key_phrases = COALESCE(EXCLUDED.key_phrases, public.processed_posts.key_phrases),
+                            topic_seeds = COALESCE(EXCLUDED.topic_seeds, public.processed_posts.topic_seeds),
+                            topic_key_candidate = COALESCE(EXCLUDED.topic_key_candidate, public.processed_posts.topic_key_candidate),
+                            tags = COALESCE(EXCLUDED.tags, public.processed_posts.tags),
+                            spam_score = COALESCE(EXCLUDED.spam_score, public.processed_posts.spam_score),
+                            quality_score = COALESCE(EXCLUDED.quality_score, public.processed_posts.quality_score),
+                            topic_entities = COALESCE(EXCLUDED.topic_entities, public.processed_posts.topic_entities),
+                            sentiment_label = COALESCE(EXCLUDED.sentiment_label, public.processed_posts.sentiment_label),
+                            sentiment_positive_score = COALESCE(EXCLUDED.sentiment_positive_score, public.processed_posts.sentiment_positive_score),
+                            sentiment_negative_score = COALESCE(EXCLUDED.sentiment_negative_score, public.processed_posts.sentiment_negative_score),
+                            sentiment_neutral_score = COALESCE(EXCLUDED.sentiment_neutral_score, public.processed_posts.sentiment_neutral_score),
+                            topic = COALESCE(EXCLUDED.topic, public.processed_posts.topic)
+                        """,
+                        chunk_payload,
+                    )
+                    raw_post_ids = [
+                        int(row.get("raw_post_id"))
+                        for row in chunk_payload
+                        if row.get("raw_post_id") not in {None, 0}
+                    ]
+                    if raw_post_ids:
+                        cursor.execute(
+                            """
+                            UPDATE public.raw_posts
+                            SET processed = TRUE
+                            WHERE id = ANY(%s)
+                            """,
+                            (raw_post_ids,),
+                        )
+                        cursor.execute(
+                            """
+                            SELECT
+                                id,
+                                raw_post_id,
+                                source_post_id,
+                                platform,
+                                processed_at,
+                                topic_entities,
+                                language,
+                                source_created_at,
+                                bucket_minute
+                            FROM public.processed_posts
+                            WHERE raw_post_id = ANY(%s)
+                            ORDER BY raw_post_id ASC
+                            """,
+                            (raw_post_ids,),
+                        )
+                        payload_by_raw_id = {
+                            int(row.get("raw_post_id")): row
+                            for row in chunk_payload
+                            if row.get("raw_post_id") not in {None, 0}
+                        }
+                        collected_rows.extend(
+                            self._decode_processed_post_summary_row(
+                                row,
+                                payload_by_raw_id=payload_by_raw_id,
+                            )
+                            for row in cursor.fetchall()
+                        )
+            return collected_rows
+
+        return self._execute_write("upsert_processed_posts", operation)
+
     def persist_post_topics(self, rows: Iterable[dict[str, Any]]) -> int:
         payload = [self._prepare_post_topic_row(row) for row in rows]
         payload = [
@@ -799,6 +1403,7 @@ class PostgresStore:
         def operation(connection: psycopg.Connection[Any]) -> None:
             alias_rows = seed_topic_alias_rows()
             with connection.cursor() as cursor:
+                self._apply_schema_lock_timeout(cursor)
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS public.topics (
@@ -1043,12 +1648,26 @@ class PostgresStore:
                         topic_key TEXT NOT NULL,
                         as_of_window_end TIMESTAMPTZ NOT NULL,
                         raw_label TEXT NOT NULL,
-                        canonical_name TEXT NOT NULL,
+                        canonical_name TEXT,
+                        ai_display_name TEXT,
+                        fallback_label TEXT,
+                        name_status TEXT NOT NULL DEFAULT 'pending',
+                        ai_name_status TEXT NOT NULL DEFAULT 'pending',
+                        name_source TEXT NOT NULL DEFAULT 'none',
                         short_description TEXT NOT NULL,
                         context_paragraph TEXT NOT NULL,
+                        narrative_summary TEXT,
+                        why_attention TEXT,
+                        status TEXT NOT NULL DEFAULT 'ok',
                         key_entities JSONB NOT NULL DEFAULT '[]'::jsonb,
                         trend_category TEXT,
                         summary_confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        evidence_post_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        mixed_signals JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        abstain_reason TEXT,
+                        validator_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        validated_output_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        raw_response_text TEXT,
                         supporting_post_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
                         supporting_sample JSONB NOT NULL DEFAULT '[]'::jsonb,
                         representative_post_count INTEGER NOT NULL DEFAULT 0,
@@ -1056,12 +1675,207 @@ class PostgresStore:
                         prompt_version TEXT NOT NULL,
                         input_hash TEXT NOT NULL,
                         generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        ai_name_generated_at TIMESTAMPTZ,
                         refreshed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        ai_name_refreshed_at TIMESTAMPTZ,
                         expires_at TIMESTAMPTZ,
+                        ai_name_source_version TEXT,
+                        writer_identity TEXT NOT NULL DEFAULT '',
+                        writer_role TEXT NOT NULL DEFAULT '',
+                        authoritative_writer BOOLEAN NOT NULL DEFAULT false,
+                        deployment_id TEXT,
+                        instance_id TEXT,
+                        code_version TEXT,
+                        refresh_reason TEXT,
+                        usage_prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                        usage_completion_tokens INTEGER NOT NULL DEFAULT 0,
+                        usage_total_tokens INTEGER NOT NULL DEFAULT 0,
+                        duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        replaced_existing_title BOOLEAN NOT NULL DEFAULT false,
                         metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                         CONSTRAINT topic_ai_enrichments_summary_confidence_range
                             CHECK (summary_confidence >= 0 AND summary_confidence <= 1)
                     )
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS narrative_summary TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS why_attention TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ok'
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ALTER COLUMN canonical_name DROP NOT NULL
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS fallback_label TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS name_status TEXT NOT NULL DEFAULT 'pending'
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS ai_display_name TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS ai_name_status TEXT NOT NULL DEFAULT 'pending'
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS name_source TEXT NOT NULL DEFAULT 'none'
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS evidence_post_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS mixed_signals JSONB NOT NULL DEFAULT '[]'::jsonb
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS abstain_reason TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS validator_errors JSONB NOT NULL DEFAULT '[]'::jsonb
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS validated_output_json JSONB NOT NULL DEFAULT '{}'::jsonb
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS raw_response_text TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS ai_name_generated_at TIMESTAMPTZ
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS ai_name_refreshed_at TIMESTAMPTZ
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS ai_name_source_version TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS writer_identity TEXT NOT NULL DEFAULT ''
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS writer_role TEXT NOT NULL DEFAULT ''
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS authoritative_writer BOOLEAN NOT NULL DEFAULT false
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS deployment_id TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS instance_id TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS code_version TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS refresh_reason TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS usage_prompt_tokens INTEGER NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS usage_completion_tokens INTEGER NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS usage_total_tokens INTEGER NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichments
+                    ADD COLUMN IF NOT EXISTS replaced_existing_title BOOLEAN NOT NULL DEFAULT false
                     """
                 )
                 cursor.execute(
@@ -1086,6 +1900,311 @@ class PostgresStore:
                     """
                     CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichments_window_end
                     ON public.topic_ai_enrichments (as_of_window_end DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichments_writer_generated
+                    ON public.topic_ai_enrichments (writer_identity, generated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichments_refresh_reason_generated
+                    ON public.topic_ai_enrichments (refresh_reason, generated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichments_ai_name_status
+                    ON public.topic_ai_enrichments (ai_name_status, ai_name_refreshed_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichments_ai_display_name
+                    ON public.topic_ai_enrichments (ai_display_name, ai_name_refreshed_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS public.topic_ai_enrichment_runs (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic_key TEXT NOT NULL,
+                        as_of_window_end TIMESTAMPTZ NOT NULL,
+                        raw_label TEXT NOT NULL,
+                        canonical_name TEXT,
+                        ai_display_name TEXT,
+                        fallback_label TEXT,
+                        name_status TEXT NOT NULL DEFAULT 'pending',
+                        ai_name_status TEXT NOT NULL DEFAULT 'pending',
+                        name_source TEXT NOT NULL DEFAULT 'none',
+                        short_description TEXT NOT NULL,
+                        context_paragraph TEXT NOT NULL,
+                        narrative_summary TEXT,
+                        why_attention TEXT,
+                        status TEXT NOT NULL DEFAULT 'ok',
+                        key_entities JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        trend_category TEXT,
+                        summary_confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        evidence_post_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        mixed_signals JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        abstain_reason TEXT,
+                        validator_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        validated_output_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        raw_response_text TEXT,
+                        supporting_post_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        supporting_sample JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        representative_post_count INTEGER NOT NULL DEFAULT 0,
+                        model_name TEXT NOT NULL,
+                        prompt_version TEXT NOT NULL,
+                        input_hash TEXT NOT NULL,
+                        generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        ai_name_generated_at TIMESTAMPTZ,
+                        ai_name_refreshed_at TIMESTAMPTZ,
+                        expires_at TIMESTAMPTZ,
+                        ai_name_source_version TEXT,
+                        writer_identity TEXT NOT NULL DEFAULT '',
+                        writer_role TEXT NOT NULL DEFAULT '',
+                        authoritative_writer BOOLEAN NOT NULL DEFAULT false,
+                        deployment_id TEXT,
+                        instance_id TEXT,
+                        code_version TEXT,
+                        refresh_reason TEXT,
+                        usage_prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                        usage_completion_tokens INTEGER NOT NULL DEFAULT 0,
+                        usage_total_tokens INTEGER NOT NULL DEFAULT 0,
+                        duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+                        replaced_existing_title BOOLEAN NOT NULL DEFAULT false,
+                        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        CONSTRAINT topic_ai_enrichment_runs_summary_confidence_range
+                            CHECK (summary_confidence >= 0 AND summary_confidence <= 1)
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ALTER COLUMN canonical_name DROP NOT NULL
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS fallback_label TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS name_status TEXT NOT NULL DEFAULT 'pending'
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS ai_display_name TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS ai_name_status TEXT NOT NULL DEFAULT 'pending'
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS name_source TEXT NOT NULL DEFAULT 'none'
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS ai_name_generated_at TIMESTAMPTZ
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS ai_name_refreshed_at TIMESTAMPTZ
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS ai_name_source_version TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS writer_identity TEXT NOT NULL DEFAULT ''
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS writer_role TEXT NOT NULL DEFAULT ''
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS authoritative_writer BOOLEAN NOT NULL DEFAULT false
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS deployment_id TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS instance_id TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS code_version TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS refresh_reason TEXT
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS usage_prompt_tokens INTEGER NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS usage_completion_tokens INTEGER NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS usage_total_tokens INTEGER NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE public.topic_ai_enrichment_runs
+                    ADD COLUMN IF NOT EXISTS replaced_existing_title BOOLEAN NOT NULL DEFAULT false
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichment_runs_topic_generated
+                    ON public.topic_ai_enrichment_runs (topic_key, generated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichment_runs_generated
+                    ON public.topic_ai_enrichment_runs (generated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichment_runs_writer_generated
+                    ON public.topic_ai_enrichment_runs (writer_identity, generated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichment_runs_refresh_generated
+                    ON public.topic_ai_enrichment_runs (refresh_reason, generated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_enrichment_runs_model_prompt_generated
+                    ON public.topic_ai_enrichment_runs (model_name, prompt_version, generated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    WITH ranked_duplicates AS (
+                        SELECT
+                            id,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY
+                                    topic_key,
+                                    as_of_window_end,
+                                    writer_identity,
+                                    prompt_version,
+                                    model_name,
+                                    input_hash,
+                                    COALESCE(refresh_reason, '')
+                                ORDER BY generated_at DESC, id DESC
+                            ) AS duplicate_rank
+                        FROM public.topic_ai_enrichment_runs
+                        WHERE generated_at >= TIMESTAMPTZ '2026-04-07 00:00:00+00'
+                    )
+                    DELETE FROM public.topic_ai_enrichment_runs runs
+                    USING ranked_duplicates duplicates
+                    WHERE runs.id = duplicates.id
+                      AND duplicates.duplicate_rank > 1
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS uq_topic_ai_enrichment_runs_run_fingerprint
+                    ON public.topic_ai_enrichment_runs (
+                        topic_key,
+                        as_of_window_end,
+                        writer_identity,
+                        prompt_version,
+                        model_name,
+                        input_hash,
+                        COALESCE(refresh_reason, '')
+                    )
+                    WHERE generated_at >= TIMESTAMPTZ '2026-04-07 00:00:00+00'
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS public.topic_ai_writer_heartbeats (
+                        writer_identity TEXT NOT NULL,
+                        deployment_id TEXT NOT NULL,
+                        instance_id TEXT NOT NULL,
+                        writer_role TEXT NOT NULL,
+                        authoritative_writer BOOLEAN NOT NULL DEFAULT false,
+                        model_name TEXT,
+                        prompt_version TEXT,
+                        code_version TEXT,
+                        status TEXT NOT NULL DEFAULT 'idle',
+                        last_reason TEXT,
+                        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        last_started_at TIMESTAMPTZ,
+                        last_completed_at TIMESTAMPTZ,
+                        last_write_at TIMESTAMPTZ,
+                        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        PRIMARY KEY (writer_identity, deployment_id, instance_id)
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_topic_ai_writer_heartbeats_seen
+                    ON public.topic_ai_writer_heartbeats (last_seen_at DESC)
                     """
                 )
                 cursor.execute(
@@ -1214,7 +2333,12 @@ class PostgresStore:
 
         self._execute_write("reset_stable_topic_read_models", operation)
 
-    def sync_post_topic_mentions_from_post_topics(self, *, lookback_hours: int = 72) -> int:
+    def sync_post_topic_mentions_from_post_topics(
+        self,
+        *,
+        lookback_hours: int = 72,
+        statement_timeout_seconds: float | None = None,
+    ) -> int:
         lookback_hours = max(1, int(lookback_hours))
         weak_tokens = sorted(set(TOPIC_GENERIC_WEAK_TOKENS))
         noise_tokens = sorted(set(TOPIC_NOISE_TOKENS))
@@ -1224,6 +2348,7 @@ class PostgresStore:
 
         def operation(connection: psycopg.Connection[Any]) -> int:
             with connection.cursor() as cursor:
+                self._apply_statement_timeout(cursor, statement_timeout_seconds)
                 cursor.execute(
                     """
                     SELECT
@@ -1533,6 +2658,7 @@ class PostgresStore:
         recompute_hours: int = 48,
         series_max_topics: int = 300,
         series_min_mentions: int = 2,
+        statement_timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         lag_minutes = max(1, int(lag_minutes))
         recompute_hours = max(1, int(recompute_hours))
@@ -1549,6 +2675,24 @@ class PostgresStore:
             )
             cursor.execute(
                 """
+                WITH mention_labels AS (
+                    SELECT topic_key, topic_label
+                    FROM (
+                        SELECT
+                            m.topic_key,
+                            NULLIF(BTRIM(m.topic_label), '') AS topic_label,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY m.topic_key
+                                ORDER BY COUNT(*) DESC, LENGTH(NULLIF(BTRIM(m.topic_label), '')) DESC, NULLIF(BTRIM(m.topic_label), '') ASC
+                            ) AS label_rank
+                        FROM public.post_topic_mentions m
+                        WHERE (m.event_timestamp AT TIME ZONE 'utc')::date = %s::date
+                          AND COALESCE(m.topic_confidence, 0) >= 0.34
+                          AND NULLIF(BTRIM(m.topic_label), '') IS NOT NULL
+                        GROUP BY m.topic_key, NULLIF(BTRIM(m.topic_label), '')
+                    ) ranked
+                    WHERE label_rank = 1
+                )
                 INSERT INTO public.topic_day_totals (
                     day,
                     topic_key,
@@ -1568,7 +2712,7 @@ class PostgresStore:
                 SELECT
                     %s::date AS day,
                     b.topic_key,
-                    COALESCE(t.canonical_label, INITCAP(b.topic_key)) AS topic_label,
+                    COALESCE(t.canonical_label, ml.topic_label, INITCAP(b.topic_key)) AS topic_label,
                     COUNT(DISTINCT b.platform)::int AS platform_count,
                     SUM(b.mention_count)::int AS total_mentions,
                     SUM(b.unique_posts)::int AS unique_posts,
@@ -1588,11 +2732,13 @@ class PostgresStore:
                 FROM public.topic_buckets_1m_final b
                 LEFT JOIN public.topics t
                   ON t.topic_key = b.topic_key
+                LEFT JOIN mention_labels ml
+                  ON ml.topic_key = b.topic_key
                 WHERE (b.bucket_minute AT TIME ZONE 'utc')::date = %s::date
-                GROUP BY b.topic_key, COALESCE(t.canonical_label, INITCAP(b.topic_key))
+                GROUP BY b.topic_key, COALESCE(t.canonical_label, ml.topic_label, INITCAP(b.topic_key))
                 HAVING SUM(b.mention_count) >= 2
                 """,
-                (day_value, day_value),
+                (day_value, day_value, day_value),
             )
             return int(cursor.rowcount or 0)
 
@@ -1690,6 +2836,25 @@ class PostgresStore:
             cursor.execute("DELETE FROM public.topic_rolling_24h")
             cursor.execute(
                 """
+                WITH mention_labels AS (
+                    SELECT topic_key, topic_label
+                    FROM (
+                        SELECT
+                            m.topic_key,
+                            NULLIF(BTRIM(m.topic_label), '') AS topic_label,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY m.topic_key
+                                ORDER BY COUNT(*) DESC, LENGTH(NULLIF(BTRIM(m.topic_label), '')) DESC, NULLIF(BTRIM(m.topic_label), '') ASC
+                            ) AS label_rank
+                        FROM public.post_topic_mentions m
+                        WHERE m.event_timestamp >= %s::timestamptz
+                          AND m.event_timestamp < %s::timestamptz
+                          AND COALESCE(m.topic_confidence, 0) >= 0.34
+                          AND NULLIF(BTRIM(m.topic_label), '') IS NOT NULL
+                        GROUP BY m.topic_key, NULLIF(BTRIM(m.topic_label), '')
+                    ) ranked
+                    WHERE label_rank = 1
+                )
                 INSERT INTO public.topic_rolling_24h (
                     topic_key,
                     topic_label,
@@ -1709,7 +2874,7 @@ class PostgresStore:
                 )
                 SELECT
                     m.topic_key,
-                    COALESCE(t.canonical_label, MAX(NULLIF(TRIM(m.topic_label), '')), INITCAP(m.topic_key)) AS topic_label,
+                    COALESCE(t.canonical_label, ml.topic_label, INITCAP(m.topic_key)) AS topic_label,
                     COUNT(DISTINCT m.platform)::int AS platform_count,
                     COUNT(*)::int AS total_mentions,
                     COUNT(DISTINCT m.raw_post_id)::int AS unique_posts,
@@ -1726,18 +2891,21 @@ class PostgresStore:
                 FROM public.post_topic_mentions m
                 LEFT JOIN public.topics t
                   ON t.topic_key = m.topic_key
+                LEFT JOIN mention_labels ml
+                  ON ml.topic_key = m.topic_key
                 WHERE m.event_timestamp >= %s::timestamptz
                   AND m.event_timestamp < %s::timestamptz
                   AND COALESCE(m.topic_confidence, 0) >= 0.34
-                GROUP BY m.topic_key, t.canonical_label
+                GROUP BY m.topic_key, t.canonical_label, ml.topic_label
                 HAVING COUNT(*) >= 2
                 """,
-                (window_start, window_end, window_start, window_end),
+                (window_start, window_end, window_start, window_end, window_start, window_end),
             )
             return int(cursor.rowcount or 0)
 
         def operation(connection: psycopg.Connection[Any]) -> dict[str, Any]:
             with connection.cursor() as cursor:
+                self._apply_statement_timeout(cursor, statement_timeout_seconds)
                 cursor.execute(
                     """
                     SELECT
@@ -1888,7 +3056,1120 @@ class PostgresStore:
 
         return self._execute_write("refresh_stable_topic_read_models", operation)
 
-    def fetch_top_topics_for_enrichment(self, *, limit: int = 250) -> list[dict[str, Any]]:
+    def verify_memecoin_correlation_tables(self) -> dict[str, Any]:
+        required_tables = [
+            "public.memecoin_assets",
+            "public.memecoin_correlation_runs",
+            "public.memecoin_market_snapshots",
+            "public.memecoin_correlation_results",
+            "public.memecoin_correlation_links",
+            "public.trend_memecoin_links",
+        ]
+        required_columns = {
+            "memecoin_assets": {
+                "pair_address",
+                "is_live",
+                "last_validated_at",
+                "validation_status",
+                "validation_reason",
+                "last_seen_liquidity_usd",
+                "last_seen_volume_h24",
+                "last_seen_txns_h24",
+                "tradingview_symbol",
+                "tradingview_exchange",
+                "tradingview_embed_symbol",
+                "tv_resolution_status",
+                "tv_verified_at",
+                "tv_last_checked_at",
+                "tv_failure_reason",
+                "tv_search_evidence_json",
+                "has_verified_tradingview_preview",
+            }
+        }
+
+        def operation(connection: psycopg.Connection[Any]) -> dict[str, Any]:
+            missing: list[str] = []
+            missing_columns: dict[str, list[str]] = {}
+            with connection.cursor() as cursor:
+                for table_name in required_tables:
+                    cursor.execute("SELECT to_regclass(%s)", (table_name,))
+                    row = cursor.fetchone()
+                    if not row or row[0] is None:
+                        missing.append(table_name)
+                if not missing:
+                    for table_name, columns in required_columns.items():
+                        cursor.execute(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = 'public'
+                              AND table_name = %s
+                            """,
+                            (table_name,),
+                        )
+                        available = {str(row[0] or "").strip() for row in cursor.fetchall()}
+                        missing_for_table = sorted(columns - available)
+                        if missing_for_table:
+                            missing_columns[table_name] = missing_for_table
+            return {
+                "available": len(missing) == 0 and len(missing_columns) == 0,
+                "missing_tables": missing,
+                "missing_columns": missing_columns,
+            }
+
+        return self._run_with_retry("verify_memecoin_correlation_tables", operation)
+
+    def fetch_memecoin_candidate_trends(self, *, limit: int = 80) -> list[dict[str, Any]]:
+        normalized_limit = max(1, int(limit))
+
+        def operation(connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        to_regclass('public.topic_rolling_24h'),
+                        to_regclass('public.topic_ai_enrichments')
+                    """
+                )
+                relations = cursor.fetchone() or (None, None)
+                if not relations[0]:
+                    return []
+
+                if relations[1]:
+                    key_entities_expression = "COALESCE(e.key_entities, '{}'::text[])"
+                    if self._expects_json("topic_ai_enrichments", "key_entities"):
+                        key_entities_expression = """
+                            CASE
+                                WHEN jsonb_typeof(COALESCE(e.key_entities, '[]'::jsonb)) = 'array'
+                                    THEN COALESCE(
+                                        ARRAY(
+                                            SELECT jsonb_array_elements_text(
+                                                COALESCE(e.key_entities, '[]'::jsonb)
+                                            )
+                                        ),
+                                        ARRAY[]::text[]
+                                    )
+                                ELSE ARRAY[]::text[]
+                            END
+                        """
+                    fallback_label_select = "NULL::text AS fallback_label"
+                    if self._has_column("topic_ai_enrichments", "fallback_label"):
+                        fallback_label_select = "fallback_label"
+                    name_status_select = "NULL::text AS name_status"
+                    if self._has_column("topic_ai_enrichments", "name_status"):
+                        name_status_select = "name_status"
+                    name_source_select = "NULL::text AS name_source"
+                    if self._has_column("topic_ai_enrichments", "name_source"):
+                        name_source_select = "name_source"
+                    representative_post_count_select = "0::integer AS representative_post_count"
+                    if self._has_column("topic_ai_enrichments", "representative_post_count"):
+                        representative_post_count_select = "representative_post_count"
+                    cursor.execute(
+                        f"""
+                        SELECT
+                            r.topic_key,
+                            COALESCE(
+                                CASE
+                                    WHEN COALESCE(NULLIF(TRIM(e.name_status), ''), '') = 'ready'
+                                     AND COALESCE(NULLIF(TRIM(e.name_source), ''), '') IN (
+                                        'ai_exact',
+                                        'historical_exact',
+                                        'historical_alias'
+                                     )
+                                     AND NULLIF(TRIM(e.canonical_name), '') IS NOT NULL
+                                        THEN NULLIF(TRIM(e.canonical_name), '')
+                                    ELSE NULL
+                                END,
+                                NULLIF(TRIM(e.fallback_label), ''),
+                                NULLIF(TRIM(e.raw_label), ''),
+                                NULLIF(TRIM(r.topic_label), ''),
+                                r.topic_key
+                            ) AS display_label,
+                            NULLIF(TRIM(e.canonical_name), '') AS canonical_name,
+                            COALESCE(
+                                NULLIF(TRIM(e.raw_label), ''),
+                                NULLIF(TRIM(r.topic_label), ''),
+                                r.topic_key
+                            ) AS raw_label,
+                            NULLIF(TRIM(e.fallback_label), '') AS fallback_label,
+                            NULLIF(TRIM(e.trend_category), '') AS trend_category,
+                            NULLIF(TRIM(e.narrative_summary), '') AS narrative_summary,
+                            NULLIF(TRIM(e.context_paragraph), '') AS context_paragraph,
+                            {key_entities_expression} AS key_entities,
+                            NULLIF(TRIM(e.status), '') AS enrichment_status,
+                            COALESCE(e.summary_confidence, 0)::double precision AS summary_confidence,
+                            NULLIF(TRIM(e.name_status), '') AS name_status,
+                            NULLIF(TRIM(e.name_source), '') AS name_source,
+                            COALESCE(e.representative_post_count, 0)::integer AS representative_post_count,
+                            r.total_mentions,
+                            r.unique_posts,
+                            r.unique_authors,
+                            r.updated_at,
+                            r.window_end
+                        FROM public.topic_rolling_24h r
+                        LEFT JOIN LATERAL (
+                            SELECT
+                                canonical_name,
+                                raw_label,
+                                trend_category,
+                                narrative_summary,
+                                context_paragraph,
+                                key_entities,
+                                status,
+                                summary_confidence,
+                                {fallback_label_select},
+                                {name_status_select},
+                                {name_source_select},
+                                {representative_post_count_select}
+                            FROM public.topic_ai_enrichments e
+                            WHERE e.topic_key = r.topic_key
+                            ORDER BY e.as_of_window_end DESC, e.generated_at DESC, e.id DESC
+                            LIMIT 1
+                        ) e ON TRUE
+                        ORDER BY r.total_mentions DESC, r.unique_posts DESC, r.topic_key ASC
+                        LIMIT %s
+                        """,
+                        (normalized_limit,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT
+                            r.topic_key,
+                            COALESCE(
+                                NULLIF(TRIM(r.topic_label), ''),
+                                r.topic_key
+                            ) AS display_label,
+                            NULL::text AS canonical_name,
+                            COALESCE(
+                                NULLIF(TRIM(r.topic_label), ''),
+                                r.topic_key
+                            ) AS raw_label,
+                            NULL::text AS fallback_label,
+                            NULL::text AS trend_category,
+                            NULL::text AS narrative_summary,
+                            NULL::text AS context_paragraph,
+                            '{}'::text[] AS key_entities,
+                            NULL::text AS enrichment_status,
+                            0::double precision AS summary_confidence,
+                            NULL::text AS name_status,
+                            NULL::text AS name_source,
+                            0::integer AS representative_post_count,
+                            r.total_mentions,
+                            r.unique_posts,
+                            r.unique_authors,
+                            r.updated_at,
+                            r.window_end
+                        FROM public.topic_rolling_24h r
+                        ORDER BY r.total_mentions DESC, r.unique_posts DESC, r.topic_key ASC
+                        LIMIT %s
+                        """,
+                        (normalized_limit,),
+                    )
+                rows = cursor.fetchall()
+
+                output: list[dict[str, Any]] = []
+                for row in rows:
+                    output.append(
+                        {
+                            "topic_key": str(row[0] or "").strip(),
+                            "display_label": str(row[1] or "").strip(),
+                            "canonical_name": str(row[2] or "").strip() or None,
+                            "raw_label": str(row[3] or "").strip(),
+                            "fallback_label": str(row[4] or "").strip() or None,
+                            "trend_category": str(row[5] or "").strip() or None,
+                            "narrative_summary": str(row[6] or "").strip() or None,
+                            "context_paragraph": str(row[7] or "").strip() or None,
+                            "key_entities": _normalize_text_list(row[8]),
+                            "enrichment_status": str(row[9] or "").strip() or None,
+                            "summary_confidence": float(row[10] or 0.0),
+                            "name_status": str(row[11] or "").strip() or None,
+                            "name_source": str(row[12] or "").strip() or None,
+                            "representative_post_count": int(row[13] or 0),
+                            "total_mentions": int(row[14] or 0),
+                            "unique_posts": int(row[15] or 0),
+                            "unique_authors": int(row[16] or 0),
+                            "last_seen_at": row[17],
+                            "window_end": row[18],
+                        }
+                    )
+            return [row for row in output if row.get("topic_key") and row.get("display_label")]
+
+        return self._run_with_retry("fetch_memecoin_candidate_trends", operation)
+
+    def fetch_memecoin_recent_posts_for_topics(
+        self,
+        *,
+        topic_keys: Sequence[str],
+        lookback_hours: int = 36,
+        per_topic_limit: int = 60,
+    ) -> list[dict[str, Any]]:
+        normalized_topic_keys = [
+            str(topic_key or "").strip()
+            for topic_key in topic_keys
+            if str(topic_key or "").strip()
+        ]
+        if not normalized_topic_keys:
+            return []
+        normalized_lookback_hours = max(1, int(lookback_hours))
+        normalized_per_topic_limit = max(1, int(per_topic_limit))
+
+        def operation(connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        to_regclass('public.post_topic_mentions'),
+                        to_regclass('public.processed_posts'),
+                        to_regclass('public.raw_posts')
+                    """
+                )
+                relations = cursor.fetchone() or (None, None, None)
+                if not relations[0]:
+                    return []
+
+                cursor.execute(
+                    """
+                    WITH ranked_posts AS (
+                        SELECT
+                            m.topic_key,
+                            COALESCE(
+                                NULLIF(TRIM(pp.normalized_text), ''),
+                                NULLIF(TRIM(pp.clean_text), ''),
+                                NULLIF(TRIM(rp.text_content), ''),
+                                NULLIF(TRIM(rp.raw_text), '')
+                            ) AS text_content,
+                            COALESCE(pp.cashtags, '{}'::text[]) AS cashtags,
+                            COALESCE(pp.hashtags, '{}'::text[]) AS hashtags,
+                            COALESCE(pp.key_phrases, '{}'::text[]) AS key_phrases,
+                            COALESCE(pp.topic_seeds, '{}'::text[]) AS topic_seeds,
+                            COALESCE(pp.tags, '{}'::text[]) AS tags,
+                            m.event_timestamp,
+                            COALESCE(pp.quality_score, m.quality_score, 0)::double precision AS quality_score,
+                            COALESCE(rp.like_count, 0)::int AS like_count,
+                            COALESCE(rp.repost_count, 0)::int AS repost_count,
+                            COALESCE(rp.reply_count, 0)::int AS reply_count,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY m.topic_key
+                                ORDER BY
+                                    m.event_timestamp DESC,
+                                    COALESCE(pp.quality_score, m.quality_score, 0) DESC,
+                                    m.raw_post_id DESC
+                            ) AS topic_row_number
+                        FROM public.post_topic_mentions m
+                        LEFT JOIN public.processed_posts pp
+                          ON pp.id = m.processed_post_id
+                        LEFT JOIN public.raw_posts rp
+                          ON rp.id = m.raw_post_id
+                        WHERE m.topic_key = ANY(%s::text[])
+                          AND m.event_timestamp >= now() - make_interval(hours => %s)
+                    )
+                    SELECT
+                        topic_key,
+                        text_content,
+                        cashtags,
+                        hashtags,
+                        key_phrases,
+                        topic_seeds,
+                        tags,
+                        event_timestamp,
+                        quality_score,
+                        like_count,
+                        repost_count,
+                        reply_count
+                    FROM ranked_posts
+                    WHERE topic_row_number <= %s
+                      AND COALESCE(TRIM(text_content), '') <> ''
+                    ORDER BY topic_key ASC, event_timestamp DESC
+                    """,
+                    (
+                        normalized_topic_keys,
+                        normalized_lookback_hours,
+                        normalized_per_topic_limit,
+                    ),
+                )
+                rows = cursor.fetchall()
+
+            output: list[dict[str, Any]] = []
+            for row in rows:
+                output.append(
+                    {
+                        "topic_key": str(row[0] or "").strip(),
+                        "text": str(row[1] or "").strip(),
+                        "cashtags": list(row[2] or []),
+                        "hashtags": list(row[3] or []),
+                        "key_phrases": list(row[4] or []),
+                        "topic_seeds": list(row[5] or []),
+                        "tags": list(row[6] or []),
+                        "created_at": row[7],
+                        "quality_score": float(row[8] or 0.0),
+                        "like_count": int(row[9] or 0),
+                        "repost_count": int(row[10] or 0),
+                        "reply_count": int(row[11] or 0),
+                    }
+                )
+            return output
+
+        return self._run_with_retry("fetch_memecoin_recent_posts_for_topics", operation)
+
+    def record_memecoin_correlation_run(
+        self,
+        *,
+        run_row: dict[str, Any],
+        asset_rows: Sequence[dict[str, Any]],
+        market_snapshot_rows: Sequence[dict[str, Any]],
+        result_rows: Sequence[dict[str, Any]],
+        link_rows: Sequence[dict[str, Any]],
+        selected_topic_keys: Sequence[str],
+        trend_memecoin_rows: Sequence[dict[str, Any]],
+    ) -> dict[str, Any]:
+        def operation(connection: psycopg.Connection[Any]) -> dict[str, Any]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO public.memecoin_correlation_runs (
+                        started_at,
+                        completed_at,
+                        status,
+                        reason,
+                        source,
+                        active_trend_count,
+                        discovery_token_count,
+                        eligible_token_count,
+                        published_result_count,
+                        request_count,
+                        cache_hit_count,
+                        stale_cache_hit_count,
+                        search_query_count,
+                        token_batch_count,
+                        notes_json
+                    ) VALUES (
+                        %(started_at)s,
+                        %(completed_at)s,
+                        %(status)s,
+                        %(reason)s,
+                        %(source)s,
+                        %(active_trend_count)s,
+                        %(discovery_token_count)s,
+                        %(eligible_token_count)s,
+                        %(published_result_count)s,
+                        %(request_count)s,
+                        %(cache_hit_count)s,
+                        %(stale_cache_hit_count)s,
+                        %(search_query_count)s,
+                        %(token_batch_count)s,
+                        %(notes_json)s
+                    )
+                    RETURNING run_id
+                    """,
+                    {
+                        **run_row,
+                        "notes_json": Jsonb(dict(run_row.get("notes_json") or {})),
+                    },
+                )
+                run_id_row = cursor.fetchone()
+                if not run_id_row:
+                    raise RuntimeError("Failed to insert memecoin correlation run")
+                run_id = int(run_id_row[0])
+
+                asset_id_by_key: dict[tuple[str, str], int] = {}
+                for row in asset_rows:
+                    cursor.execute(
+                        """
+                        INSERT INTO public.memecoin_assets (
+                            chain_id,
+                            token_address,
+                            pair_address,
+                            symbol,
+                            name,
+                            icon_url,
+                            header_url,
+                            description,
+                            dexscreener_url,
+                            is_live,
+                            last_validated_at,
+                            validation_status,
+                            validation_reason,
+                            last_seen_liquidity_usd,
+                            last_seen_volume_h24,
+                            last_seen_txns_h24,
+                            websites_json,
+                            socials_json,
+                            holder_count,
+                            metadata_json,
+                            tradingview_symbol,
+                            tradingview_exchange,
+                            tradingview_embed_symbol,
+                            tv_resolution_status,
+                            tv_verified_at,
+                            tv_last_checked_at,
+                            tv_failure_reason,
+                            tv_search_evidence_json,
+                            has_verified_tradingview_preview
+                        ) VALUES (
+                            %(chain_id)s,
+                            %(token_address)s,
+                            %(pair_address)s,
+                            %(symbol)s,
+                            %(name)s,
+                            %(icon_url)s,
+                            %(header_url)s,
+                            %(description)s,
+                            %(dexscreener_url)s,
+                            %(is_live)s,
+                            %(last_validated_at)s,
+                            %(validation_status)s,
+                            %(validation_reason)s,
+                            %(last_seen_liquidity_usd)s,
+                            %(last_seen_volume_h24)s,
+                            %(last_seen_txns_h24)s,
+                            %(websites_json)s,
+                            %(socials_json)s,
+                            %(holder_count)s,
+                            %(metadata_json)s,
+                            %(tradingview_symbol)s,
+                            %(tradingview_exchange)s,
+                            %(tradingview_embed_symbol)s,
+                            %(tv_resolution_status)s,
+                            %(tv_verified_at)s,
+                            %(tv_last_checked_at)s,
+                            %(tv_failure_reason)s,
+                            %(tv_search_evidence_json)s,
+                            %(has_verified_tradingview_preview)s
+                        )
+                        ON CONFLICT (chain_id, token_address) DO UPDATE
+                        SET symbol = EXCLUDED.symbol,
+                            name = EXCLUDED.name,
+                            pair_address = COALESCE(EXCLUDED.pair_address, public.memecoin_assets.pair_address),
+                            icon_url = COALESCE(EXCLUDED.icon_url, public.memecoin_assets.icon_url),
+                            header_url = COALESCE(EXCLUDED.header_url, public.memecoin_assets.header_url),
+                            description = COALESCE(EXCLUDED.description, public.memecoin_assets.description),
+                            dexscreener_url = COALESCE(EXCLUDED.dexscreener_url, public.memecoin_assets.dexscreener_url),
+                            is_live = EXCLUDED.is_live,
+                            last_validated_at = EXCLUDED.last_validated_at,
+                            validation_status = EXCLUDED.validation_status,
+                            validation_reason = EXCLUDED.validation_reason,
+                            last_seen_liquidity_usd = EXCLUDED.last_seen_liquidity_usd,
+                            last_seen_volume_h24 = EXCLUDED.last_seen_volume_h24,
+                            last_seen_txns_h24 = EXCLUDED.last_seen_txns_h24,
+                            websites_json = EXCLUDED.websites_json,
+                            socials_json = EXCLUDED.socials_json,
+                            holder_count = EXCLUDED.holder_count,
+                            metadata_json = EXCLUDED.metadata_json,
+                            tradingview_symbol = EXCLUDED.tradingview_symbol,
+                            tradingview_exchange = EXCLUDED.tradingview_exchange,
+                            tradingview_embed_symbol = EXCLUDED.tradingview_embed_symbol,
+                            tv_resolution_status = EXCLUDED.tv_resolution_status,
+                            tv_verified_at = EXCLUDED.tv_verified_at,
+                            tv_last_checked_at = EXCLUDED.tv_last_checked_at,
+                            tv_failure_reason = EXCLUDED.tv_failure_reason,
+                            tv_search_evidence_json = EXCLUDED.tv_search_evidence_json,
+                            has_verified_tradingview_preview = EXCLUDED.has_verified_tradingview_preview,
+                            updated_at = now()
+                        RETURNING asset_id
+                        """,
+                        {
+                            **row,
+                            "websites_json": Jsonb(list(row.get("websites_json") or [])),
+                            "socials_json": Jsonb(list(row.get("socials_json") or [])),
+                            "metadata_json": Jsonb(dict(row.get("metadata_json") or {})),
+                            "tv_search_evidence_json": Jsonb(
+                                dict(row.get("tv_search_evidence_json") or {})
+                            ),
+                        },
+                    )
+                    asset_row = cursor.fetchone()
+                    if not asset_row:
+                        raise RuntimeError("Failed to upsert memecoin asset")
+                    asset_id_by_key[(str(row["chain_id"]), str(row["token_address"]))] = int(asset_row[0])
+
+                snapshot_id_by_key: dict[tuple[str, str, str], int] = {}
+                for row in market_snapshot_rows:
+                    asset_id = asset_id_by_key.get((str(row["chain_id"]), str(row["token_address"])))
+                    if asset_id is None:
+                        continue
+                    cursor.execute(
+                        """
+                        INSERT INTO public.memecoin_market_snapshots (
+                            run_id,
+                            asset_id,
+                            pair_address,
+                            pair_url,
+                            quote_symbol,
+                            quote_token_address,
+                            quote_token_name,
+                            price_usd,
+                            liquidity_usd,
+                            volume_h24_usd,
+                            volume_h6_usd,
+                            volume_h1_usd,
+                            price_change_h24_pct,
+                            price_change_h6_pct,
+                            price_change_h1_pct,
+                            buys_h24,
+                            sells_h24,
+                            txns_h24,
+                            txns_h6,
+                            txns_h1,
+                            fdv_usd,
+                            market_cap_usd,
+                            pair_created_at,
+                            market_score,
+                            metadata_json
+                        ) VALUES (
+                            %(run_id)s,
+                            %(asset_id)s,
+                            %(pair_address)s,
+                            %(pair_url)s,
+                            %(quote_symbol)s,
+                            %(quote_token_address)s,
+                            %(quote_token_name)s,
+                            %(price_usd)s,
+                            %(liquidity_usd)s,
+                            %(volume_h24_usd)s,
+                            %(volume_h6_usd)s,
+                            %(volume_h1_usd)s,
+                            %(price_change_h24_pct)s,
+                            %(price_change_h6_pct)s,
+                            %(price_change_h1_pct)s,
+                            %(buys_h24)s,
+                            %(sells_h24)s,
+                            %(txns_h24)s,
+                            %(txns_h6)s,
+                            %(txns_h1)s,
+                            %(fdv_usd)s,
+                            %(market_cap_usd)s,
+                            %(pair_created_at)s,
+                            %(market_score)s,
+                            %(metadata_json)s
+                        )
+                        RETURNING snapshot_id
+                        """,
+                        {
+                            **row,
+                            "run_id": run_id,
+                            "asset_id": asset_id,
+                            "metadata_json": Jsonb(dict(row.get("metadata_json") or {})),
+                        },
+                    )
+                    snapshot_row = cursor.fetchone()
+                    if not snapshot_row:
+                        raise RuntimeError("Failed to insert memecoin market snapshot")
+                    snapshot_id_by_key[
+                        (str(row["chain_id"]), str(row["token_address"]), str(row["pair_address"]))
+                    ] = int(snapshot_row[0])
+
+                for row in result_rows:
+                    asset_id = asset_id_by_key.get((str(row["chain_id"]), str(row["token_address"])))
+                    snapshot_id = snapshot_id_by_key.get(
+                        (str(row["chain_id"]), str(row["token_address"]), str(row["pair_address"]))
+                    )
+                    if asset_id is None:
+                        continue
+                    cursor.execute(
+                        """
+                        INSERT INTO public.memecoin_correlation_results (
+                            run_id,
+                            asset_id,
+                            market_snapshot_id,
+                            rank,
+                            correlation_score,
+                            correlation_label,
+                            strongest_topic_key,
+                            strongest_topic_label,
+                            strongest_trend_category,
+                            strongest_narrative_summary,
+                            market_score,
+                            lexical_score,
+                            mention_score,
+                            timing_score,
+                            culture_fit_score,
+                            support_post_count,
+                            support_interaction_score,
+                            is_political_dominant,
+                            dexscreener_url
+                        ) VALUES (
+                            %(run_id)s,
+                            %(asset_id)s,
+                            %(market_snapshot_id)s,
+                            %(rank)s,
+                            %(correlation_score)s,
+                            %(correlation_label)s,
+                            %(strongest_topic_key)s,
+                            %(strongest_topic_label)s,
+                            %(strongest_trend_category)s,
+                            %(strongest_narrative_summary)s,
+                            %(market_score)s,
+                            %(lexical_score)s,
+                            %(mention_score)s,
+                            %(timing_score)s,
+                            %(culture_fit_score)s,
+                            %(support_post_count)s,
+                            %(support_interaction_score)s,
+                            %(is_political_dominant)s,
+                            %(dexscreener_url)s
+                        )
+                        """,
+                        {
+                            **row,
+                            "run_id": run_id,
+                            "asset_id": asset_id,
+                            "market_snapshot_id": snapshot_id,
+                        },
+                    )
+
+                for row in link_rows:
+                    asset_id = asset_id_by_key.get((str(row["chain_id"]), str(row["token_address"])))
+                    if asset_id is None:
+                        continue
+                    cursor.execute(
+                        """
+                        INSERT INTO public.memecoin_correlation_links (
+                            run_id,
+                            asset_id,
+                            topic_key,
+                            topic_label,
+                            trend_category,
+                            narrative_summary,
+                            lexical_score,
+                            mention_score,
+                            timing_score,
+                            culture_fit_score,
+                            link_score,
+                            support_post_count,
+                            support_interaction_score,
+                            is_primary
+                        ) VALUES (
+                            %(run_id)s,
+                            %(asset_id)s,
+                            %(topic_key)s,
+                            %(topic_label)s,
+                            %(trend_category)s,
+                            %(narrative_summary)s,
+                            %(lexical_score)s,
+                            %(mention_score)s,
+                            %(timing_score)s,
+                            %(culture_fit_score)s,
+                            %(link_score)s,
+                            %(support_post_count)s,
+                            %(support_interaction_score)s,
+                            %(is_primary)s
+                        )
+                        """,
+                        {
+                            **row,
+                            "run_id": run_id,
+                            "asset_id": asset_id,
+                        },
+                    )
+
+                normalized_status = str(run_row.get("status") or "").strip().lower()
+                if normalized_status in {"succeeded", "completed_no_results"}:
+                    cursor.execute(
+                        """
+                        DELETE FROM public.trend_memecoin_links
+                        """,
+                    )
+
+                for row in trend_memecoin_rows:
+                    cursor.execute(
+                        """
+                        INSERT INTO public.trend_memecoin_links (
+                            topic_key,
+                            topic_label,
+                            rank,
+                            chain_id,
+                            coin_address,
+                            pair_address,
+                            dexscreener_url,
+                            coin_symbol,
+                            coin_name,
+                            confidence_score,
+                            confidence_band,
+                            mention_count,
+                            engagement_score,
+                            age_hours,
+                            liquidity,
+                            volume_24h,
+                            market_score,
+                            memecoin_fit_score,
+                            why_linked,
+                            match_reasons_json,
+                            raw_match_signals_json,
+                            source_run_id,
+                            last_updated_at
+                        ) VALUES (
+                            %(topic_key)s,
+                            %(topic_label)s,
+                            %(rank)s,
+                            %(chain_id)s,
+                            %(coin_address)s,
+                            %(pair_address)s,
+                            %(dexscreener_url)s,
+                            %(coin_symbol)s,
+                            %(coin_name)s,
+                            %(confidence_score)s,
+                            %(confidence_band)s,
+                            %(mention_count)s,
+                            %(engagement_score)s,
+                            %(age_hours)s,
+                            %(liquidity)s,
+                            %(volume_24h)s,
+                            %(market_score)s,
+                            %(memecoin_fit_score)s,
+                            %(why_linked)s,
+                            %(match_reasons_json)s,
+                            %(raw_match_signals_json)s,
+                            %(source_run_id)s,
+                            now()
+                        )
+                        """,
+                        {
+                            **row,
+                            "match_reasons_json": Jsonb(
+                                row.get("match_reasons_json")
+                                if isinstance(row.get("match_reasons_json"), list)
+                                else []
+                            ),
+                            "raw_match_signals_json": Jsonb(
+                                row.get("raw_match_signals_json")
+                                if isinstance(row.get("raw_match_signals_json"), dict)
+                                else {}
+                            ),
+                            "source_run_id": run_id,
+                        },
+                    )
+
+                return {
+                    "run_id": run_id,
+                    "asset_count": len(asset_id_by_key),
+                    "snapshot_count": len(snapshot_id_by_key),
+                    "result_count": len(result_rows),
+                    "link_count": len(link_rows),
+                    "trend_memecoin_count": len(trend_memecoin_rows),
+                }
+
+        return self._execute_write("record_memecoin_correlation_run", operation)
+
+    def fetch_memecoin_tradingview_states(
+        self,
+        *,
+        asset_keys: Sequence[tuple[str, str]],
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        normalized_keys = [
+            (str(chain_id or "").strip().lower(), str(token_address or "").strip())
+            for chain_id, token_address in asset_keys
+            if str(chain_id or "").strip() and str(token_address or "").strip()
+        ]
+        if not normalized_keys:
+            return {}
+        if not self._has_column("memecoin_assets", "has_verified_tradingview_preview"):
+            return {}
+
+        unique_chains = sorted({chain_id for chain_id, _token_address in normalized_keys})
+        unique_addresses = sorted({token_address for _chain_id, token_address in normalized_keys})
+        key_set = set(normalized_keys)
+
+        def operation(connection: psycopg.Connection[Any]) -> dict[tuple[str, str], dict[str, Any]]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        chain_id,
+                        token_address,
+                        tradingview_symbol,
+                        tradingview_exchange,
+                        tradingview_embed_symbol,
+                        tv_resolution_status,
+                        tv_verified_at,
+                        tv_last_checked_at,
+                        tv_failure_reason,
+                        tv_search_evidence_json,
+                        has_verified_tradingview_preview
+                    FROM public.memecoin_assets
+                    WHERE chain_id = ANY(%s::text[])
+                      AND token_address = ANY(%s::text[])
+                    """,
+                    (unique_chains, unique_addresses),
+                )
+                rows = cursor.fetchall()
+
+            output: dict[tuple[str, str], dict[str, Any]] = {}
+            for row in rows:
+                key = (str(row[0] or "").strip().lower(), str(row[1] or "").strip())
+                if key not in key_set:
+                    continue
+                output[key] = {
+                    "chain_id": key[0],
+                    "token_address": key[1],
+                    "tradingview_symbol": str(row[2] or "").strip() or None,
+                    "tradingview_exchange": str(row[3] or "").strip() or None,
+                    "tradingview_embed_symbol": str(row[4] or "").strip() or None,
+                    "tv_resolution_status": str(row[5] or "").strip() or None,
+                    "tv_verified_at": row[6].isoformat() if row[6] else None,
+                    "tv_last_checked_at": row[7].isoformat() if row[7] else None,
+                    "tv_failure_reason": str(row[8] or "").strip() or None,
+                    "tv_search_evidence_json": dict(row[9] or {}) if isinstance(row[9], dict) else {},
+                    "has_verified_tradingview_preview": bool(row[10]),
+                }
+            return output
+
+        return self._run_with_retry("fetch_memecoin_tradingview_states", operation)
+
+    def upsert_memecoin_tradingview_preview_states(
+        self,
+        *,
+        rows: Sequence[dict[str, Any]],
+    ) -> int:
+        normalized_rows = [
+            row
+            for row in rows
+            if str(row.get("chain_id") or "").strip()
+            and str(row.get("token_address") or "").strip()
+        ]
+        if not normalized_rows:
+            return 0
+        if not self._has_column("memecoin_assets", "has_verified_tradingview_preview"):
+            raise RuntimeError(
+                "memecoin TradingView preview columns are missing; apply the TradingView preview migration first"
+            )
+
+        def operation(connection: psycopg.Connection[Any]) -> int:
+            updated = 0
+            with connection.cursor() as cursor:
+                for row in normalized_rows:
+                    cursor.execute(
+                        """
+                        UPDATE public.memecoin_assets
+                        SET tradingview_symbol = %(tradingview_symbol)s,
+                            tradingview_exchange = %(tradingview_exchange)s,
+                            tradingview_embed_symbol = %(tradingview_embed_symbol)s,
+                            tv_resolution_status = %(tv_resolution_status)s,
+                            tv_verified_at = %(tv_verified_at)s,
+                            tv_last_checked_at = %(tv_last_checked_at)s,
+                            tv_failure_reason = %(tv_failure_reason)s,
+                            tv_search_evidence_json = %(tv_search_evidence_json)s,
+                            has_verified_tradingview_preview = %(has_verified_tradingview_preview)s,
+                            metadata_json = COALESCE(metadata_json, '{}'::jsonb) || %(metadata_patch)s,
+                            updated_at = now()
+                        WHERE chain_id = %(chain_id)s
+                          AND token_address = %(token_address)s
+                        """,
+                        {
+                            **row,
+                            "tv_search_evidence_json": Jsonb(
+                                dict(row.get("tv_search_evidence_json") or {})
+                            ),
+                            "metadata_patch": Jsonb(
+                                {
+                                    "tradingview_symbol": row.get("tradingview_symbol"),
+                                    "tradingview_exchange": row.get("tradingview_exchange"),
+                                    "tradingview_embed_symbol": row.get("tradingview_embed_symbol"),
+                                    "tv_resolution_status": row.get("tv_resolution_status"),
+                                    "tv_failure_reason": row.get("tv_failure_reason"),
+                                    "has_verified_tradingview_preview": bool(
+                                        row.get("has_verified_tradingview_preview")
+                                    ),
+                                }
+                            ),
+                        },
+                    )
+                    updated += int(cursor.rowcount or 0)
+            return updated
+
+        return self._execute_write("upsert_memecoin_tradingview_preview_states", operation)
+
+    def fetch_memecoin_preview_backfill_candidates(
+        self,
+        *,
+        limit: int = 500,
+        unresolved_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        normalized_limit = max(1, int(limit))
+        if not self._has_column("memecoin_assets", "has_verified_tradingview_preview"):
+            raise RuntimeError(
+                "memecoin TradingView preview columns are missing; apply the TradingView preview migration first"
+            )
+
+        unresolved_filter = (
+            "AND COALESCE(a.has_verified_tradingview_preview, FALSE) = FALSE"
+            if unresolved_only
+            else ""
+        )
+
+        def operation(connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    WITH recent_runs AS (
+                        SELECT run_id, completed_at
+                        FROM public.memecoin_correlation_runs
+                        WHERE status = 'succeeded'
+                          AND published_result_count > 0
+                        ORDER BY completed_at DESC, run_id DESC
+                        LIMIT 12
+                    ),
+                    recent_assets AS (
+                        SELECT
+                            r.asset_id,
+                            MAX(rr.completed_at) AS last_published_at
+                        FROM public.memecoin_correlation_results r
+                        INNER JOIN recent_runs rr
+                          ON rr.run_id = r.run_id
+                        GROUP BY r.asset_id
+                    )
+                    SELECT
+                        a.chain_id,
+                        a.token_address,
+                        a.symbol,
+                        a.name,
+                        a.dexscreener_url,
+                        a.tradingview_symbol,
+                        a.tradingview_exchange,
+                        a.tradingview_embed_symbol,
+                        a.tv_resolution_status,
+                        a.tv_verified_at,
+                        a.tv_last_checked_at,
+                        a.tv_failure_reason,
+                        a.tv_search_evidence_json,
+                        a.has_verified_tradingview_preview,
+                        s.pair_address,
+                        s.pair_url,
+                        s.quote_symbol,
+                        s.quote_token_name,
+                        s.metadata_json
+                    FROM public.memecoin_assets a
+                    LEFT JOIN recent_assets ra
+                      ON ra.asset_id = a.asset_id
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            pair_address,
+                            pair_url,
+                            quote_symbol,
+                            quote_token_name,
+                            metadata_json
+                        FROM public.memecoin_market_snapshots s
+                        WHERE s.asset_id = a.asset_id
+                        ORDER BY s.recorded_at DESC, s.snapshot_id DESC
+                        LIMIT 1
+                    ) s ON TRUE
+                    WHERE 1 = 1
+                    {unresolved_filter}
+                    ORDER BY
+                        CASE WHEN ra.asset_id IS NULL THEN 1 ELSE 0 END ASC,
+                        COALESCE(ra.last_published_at, a.updated_at, a.created_at) DESC,
+                        COALESCE(a.tv_last_checked_at, a.updated_at, a.created_at) ASC,
+                        a.updated_at DESC,
+                        a.asset_id DESC
+                    LIMIT %s
+                    """,
+                    (normalized_limit,),
+                )
+                rows = cursor.fetchall()
+
+            output: list[dict[str, Any]] = []
+            for row in rows:
+                market_metadata = dict(row[18] or {}) if isinstance(row[18], dict) else {}
+                output.append(
+                    {
+                        "chain_id": str(row[0] or "").strip().lower(),
+                        "token_address": str(row[1] or "").strip(),
+                        "symbol": str(row[2] or "").strip(),
+                        "name": str(row[3] or "").strip(),
+                        "dexscreener_url": str(row[4] or row[15] or "").strip() or None,
+                        "tradingview_symbol": str(row[5] or "").strip() or None,
+                        "tradingview_exchange": str(row[6] or "").strip() or None,
+                        "tradingview_embed_symbol": str(row[7] or "").strip() or None,
+                        "tv_resolution_status": str(row[8] or "").strip() or None,
+                        "tv_verified_at": row[9].isoformat() if row[9] else None,
+                        "tv_last_checked_at": row[10].isoformat() if row[10] else None,
+                        "tv_failure_reason": str(row[11] or "").strip() or None,
+                        "tv_search_evidence_json": dict(row[12] or {}) if isinstance(row[12], dict) else {},
+                        "has_verified_tradingview_preview": bool(row[13]),
+                        "pair_address": str(row[14] or "").strip() or None,
+                        "pair_url": str(row[15] or "").strip() or None,
+                        "quote_symbol": str(row[16] or "").strip() or None,
+                        "quote_token_name": str(row[17] or "").strip() or None,
+                        "dex_id": str(
+                            market_metadata.get("dex_id") or market_metadata.get("dexId") or ""
+                        ).strip()
+                        or None,
+                        "pair_labels": _normalize_text_list(
+                            market_metadata.get("pair_labels") or market_metadata.get("pairLabels")
+                        ),
+                    }
+                )
+            return output
+
+        return self._run_with_retry("fetch_memecoin_preview_backfill_candidates", operation)
+
+    def fetch_recent_memecoin_publication_stats(
+        self,
+        *,
+        limit_runs: int = 8,
+    ) -> list[dict[str, Any]]:
+        normalized_limit = max(1, int(limit_runs))
+
+        def operation(connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    WITH recent_runs AS (
+                        SELECT run_id, completed_at
+                        FROM public.memecoin_correlation_runs
+                        WHERE status = 'succeeded'
+                          AND published_result_count > 0
+                        ORDER BY completed_at DESC, run_id DESC
+                        LIMIT %s
+                    )
+                    SELECT
+                        rr.run_id,
+                        rr.completed_at,
+                        a.chain_id,
+                        a.token_address,
+                        a.symbol,
+                        a.name,
+                        r.rank,
+                        r.correlation_score,
+                        r.strongest_topic_key,
+                        r.strongest_topic_label
+                    FROM recent_runs rr
+                    INNER JOIN public.memecoin_correlation_results r
+                      ON r.run_id = rr.run_id
+                    INNER JOIN public.memecoin_assets a
+                      ON a.asset_id = r.asset_id
+                    ORDER BY rr.completed_at DESC, r.rank ASC, r.result_id DESC
+                    """,
+                    (normalized_limit,),
+                )
+                rows = cursor.fetchall()
+
+            output: list[dict[str, Any]] = []
+            for row in rows:
+                output.append(
+                    {
+                        "run_id": int(row[0] or 0),
+                        "completed_at": row[1],
+                        "chain_id": str(row[2] or "").strip().lower(),
+                        "token_address": str(row[3] or "").strip(),
+                        "symbol": str(row[4] or "").strip(),
+                        "name": str(row[5] or "").strip(),
+                        "rank": int(row[6] or 0),
+                        "correlation_score": float(row[7] or 0.0),
+                        "strongest_topic_key": str(row[8] or "").strip(),
+                        "strongest_topic_label": str(row[9] or "").strip(),
+                    }
+                )
+            return output
+
+        return self._run_with_retry("fetch_recent_memecoin_publication_stats", operation)
+
+    def fetch_top_topics_for_enrichment(
+        self,
+        *,
+        limit: int = 250,
+        prioritize_pending_titles: bool = False,
+    ) -> list[dict[str, Any]]:
         normalized_limit = max(1, int(limit))
 
         def operation(connection: psycopg.Connection[Any]) -> list[dict[str, Any]]:
@@ -1897,28 +4178,79 @@ class PostgresStore:
                 relation = cursor.fetchone()
                 if not relation or relation[0] is None:
                     return []
+                enrichment_relation = None
+                if prioritize_pending_titles:
+                    cursor.execute("SELECT to_regclass('public.topic_ai_enrichments')")
+                    enrichment_relation = cursor.fetchone()
 
-                cursor.execute(
-                    """
-                    SELECT
-                        topic_key,
-                        topic_label,
-                        platform_count,
-                        total_mentions,
-                        unique_posts,
-                        unique_authors,
-                        positive_count,
-                        neutral_count,
-                        negative_count,
-                        window_start,
-                        window_end,
-                        updated_at
-                    FROM public.topic_rolling_24h
-                    ORDER BY total_mentions DESC, unique_posts DESC, topic_key ASC
-                    LIMIT %s
-                    """,
-                    (normalized_limit,),
-                )
+                if prioritize_pending_titles and enrichment_relation and enrichment_relation[0] is not None:
+                    cursor.execute(
+                        """
+                        SELECT
+                            r.topic_key,
+                            r.topic_label,
+                            r.platform_count,
+                            r.total_mentions,
+                            r.unique_posts,
+                            r.unique_authors,
+                            r.positive_count,
+                            r.neutral_count,
+                            r.negative_count,
+                            r.window_start,
+                            r.window_end,
+                            r.updated_at
+                        FROM public.topic_rolling_24h r
+                        LEFT JOIN LATERAL (
+                            SELECT
+                                NULLIF(TRIM(canonical_name), '') AS canonical_name,
+                                COALESCE(NULLIF(TRIM(name_status), ''), 'pending') AS name_status,
+                                COALESCE(NULLIF(TRIM(name_source), ''), 'none') AS name_source
+                            FROM public.topic_ai_enrichments e
+                            WHERE e.topic_key = r.topic_key
+                            ORDER BY e.as_of_window_end DESC, e.generated_at DESC, e.id DESC
+                            LIMIT 1
+                        ) latest_name ON TRUE
+                        ORDER BY
+                            CASE
+                                WHEN latest_name.name_status = 'ready'
+                                 AND latest_name.name_source IN (
+                                    'ai_exact',
+                                    'historical_exact',
+                                    'historical_alias'
+                                 )
+                                 AND latest_name.canonical_name IS NOT NULL
+                                    THEN 1
+                                ELSE 0
+                            END ASC,
+                            r.total_mentions DESC,
+                            r.unique_posts DESC,
+                            r.topic_key ASC
+                        LIMIT %s
+                        """,
+                        (normalized_limit,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT
+                            topic_key,
+                            topic_label,
+                            platform_count,
+                            total_mentions,
+                            unique_posts,
+                            unique_authors,
+                            positive_count,
+                            neutral_count,
+                            negative_count,
+                            window_start,
+                            window_end,
+                            updated_at
+                        FROM public.topic_rolling_24h
+                        ORDER BY total_mentions DESC, unique_posts DESC, topic_key ASC
+                        LIMIT %s
+                        """,
+                        (normalized_limit,),
+                    )
                 rows = cursor.fetchall()
 
             topics: list[dict[str, Any]] = []
@@ -2097,22 +4429,72 @@ class PostgresStore:
                     SELECT DISTINCT ON (topic_key)
                         topic_key,
                         as_of_window_end,
+                        canonical_name,
+                        ai_display_name,
+                        fallback_label,
+                        status,
+                        name_status,
+                        ai_name_status,
+                        name_source,
+                        short_description,
+                        context_paragraph,
+                        narrative_summary,
+                        why_attention,
+                        trend_category,
+                        key_entities,
+                        abstain_reason,
                         input_hash,
                         prompt_version,
                         model_name,
                         generated_at,
+                        ai_name_generated_at,
                         refreshed_at,
+                        ai_name_refreshed_at,
                         expires_at,
-                        summary_confidence
+                        ai_name_source_version,
+                        summary_confidence,
+                        writer_identity,
+                        writer_role,
+                        authoritative_writer,
+                        deployment_id,
+                        instance_id,
+                        code_version,
+                        refresh_reason,
+                        usage_prompt_tokens,
+                        usage_completion_tokens,
+                        usage_total_tokens,
+                        duration_ms,
+                        replaced_existing_title,
+                        metadata_json
                     FROM public.topic_ai_enrichments
                     WHERE topic_key = ANY(%s::text[])
-                    ORDER BY topic_key, as_of_window_end DESC, generated_at DESC
+                    ORDER BY topic_key,
+                        CASE
+                            WHEN COALESCE(NULLIF(TRIM(name_status), ''), '') = 'ready'
+                             AND COALESCE(NULLIF(TRIM(name_source), ''), '') IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(canonical_name), '') IS NOT NULL
+                                THEN 0
+                            ELSE 1
+                        END ASC,
+                        CASE
+                            WHEN authoritative_writer THEN 0
+                            WHEN COALESCE(metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                                THEN 0
+                            ELSE 1
+                        END ASC,
+                        as_of_window_end DESC,
+                        refreshed_at DESC,
+                        generated_at DESC
                     """,
                     (normalized_keys,),
                 )
                 rows = cursor.fetchall()
 
-            output: dict[str, dict[str, Any]] = {}
+                output: dict[str, dict[str, Any]] = {}
             for row in rows:
                 topic_key = str(row[0] or "").strip()
                 if not topic_key:
@@ -2120,13 +4502,50 @@ class PostgresStore:
                 output[topic_key] = {
                     "topic_key": topic_key,
                     "as_of_window_end": row[1],
-                    "input_hash": str(row[2] or "").strip(),
-                    "prompt_version": str(row[3] or "").strip(),
-                    "model_name": str(row[4] or "").strip(),
-                    "generated_at": row[5],
-                    "refreshed_at": row[6],
-                    "expires_at": row[7],
-                    "summary_confidence": float(row[8] or 0.0),
+                    "canonical_name": str(row[2] or "").strip() or None,
+                    "ai_display_name": str(row[3] or "").strip() or None,
+                    "fallback_label": str(row[4] or "").strip() or None,
+                    "status": str(row[5] or "").strip() or None,
+                    "name_status": str(row[6] or "").strip() or None,
+                    "ai_name_status": str(row[7] or "").strip() or None,
+                    "name_source": str(row[8] or "").strip() or None,
+                    "short_description": str(row[9] or "").strip() or None,
+                    "context_paragraph": str(row[10] or "").strip() or None,
+                    "narrative_summary": str(row[11] or "").strip() or None,
+                    "why_attention": str(row[12] or "").strip() or None,
+                    "trend_category": str(row[13] or "").strip() or None,
+                    "key_entities": _normalize_text_list(row[14]),
+                    "abstain_reason": str(row[15] or "").strip() or None,
+                    "input_hash": str(row[16] or "").strip(),
+                    "prompt_version": str(row[17] or "").strip(),
+                    "model_name": str(row[18] or "").strip(),
+                    "generated_at": row[19],
+                    "ai_name_generated_at": row[20],
+                    "refreshed_at": row[21],
+                    "ai_name_refreshed_at": row[22],
+                    "expires_at": row[23],
+                    "ai_name_source_version": str(row[24] or "").strip() or None,
+                    "summary_confidence": float(row[25] or 0.0),
+                    "writer_identity": str(row[26] or "").strip() or (
+                        str((row[38] or {}).get("writer_identity") or "").strip()
+                        if isinstance(row[38], dict)
+                        else None
+                    ),
+                    "writer_role": str(row[27] or "").strip() or (
+                        str((row[38] or {}).get("writer_role") or "").strip()
+                        if isinstance(row[38], dict)
+                        else None
+                    ),
+                    "authoritative_writer": bool(row[28]),
+                    "deployment_id": str(row[29] or "").strip() or None,
+                    "instance_id": str(row[30] or "").strip() or None,
+                    "code_version": str(row[31] or "").strip() or None,
+                    "refresh_reason": str(row[32] or "").strip() or None,
+                    "usage_prompt_tokens": int(row[33] or 0),
+                    "usage_completion_tokens": int(row[34] or 0),
+                    "usage_total_tokens": int(row[35] or 0),
+                    "duration_ms": float(row[36] or 0.0),
+                    "replaced_existing_title": bool(row[37]),
                 }
 
             return output
@@ -2147,11 +4566,25 @@ class PostgresStore:
                         as_of_window_end,
                         raw_label,
                         canonical_name,
+                        ai_display_name,
+                        fallback_label,
+                        name_status,
+                        ai_name_status,
+                        name_source,
                         short_description,
                         context_paragraph,
+                        narrative_summary,
+                        why_attention,
+                        status,
                         key_entities,
                         trend_category,
                         summary_confidence,
+                        evidence_post_ids,
+                        mixed_signals,
+                        abstain_reason,
+                        validator_errors,
+                        validated_output_json,
+                        raw_response_text,
                         supporting_post_ids,
                         supporting_sample,
                         representative_post_count,
@@ -2159,19 +4592,48 @@ class PostgresStore:
                         prompt_version,
                         input_hash,
                         generated_at,
+                        ai_name_generated_at,
                         refreshed_at,
+                        ai_name_refreshed_at,
                         expires_at,
+                        ai_name_source_version,
+                        writer_identity,
+                        writer_role,
+                        authoritative_writer,
+                        deployment_id,
+                        instance_id,
+                        code_version,
+                        refresh_reason,
+                        usage_prompt_tokens,
+                        usage_completion_tokens,
+                        usage_total_tokens,
+                        duration_ms,
+                        replaced_existing_title,
                         metadata_json
                     ) VALUES (
                         %(topic_key)s,
                         %(as_of_window_end)s,
                         %(raw_label)s,
                         %(canonical_name)s,
+                        %(ai_display_name)s,
+                        %(fallback_label)s,
+                        %(name_status)s,
+                        %(ai_name_status)s,
+                        %(name_source)s,
                         %(short_description)s,
                         %(context_paragraph)s,
+                        %(narrative_summary)s,
+                        %(why_attention)s,
+                        %(status)s,
                         %(key_entities)s,
                         %(trend_category)s,
                         %(summary_confidence)s,
+                        %(evidence_post_ids)s,
+                        %(mixed_signals)s,
+                        %(abstain_reason)s,
+                        %(validator_errors)s,
+                        %(validated_output_json)s,
+                        %(raw_response_text)s,
                         %(supporting_post_ids)s,
                         %(supporting_sample)s,
                         %(representative_post_count)s,
@@ -2179,18 +4641,175 @@ class PostgresStore:
                         %(prompt_version)s,
                         %(input_hash)s,
                         %(generated_at)s,
+                        %(ai_name_generated_at)s,
                         %(refreshed_at)s,
+                        %(ai_name_refreshed_at)s,
                         %(expires_at)s,
+                        %(ai_name_source_version)s,
+                        %(writer_identity)s,
+                        %(writer_role)s,
+                        %(authoritative_writer)s,
+                        %(deployment_id)s,
+                        %(instance_id)s,
+                        %(code_version)s,
+                        %(refresh_reason)s,
+                        %(usage_prompt_tokens)s,
+                        %(usage_completion_tokens)s,
+                        %(usage_total_tokens)s,
+                        %(duration_ms)s,
+                        %(replaced_existing_title)s,
                         %(metadata_json)s
                     )
                     ON CONFLICT (topic_key, as_of_window_end) DO UPDATE
-                    SET raw_label = EXCLUDED.raw_label,
-                        canonical_name = EXCLUDED.canonical_name,
+                    SET raw_label = CASE
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                             AND (
+                                public.topic_ai_enrichments.authoritative_writer
+                                OR COALESCE(public.topic_ai_enrichments.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                             )
+                             AND NOT (
+                                EXCLUDED.name_status = 'ready'
+                                AND EXCLUDED.name_source IN (
+                                    'ai_exact',
+                                    'historical_exact',
+                                    'historical_alias'
+                                )
+                                AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                AND (
+                                    EXCLUDED.authoritative_writer
+                                    OR COALESCE(EXCLUDED.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                                )
+                             )
+                                THEN public.topic_ai_enrichments.raw_label
+                            ELSE EXCLUDED.raw_label
+                        END,
+                        canonical_name = CASE
+                            WHEN EXCLUDED.name_status = 'ready'
+                             AND EXCLUDED.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                THEN EXCLUDED.canonical_name
+                            ELSE public.topic_ai_enrichments.canonical_name
+                        END,
+                        ai_display_name = CASE
+                            WHEN EXCLUDED.name_status = 'ready'
+                             AND EXCLUDED.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                THEN EXCLUDED.ai_display_name
+                            ELSE public.topic_ai_enrichments.ai_display_name
+                        END,
+                        fallback_label = CASE
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                             AND (
+                                public.topic_ai_enrichments.authoritative_writer
+                                OR COALESCE(public.topic_ai_enrichments.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                             )
+                             AND NOT (
+                                EXCLUDED.name_status = 'ready'
+                                AND EXCLUDED.name_source IN (
+                                    'ai_exact',
+                                    'historical_exact',
+                                    'historical_alias'
+                                )
+                                AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                AND (
+                                    EXCLUDED.authoritative_writer
+                                    OR COALESCE(EXCLUDED.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                                )
+                             )
+                                THEN COALESCE(public.topic_ai_enrichments.fallback_label, EXCLUDED.fallback_label)
+                            ELSE COALESCE(EXCLUDED.fallback_label, public.topic_ai_enrichments.fallback_label)
+                        END,
+                        name_status = CASE
+                            WHEN EXCLUDED.name_status = 'ready'
+                             AND EXCLUDED.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                THEN EXCLUDED.name_status
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                                THEN public.topic_ai_enrichments.name_status
+                            ELSE EXCLUDED.name_status
+                        END,
+                        ai_name_status = CASE
+                            WHEN EXCLUDED.name_status = 'ready'
+                             AND EXCLUDED.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                THEN EXCLUDED.ai_name_status
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                                THEN public.topic_ai_enrichments.ai_name_status
+                            ELSE EXCLUDED.ai_name_status
+                        END,
+                        name_source = CASE
+                            WHEN EXCLUDED.name_status = 'ready'
+                             AND EXCLUDED.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                THEN EXCLUDED.name_source
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                                THEN public.topic_ai_enrichments.name_source
+                            ELSE EXCLUDED.name_source
+                        END,
                         short_description = EXCLUDED.short_description,
                         context_paragraph = EXCLUDED.context_paragraph,
+                        narrative_summary = EXCLUDED.narrative_summary,
+                        why_attention = EXCLUDED.why_attention,
+                        status = EXCLUDED.status,
                         key_entities = EXCLUDED.key_entities,
                         trend_category = EXCLUDED.trend_category,
                         summary_confidence = EXCLUDED.summary_confidence,
+                        evidence_post_ids = EXCLUDED.evidence_post_ids,
+                        mixed_signals = EXCLUDED.mixed_signals,
+                        abstain_reason = EXCLUDED.abstain_reason,
+                        validator_errors = EXCLUDED.validator_errors,
+                        validated_output_json = EXCLUDED.validated_output_json,
+                        raw_response_text = EXCLUDED.raw_response_text,
                         supporting_post_ids = EXCLUDED.supporting_post_ids,
                         supporting_sample = EXCLUDED.supporting_sample,
                         representative_post_count = EXCLUDED.representative_post_count,
@@ -2198,9 +4817,162 @@ class PostgresStore:
                         prompt_version = EXCLUDED.prompt_version,
                         input_hash = EXCLUDED.input_hash,
                         generated_at = EXCLUDED.generated_at,
+                        ai_name_generated_at = CASE
+                            WHEN EXCLUDED.name_status = 'ready'
+                             AND EXCLUDED.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                THEN EXCLUDED.ai_name_generated_at
+                            ELSE public.topic_ai_enrichments.ai_name_generated_at
+                        END,
                         refreshed_at = EXCLUDED.refreshed_at,
+                        ai_name_refreshed_at = CASE
+                            WHEN EXCLUDED.name_status = 'ready'
+                             AND EXCLUDED.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                THEN EXCLUDED.ai_name_refreshed_at
+                            ELSE public.topic_ai_enrichments.ai_name_refreshed_at
+                        END,
                         expires_at = EXCLUDED.expires_at,
-                        metadata_json = EXCLUDED.metadata_json
+                        ai_name_source_version = CASE
+                            WHEN EXCLUDED.name_status = 'ready'
+                             AND EXCLUDED.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                THEN EXCLUDED.ai_name_source_version
+                            ELSE public.topic_ai_enrichments.ai_name_source_version
+                        END,
+                        writer_identity = CASE
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                             AND (
+                                public.topic_ai_enrichments.authoritative_writer
+                                OR COALESCE(public.topic_ai_enrichments.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                             )
+                             AND NOT (
+                                EXCLUDED.name_status = 'ready'
+                                AND EXCLUDED.name_source IN (
+                                    'ai_exact',
+                                    'historical_exact',
+                                    'historical_alias'
+                                )
+                                AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                AND (
+                                    EXCLUDED.authoritative_writer
+                                    OR COALESCE(EXCLUDED.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                                )
+                             )
+                                THEN public.topic_ai_enrichments.writer_identity
+                            ELSE EXCLUDED.writer_identity
+                        END,
+                        writer_role = CASE
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                             AND (
+                                public.topic_ai_enrichments.authoritative_writer
+                                OR COALESCE(public.topic_ai_enrichments.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                             )
+                             AND NOT (
+                                EXCLUDED.name_status = 'ready'
+                                AND EXCLUDED.name_source IN (
+                                    'ai_exact',
+                                    'historical_exact',
+                                    'historical_alias'
+                                )
+                                AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                AND (
+                                    EXCLUDED.authoritative_writer
+                                    OR COALESCE(EXCLUDED.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                                )
+                             )
+                                THEN public.topic_ai_enrichments.writer_role
+                            ELSE EXCLUDED.writer_role
+                        END,
+                        authoritative_writer = CASE
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                             AND (
+                                public.topic_ai_enrichments.authoritative_writer
+                                OR COALESCE(public.topic_ai_enrichments.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                             )
+                             AND NOT (
+                                EXCLUDED.name_status = 'ready'
+                                AND EXCLUDED.name_source IN (
+                                    'ai_exact',
+                                    'historical_exact',
+                                    'historical_alias'
+                                )
+                                AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                AND (
+                                    EXCLUDED.authoritative_writer
+                                    OR COALESCE(EXCLUDED.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                                )
+                             )
+                                THEN public.topic_ai_enrichments.authoritative_writer
+                            ELSE EXCLUDED.authoritative_writer
+                        END,
+                        deployment_id = EXCLUDED.deployment_id,
+                        instance_id = EXCLUDED.instance_id,
+                        code_version = EXCLUDED.code_version,
+                        refresh_reason = EXCLUDED.refresh_reason,
+                        usage_prompt_tokens = EXCLUDED.usage_prompt_tokens,
+                        usage_completion_tokens = EXCLUDED.usage_completion_tokens,
+                        usage_total_tokens = EXCLUDED.usage_total_tokens,
+                        duration_ms = EXCLUDED.duration_ms,
+                        replaced_existing_title = EXCLUDED.replaced_existing_title,
+                        metadata_json = CASE
+                            WHEN public.topic_ai_enrichments.name_status = 'ready'
+                             AND public.topic_ai_enrichments.name_source IN (
+                                'ai_exact',
+                                'historical_exact',
+                                'historical_alias'
+                             )
+                             AND NULLIF(TRIM(public.topic_ai_enrichments.canonical_name), '') IS NOT NULL
+                             AND (
+                                public.topic_ai_enrichments.authoritative_writer
+                                OR COALESCE(public.topic_ai_enrichments.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                             )
+                             AND NOT (
+                                EXCLUDED.name_status = 'ready'
+                                AND EXCLUDED.name_source IN (
+                                    'ai_exact',
+                                    'historical_exact',
+                                    'historical_alias'
+                                )
+                                AND NULLIF(TRIM(EXCLUDED.canonical_name), '') IS NOT NULL
+                                AND (
+                                    EXCLUDED.authoritative_writer
+                                    OR COALESCE(EXCLUDED.metadata_json ->> 'authoritative_writer', 'false') = 'true'
+                                )
+                             )
+                                THEN public.topic_ai_enrichments.metadata_json
+                            ELSE EXCLUDED.metadata_json
+                        END
                     RETURNING id, topic_key, as_of_window_end, input_hash, generated_at, refreshed_at
                     """,
                     payload,
@@ -2219,7 +4991,532 @@ class PostgresStore:
 
         return self._execute_write("upsert_topic_ai_enrichment", operation)
 
-    def cleanup_garbage_post_topic_mentions(self, *, lookback_hours: int = 168) -> int:
+    def insert_topic_ai_enrichment_run(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        payload = self._prepare_topic_ai_enrichment_row(row)
+        if not payload.get("topic_key"):
+            return None
+
+        def operation(connection: psycopg.Connection[Any]) -> dict[str, Any] | None:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO public.topic_ai_enrichment_runs (
+                        topic_key,
+                        as_of_window_end,
+                        raw_label,
+                        canonical_name,
+                        ai_display_name,
+                        fallback_label,
+                        name_status,
+                        ai_name_status,
+                        name_source,
+                        short_description,
+                        context_paragraph,
+                        narrative_summary,
+                        why_attention,
+                        status,
+                        key_entities,
+                        trend_category,
+                        summary_confidence,
+                        evidence_post_ids,
+                        mixed_signals,
+                        abstain_reason,
+                        validator_errors,
+                        validated_output_json,
+                        raw_response_text,
+                        supporting_post_ids,
+                        supporting_sample,
+                        representative_post_count,
+                        model_name,
+                        prompt_version,
+                        input_hash,
+                        generated_at,
+                        ai_name_generated_at,
+                        ai_name_refreshed_at,
+                        expires_at,
+                        ai_name_source_version,
+                        writer_identity,
+                        writer_role,
+                        authoritative_writer,
+                        deployment_id,
+                        instance_id,
+                        code_version,
+                        refresh_reason,
+                        usage_prompt_tokens,
+                        usage_completion_tokens,
+                        usage_total_tokens,
+                        duration_ms,
+                        replaced_existing_title,
+                        metadata_json
+                    ) VALUES (
+                        %(topic_key)s,
+                        %(as_of_window_end)s,
+                        %(raw_label)s,
+                        %(canonical_name)s,
+                        %(ai_display_name)s,
+                        %(fallback_label)s,
+                        %(name_status)s,
+                        %(ai_name_status)s,
+                        %(name_source)s,
+                        %(short_description)s,
+                        %(context_paragraph)s,
+                        %(narrative_summary)s,
+                        %(why_attention)s,
+                        %(status)s,
+                        %(key_entities)s,
+                        %(trend_category)s,
+                        %(summary_confidence)s,
+                        %(evidence_post_ids)s,
+                        %(mixed_signals)s,
+                        %(abstain_reason)s,
+                        %(validator_errors)s,
+                        %(validated_output_json)s,
+                        %(raw_response_text)s,
+                        %(supporting_post_ids)s,
+                        %(supporting_sample)s,
+                        %(representative_post_count)s,
+                        %(model_name)s,
+                        %(prompt_version)s,
+                        %(input_hash)s,
+                        %(generated_at)s,
+                        %(ai_name_generated_at)s,
+                        %(ai_name_refreshed_at)s,
+                        %(expires_at)s,
+                        %(ai_name_source_version)s,
+                        %(writer_identity)s,
+                        %(writer_role)s,
+                        %(authoritative_writer)s,
+                        %(deployment_id)s,
+                        %(instance_id)s,
+                        %(code_version)s,
+                        %(refresh_reason)s,
+                        %(usage_prompt_tokens)s,
+                        %(usage_completion_tokens)s,
+                        %(usage_total_tokens)s,
+                        %(duration_ms)s,
+                        %(replaced_existing_title)s,
+                        %(metadata_json)s
+                    )
+                    ON CONFLICT DO NOTHING
+                    RETURNING id, topic_key, as_of_window_end, input_hash, generated_at
+                    """,
+                    payload,
+                )
+                row_out = cursor.fetchone()
+                if not row_out:
+                    return None
+                return {
+                    "id": int(row_out[0]),
+                    "topic_key": str(row_out[1] or "").strip(),
+                    "as_of_window_end": row_out[2],
+                    "input_hash": str(row_out[3] or "").strip(),
+                    "generated_at": row_out[4],
+                }
+
+        return self._execute_write("insert_topic_ai_enrichment_run", operation)
+
+    def upsert_topic_ai_writer_heartbeat(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        metadata_json = row.get("metadata_json")
+        if not isinstance(metadata_json, dict):
+            metadata_json = {}
+
+        writer_identity = str(
+            row.get("writer_identity")
+            or metadata_json.get("writer_identity")
+            or ""
+        ).strip()
+        writer_role = str(
+            row.get("writer_role")
+            or metadata_json.get("writer_role")
+            or ""
+        ).strip()
+        if not writer_identity or writer_identity.lower() == "unknown":
+            raise ValueError("writer_identity is required for topic AI writer heartbeat")
+        if not writer_role or writer_role.lower() == "unknown":
+            raise ValueError("writer_role is required for topic AI writer heartbeat")
+
+        deployment_id = str(
+            row.get("deployment_id")
+            or metadata_json.get("deployment_id")
+            or os.getenv("BLUESKY_TREND_DEPLOYMENT_ID")
+            or os.getenv("DEPLOYMENT_ID")
+            or os.getenv("RAILWAY_DEPLOYMENT_ID")
+            or os.getenv("RAILWAY_SERVICE_ID")
+            or os.getenv("RENDER_SERVICE_ID")
+            or "local"
+        ).strip() or "local"
+        instance_id = str(
+            row.get("instance_id")
+            or metadata_json.get("instance_id")
+            or os.getenv("BLUESKY_TREND_INSTANCE_ID")
+            or os.getenv("INSTANCE_ID")
+            or os.getenv("RAILWAY_REPLICA_ID")
+            or os.getenv("RENDER_INSTANCE_ID")
+            or os.getenv("HOSTNAME")
+            or "local-instance"
+        ).strip() or "local-instance"
+        authoritative_writer = bool(
+            row.get("authoritative_writer")
+            if row.get("authoritative_writer") is not None
+            else metadata_json.get("authoritative_writer")
+        )
+        status = str(row.get("status") or metadata_json.get("status") or "idle").strip().lower() or "idle"
+        last_reason = str(row.get("last_reason") or metadata_json.get("last_reason") or "").strip() or None
+        model_name = str(row.get("model_name") or metadata_json.get("model_name") or "").strip() or None
+        prompt_version = str(
+            row.get("prompt_version")
+            or metadata_json.get("prompt_version")
+            or ""
+        ).strip() or None
+        code_version = str(row.get("code_version") or metadata_json.get("code_version") or "").strip() or None
+        metadata_json = {
+            **metadata_json,
+            "writer_identity": writer_identity,
+            "writer_role": writer_role,
+            "authoritative_writer": authoritative_writer,
+            "deployment_id": deployment_id,
+            "instance_id": instance_id,
+            "model_name": model_name,
+            "prompt_version": prompt_version,
+            "code_version": code_version,
+            "status": status,
+            "last_reason": last_reason,
+        }
+
+        payload = {
+            "writer_identity": writer_identity,
+            "deployment_id": deployment_id,
+            "instance_id": instance_id,
+            "writer_role": writer_role,
+            "authoritative_writer": authoritative_writer,
+            "model_name": model_name,
+            "prompt_version": prompt_version,
+            "code_version": code_version,
+            "status": status,
+            "last_reason": last_reason,
+            "last_seen_at": row.get("last_seen_at") or datetime.now(timezone.utc),
+            "last_started_at": row.get("last_started_at"),
+            "last_completed_at": row.get("last_completed_at"),
+            "last_write_at": row.get("last_write_at"),
+            "metadata_json": Jsonb(metadata_json),
+        }
+
+        def operation(connection: psycopg.Connection[Any]) -> dict[str, Any] | None:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO public.topic_ai_writer_heartbeats (
+                        writer_identity,
+                        deployment_id,
+                        instance_id,
+                        writer_role,
+                        authoritative_writer,
+                        model_name,
+                        prompt_version,
+                        code_version,
+                        status,
+                        last_reason,
+                        last_seen_at,
+                        last_started_at,
+                        last_completed_at,
+                        last_write_at,
+                        metadata_json,
+                        updated_at
+                    ) VALUES (
+                        %(writer_identity)s,
+                        %(deployment_id)s,
+                        %(instance_id)s,
+                        %(writer_role)s,
+                        %(authoritative_writer)s,
+                        %(model_name)s,
+                        %(prompt_version)s,
+                        %(code_version)s,
+                        %(status)s,
+                        %(last_reason)s,
+                        %(last_seen_at)s,
+                        %(last_started_at)s,
+                        %(last_completed_at)s,
+                        %(last_write_at)s,
+                        %(metadata_json)s,
+                        now()
+                    )
+                    ON CONFLICT (writer_identity, deployment_id, instance_id) DO UPDATE
+                    SET writer_role = EXCLUDED.writer_role,
+                        authoritative_writer = EXCLUDED.authoritative_writer,
+                        model_name = EXCLUDED.model_name,
+                        prompt_version = EXCLUDED.prompt_version,
+                        code_version = EXCLUDED.code_version,
+                        status = EXCLUDED.status,
+                        last_reason = EXCLUDED.last_reason,
+                        last_seen_at = EXCLUDED.last_seen_at,
+                        last_started_at = COALESCE(EXCLUDED.last_started_at, public.topic_ai_writer_heartbeats.last_started_at),
+                        last_completed_at = COALESCE(EXCLUDED.last_completed_at, public.topic_ai_writer_heartbeats.last_completed_at),
+                        last_write_at = COALESCE(EXCLUDED.last_write_at, public.topic_ai_writer_heartbeats.last_write_at),
+                        metadata_json = EXCLUDED.metadata_json,
+                        updated_at = now()
+                    RETURNING
+                        writer_identity,
+                        deployment_id,
+                        instance_id,
+                        status,
+                        last_seen_at,
+                        last_write_at
+                    """,
+                    payload,
+                )
+                row_out = cursor.fetchone()
+                if not row_out:
+                    return None
+                return {
+                    "writer_identity": str(row_out[0] or "").strip(),
+                    "deployment_id": str(row_out[1] or "").strip(),
+                    "instance_id": str(row_out[2] or "").strip(),
+                    "status": str(row_out[3] or "").strip(),
+                    "last_seen_at": row_out[4],
+                    "last_write_at": row_out[5],
+                }
+
+        return self._execute_write("upsert_topic_ai_writer_heartbeat", operation)
+
+    def fetch_topic_ai_writer_diagnostics(
+        self,
+        *,
+        lookback_hours: int = 24,
+        duplicate_write_threshold: int = 3,
+        authoritative_writer_identities: Sequence[str] | None = None,
+        expected_prompt_versions: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        normalized_lookback_hours = max(1, int(lookback_hours))
+        normalized_duplicate_threshold = max(2, int(duplicate_write_threshold))
+        authoritative_identities = [
+            str(value or "").strip()
+            for value in (authoritative_writer_identities or _AUTHORITATIVE_TOPIC_AI_WRITER_IDENTITIES)
+            if str(value or "").strip()
+        ]
+        prompt_versions = [
+            str(value or "").strip()
+            for value in (expected_prompt_versions or [])
+            if str(value or "").strip()
+        ]
+
+        def operation(connection: psycopg.Connection[Any]) -> dict[str, Any]:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT to_regclass('public.topic_ai_enrichment_runs')")
+                relation = cursor.fetchone()
+                if not relation or relation[0] is None:
+                    return {
+                        "lookbackHours": normalized_lookback_hours,
+                        "activeWriterCount": 0,
+                        "activeWriterIdentities": [],
+                        "unknownWriterCount": 0,
+                        "nonAuthoritativeWriterCount": 0,
+                        "legacyPromptWriteCount": 0,
+                        "duplicateWriteTopicCount": 0,
+                        "hotTopics": [],
+                        "refreshReasonCounts": [],
+                        "usagePromptTokens": 0,
+                        "usageCompletionTokens": 0,
+                        "usageTotalTokens": 0,
+                        "nonAuthoritativeRunCount": 0,
+                        "writerHeartbeats": [],
+                    }
+
+                cursor.execute(
+                    """
+                    WITH recent_runs AS (
+                        SELECT
+                            topic_key,
+                            generated_at,
+                            COALESCE(NULLIF(TRIM(writer_identity), ''), 'unknown') AS writer_identity,
+                            COALESCE(authoritative_writer, false) AS authoritative_writer,
+                            COALESCE(NULLIF(TRIM(prompt_version), ''), 'unknown') AS prompt_version,
+                            COALESCE(NULLIF(TRIM(refresh_reason), ''), 'unknown') AS refresh_reason,
+                            COALESCE(usage_prompt_tokens, 0)::bigint AS usage_prompt_tokens,
+                            COALESCE(usage_completion_tokens, 0)::bigint AS usage_completion_tokens,
+                            COALESCE(usage_total_tokens, 0)::bigint AS usage_total_tokens
+                        FROM public.topic_ai_enrichment_runs
+                        WHERE generated_at >= now() - make_interval(hours => %s)
+                    ),
+                    writer_activity AS (
+                        SELECT
+                            writer_identity,
+                            MAX(generated_at) AS latest_write_at,
+                            COUNT(*)::int AS run_count,
+                            BOOL_OR(authoritative_writer) AS authoritative_writer
+                        FROM recent_runs
+                        GROUP BY writer_identity
+                    ),
+                    hot_topics AS (
+                        SELECT
+                            topic_key,
+                            COUNT(*)::int AS run_count
+                        FROM recent_runs
+                        GROUP BY topic_key
+                        HAVING COUNT(*) >= %s
+                        ORDER BY run_count DESC, topic_key ASC
+                        LIMIT 20
+                    ),
+                    refresh_reason_counts AS (
+                        SELECT
+                            refresh_reason,
+                            COUNT(*)::int AS run_count
+                        FROM recent_runs
+                        GROUP BY refresh_reason
+                        ORDER BY run_count DESC, refresh_reason ASC
+                        LIMIT 20
+                    )
+                    SELECT
+                        COALESCE(
+                            (
+                                SELECT jsonb_agg(writer_identity ORDER BY latest_write_at DESC, writer_identity ASC)
+                                FROM writer_activity
+                            ),
+                            '[]'::jsonb
+                        ) AS active_writer_identities,
+                        COALESCE((SELECT COUNT(*)::int FROM writer_activity), 0)::int AS active_writer_count,
+                        COALESCE((SELECT COUNT(*)::int FROM writer_activity WHERE writer_identity = 'unknown'), 0)::int AS unknown_writer_count,
+                        COALESCE((SELECT COUNT(*)::int FROM writer_activity WHERE NOT authoritative_writer), 0)::int AS non_authoritative_writer_count,
+                        COALESCE(
+                            (
+                                SELECT COUNT(*)::int
+                                FROM recent_runs
+                                WHERE CASE
+                                    WHEN cardinality(%s::text[]) = 0 THEN false
+                                    ELSE prompt_version <> ALL(%s::text[])
+                                END
+                            ),
+                            0
+                        )::int AS legacy_prompt_write_count,
+                        COALESCE((SELECT COUNT(*)::int FROM hot_topics), 0)::int AS duplicate_write_topic_count,
+                        COALESCE(
+                            (
+                                SELECT jsonb_agg(
+                                    jsonb_build_object('topic_key', topic_key, 'run_count', run_count)
+                                    ORDER BY run_count DESC, topic_key ASC
+                                )
+                                FROM hot_topics
+                            ),
+                            '[]'::jsonb
+                        ) AS hot_topics,
+                        COALESCE(
+                            (
+                                SELECT jsonb_agg(
+                                    jsonb_build_object('refresh_reason', refresh_reason, 'run_count', run_count)
+                                    ORDER BY run_count DESC, refresh_reason ASC
+                                )
+                                FROM refresh_reason_counts
+                            ),
+                            '[]'::jsonb
+                        ) AS refresh_reason_counts,
+                        COALESCE((SELECT SUM(usage_prompt_tokens)::bigint FROM recent_runs), 0)::bigint AS usage_prompt_tokens,
+                        COALESCE((SELECT SUM(usage_completion_tokens)::bigint FROM recent_runs), 0)::bigint AS usage_completion_tokens,
+                        COALESCE((SELECT SUM(usage_total_tokens)::bigint FROM recent_runs), 0)::bigint AS usage_total_tokens,
+                        COALESCE(
+                            (
+                                SELECT COUNT(*)::int
+                                FROM recent_runs
+                                WHERE writer_identity <> ALL(%s::text[])
+                            ),
+                            0
+                        )::int AS non_authoritative_run_count
+                    """,
+                    (
+                        normalized_lookback_hours,
+                        normalized_duplicate_threshold,
+                        prompt_versions,
+                        prompt_versions,
+                        authoritative_identities,
+                    ),
+                )
+                row_out = cursor.fetchone()
+
+                cursor.execute("SELECT to_regclass('public.topic_ai_writer_heartbeats')")
+                heartbeat_relation = cursor.fetchone()
+                heartbeat_rows: list[tuple[Any, ...]] = []
+                if heartbeat_relation and heartbeat_relation[0] is not None:
+                    cursor.execute(
+                        """
+                        SELECT
+                            writer_identity,
+                            deployment_id,
+                            instance_id,
+                            writer_role,
+                            authoritative_writer,
+                            status,
+                            model_name,
+                            prompt_version,
+                            code_version,
+                            last_reason,
+                            last_seen_at,
+                            last_started_at,
+                            last_completed_at,
+                            last_write_at
+                        FROM public.topic_ai_writer_heartbeats
+                        WHERE last_seen_at >= now() - make_interval(hours => %s)
+                        ORDER BY last_seen_at DESC, writer_identity ASC
+                        """,
+                        (normalized_lookback_hours,),
+                    )
+                    heartbeat_rows = cursor.fetchall()
+
+            active_writer_identities = []
+            if row_out and isinstance(row_out[0], list):
+                active_writer_identities = [
+                    str(value or "").strip()
+                    for value in row_out[0]
+                    if str(value or "").strip()
+                ]
+            hot_topics = []
+            if row_out and isinstance(row_out[6], list):
+                hot_topics = [dict(item) for item in row_out[6] if isinstance(item, dict)]
+            refresh_reason_counts = []
+            if row_out and isinstance(row_out[7], list):
+                refresh_reason_counts = [dict(item) for item in row_out[7] if isinstance(item, dict)]
+
+            return {
+                "lookbackHours": normalized_lookback_hours,
+                "activeWriterCount": int(row_out[1] or 0) if row_out else 0,
+                "activeWriterIdentities": active_writer_identities,
+                "unknownWriterCount": int(row_out[2] or 0) if row_out else 0,
+                "nonAuthoritativeWriterCount": int(row_out[3] or 0) if row_out else 0,
+                "legacyPromptWriteCount": int(row_out[4] or 0) if row_out else 0,
+                "duplicateWriteTopicCount": int(row_out[5] or 0) if row_out else 0,
+                "hotTopics": hot_topics,
+                "refreshReasonCounts": refresh_reason_counts,
+                "usagePromptTokens": int(row_out[8] or 0) if row_out else 0,
+                "usageCompletionTokens": int(row_out[9] or 0) if row_out else 0,
+                "usageTotalTokens": int(row_out[10] or 0) if row_out else 0,
+                "nonAuthoritativeRunCount": int(row_out[11] or 0) if row_out else 0,
+                "writerHeartbeats": [
+                    {
+                        "writer_identity": str(heartbeat_row[0] or "").strip(),
+                        "deployment_id": str(heartbeat_row[1] or "").strip(),
+                        "instance_id": str(heartbeat_row[2] or "").strip(),
+                        "writer_role": str(heartbeat_row[3] or "").strip(),
+                        "authoritative_writer": bool(heartbeat_row[4]),
+                        "status": str(heartbeat_row[5] or "").strip(),
+                        "model_name": str(heartbeat_row[6] or "").strip() or None,
+                        "prompt_version": str(heartbeat_row[7] or "").strip() or None,
+                        "code_version": str(heartbeat_row[8] or "").strip() or None,
+                        "last_reason": str(heartbeat_row[9] or "").strip() or None,
+                        "last_seen_at": heartbeat_row[10],
+                        "last_started_at": heartbeat_row[11],
+                        "last_completed_at": heartbeat_row[12],
+                        "last_write_at": heartbeat_row[13],
+                    }
+                    for heartbeat_row in heartbeat_rows
+                    if str(heartbeat_row[0] or "").strip()
+                ],
+            }
+
+        return self._run_with_retry("fetch_topic_ai_writer_diagnostics", operation)
+
+    def cleanup_garbage_post_topic_mentions(
+        self,
+        *,
+        lookback_hours: int = 168,
+        statement_timeout_seconds: float | None = None,
+    ) -> int:
         lookback_hours = max(1, int(lookback_hours))
         weak_tokens = sorted(set(TOPIC_GENERIC_WEAK_TOKENS))
         noise_tokens = sorted(set(TOPIC_NOISE_TOKENS))
@@ -2229,6 +5526,7 @@ class PostgresStore:
 
         def operation(connection: psycopg.Connection[Any]) -> int:
             with connection.cursor() as cursor:
+                self._apply_statement_timeout(cursor, statement_timeout_seconds)
                 cursor.execute("SELECT to_regclass('public.post_topic_mentions')")
                 relation = cursor.fetchone()
                 if not relation or relation[0] is None:
@@ -2388,6 +5686,7 @@ class PostgresStore:
             return
 
         with self._conn.cursor() as cursor:
+            self._apply_schema_lock_timeout(cursor)
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS public.raw_posts (
@@ -2519,6 +5818,10 @@ class PostgresStore:
                     ended_at TIMESTAMPTZ,
                     status TEXT,
                     rows_inserted BIGINT NOT NULL DEFAULT 0,
+                    last_heartbeat_at TIMESTAMPTZ,
+                    current_stage TEXT,
+                    rows_written_this_cycle BIGINT NOT NULL DEFAULT 0,
+                    last_successful_write_at TIMESTAMPTZ,
                     notes JSONB
                 )
                 """
@@ -2528,6 +5831,10 @@ class PostgresStore:
             cursor.execute("ALTER TABLE public.ingestion_runs ADD COLUMN IF NOT EXISTS ended_at TIMESTAMPTZ")
             cursor.execute("ALTER TABLE public.ingestion_runs ADD COLUMN IF NOT EXISTS status TEXT")
             cursor.execute("ALTER TABLE public.ingestion_runs ADD COLUMN IF NOT EXISTS rows_inserted BIGINT")
+            cursor.execute("ALTER TABLE public.ingestion_runs ADD COLUMN IF NOT EXISTS last_heartbeat_at TIMESTAMPTZ")
+            cursor.execute("ALTER TABLE public.ingestion_runs ADD COLUMN IF NOT EXISTS current_stage TEXT")
+            cursor.execute("ALTER TABLE public.ingestion_runs ADD COLUMN IF NOT EXISTS rows_written_this_cycle BIGINT")
+            cursor.execute("ALTER TABLE public.ingestion_runs ADD COLUMN IF NOT EXISTS last_successful_write_at TIMESTAMPTZ")
             cursor.execute("ALTER TABLE public.ingestion_runs ADD COLUMN IF NOT EXISTS notes JSONB")
 
             cursor.execute(
@@ -2552,6 +5859,18 @@ class PostgresStore:
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_ingestion_runs_source_started_at
                 ON public.ingestion_runs (source, started_at)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_ingestion_runs_source_heartbeat
+                ON public.ingestion_runs (source, last_heartbeat_at DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_ingestion_runs_source_status_started
+                ON public.ingestion_runs (source, status, started_at DESC)
                 """
             )
             cursor.execute(
@@ -2825,6 +6144,7 @@ class PostgresStore:
     def ensure_processed_topic_tables(self) -> None:
         def operation(connection: psycopg.Connection[Any]) -> None:
             with connection.cursor() as cursor:
+                self._apply_schema_lock_timeout(cursor)
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS public.processed_posts (
@@ -4012,7 +7332,7 @@ class PostgresStore:
 
     @staticmethod
     def _decode_ingested_raw_post_row(row: Sequence[Any]) -> dict[str, Any]:
-        return {
+        decoded = {
             "id": row[0],
             "platform": row[1],
             "source_post_id": row[2],
@@ -4033,6 +7353,42 @@ class PostgresStore:
             "repost_of_uri": row[17],
             "metrics_json": row[18] or {},
             "raw_json": row[19] or {},
+        }
+        decoded["processed"] = bool(row[20]) if len(row) > 20 else False
+        return decoded
+
+    @staticmethod
+    def _decode_processed_post_summary_row(
+        row: Sequence[Any],
+        *,
+        payload_by_raw_id: dict[int, dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        raw_post_id = int(row[1])
+        payload = dict((payload_by_raw_id or {}).get(raw_post_id) or {})
+        topic_entities_payload = row[5]
+        if isinstance(topic_entities_payload, (list, tuple)):
+            topic_entities_value = [
+                str(value).strip()
+                for value in topic_entities_payload
+                if str(value or "").strip()
+            ]
+        else:
+            topic_entities_value = (
+                [str(topic_entities_payload).strip()]
+                if str(topic_entities_payload or "").strip()
+                else []
+            )
+        return {
+            "id": int(row[0]),
+            "raw_post_id": raw_post_id,
+            "source_post_id": str(row[2] or payload.get("source_post_id") or "").strip(),
+            "platform": str(row[3] or payload.get("platform") or "").strip(),
+            "processed_at": row[4],
+            "topic_entities": topic_entities_value,
+            "language": row[6] if len(row) > 6 else payload.get("language"),
+            "source_created_at": row[7] if len(row) > 7 else payload.get("source_created_at"),
+            "bucket_minute": row[8] if len(row) > 8 else payload.get("bucket_minute"),
+            "topic_records": list(payload.get("topic_records") or []),
         }
 
     def _prepare_processed_post_row(self, row: dict[str, Any]) -> dict[str, Any]:
@@ -4161,6 +7517,18 @@ class PostgresStore:
             summary_confidence = 0.0
         summary_confidence = max(0.0, min(1.0, summary_confidence))
 
+        def _safe_int_local(value: Any, default: int = 0) -> int:
+            try:
+                return int(value if value is not None else default)
+            except (TypeError, ValueError):
+                return default
+
+        def _safe_float_local(value: Any, default: float = 0.0) -> float:
+            try:
+                return float(value if value is not None else default)
+            except (TypeError, ValueError):
+                return default
+
         key_entities = row.get("key_entities")
         if not isinstance(key_entities, list):
             key_entities = []
@@ -4183,9 +7551,115 @@ class PostgresStore:
         if not isinstance(supporting_sample, list):
             supporting_sample = []
 
+        evidence_post_ids = row.get("evidence_post_ids")
+        if not isinstance(evidence_post_ids, list):
+            evidence_post_ids = []
+        normalized_evidence_post_ids = [
+            str(value or "").strip()
+            for value in evidence_post_ids
+            if str(value or "").strip()
+        ]
+
+        mixed_signals = row.get("mixed_signals")
+        if not isinstance(mixed_signals, list):
+            mixed_signals = []
+        normalized_mixed_signals = [
+            str(value or "").strip()
+            for value in mixed_signals
+            if str(value or "").strip()
+        ]
+
+        validator_errors = row.get("validator_errors")
+        if not isinstance(validator_errors, list):
+            validator_errors = []
+        normalized_validator_errors = [
+            str(value or "").strip()
+            for value in validator_errors
+            if str(value or "").strip()
+        ]
+
         metadata_json = row.get("metadata_json")
         if not isinstance(metadata_json, dict):
             metadata_json = {}
+        writer_identity_value = str(
+            row.get("writer_identity")
+            or metadata_json.get("writer_identity")
+            or ""
+        ).strip()
+        writer_role_value = str(
+            row.get("writer_role")
+            or metadata_json.get("writer_role")
+            or ""
+        ).strip()
+        if not writer_identity_value or writer_identity_value.lower() == "unknown":
+            raise ValueError("writer_identity is required for topic AI persistence")
+        if not writer_role_value or writer_role_value.lower() == "unknown":
+            raise ValueError("writer_role is required for topic AI persistence")
+        authoritative_writer_value = writer_identity_value in _AUTHORITATIVE_TOPIC_AI_WRITER_IDENTITIES
+        deployment_id_value = str(
+            row.get("deployment_id")
+            or metadata_json.get("deployment_id")
+            or ""
+        ).strip() or None
+        instance_id_value = str(
+            row.get("instance_id")
+            or metadata_json.get("instance_id")
+            or ""
+        ).strip() or None
+        code_version_value = str(
+            row.get("code_version")
+            or metadata_json.get("code_version")
+            or ""
+        ).strip() or None
+        refresh_reason_value = str(
+            row.get("refresh_reason")
+            or metadata_json.get("refresh_reason")
+            or ""
+        ).strip() or None
+        usage_prompt_tokens_value = _safe_int_local(
+            row.get("usage_prompt_tokens")
+            if row.get("usage_prompt_tokens") is not None
+            else metadata_json.get("usage_prompt_tokens")
+        )
+        usage_completion_tokens_value = _safe_int_local(
+            row.get("usage_completion_tokens")
+            if row.get("usage_completion_tokens") is not None
+            else metadata_json.get("usage_completion_tokens")
+        )
+        usage_total_tokens_value = _safe_int_local(
+            row.get("usage_total_tokens")
+            if row.get("usage_total_tokens") is not None
+            else metadata_json.get("usage_total_tokens")
+        )
+        duration_ms_value = _safe_float_local(
+            row.get("duration_ms")
+            if row.get("duration_ms") is not None
+            else metadata_json.get("duration_ms")
+        )
+        replaced_existing_title_value = bool(
+            row.get("replaced_existing_title")
+            if row.get("replaced_existing_title") is not None
+            else metadata_json.get("replaced_existing_title")
+        )
+        metadata_json = {
+            **metadata_json,
+            "writer_identity": writer_identity_value,
+            "writer_role": writer_role_value,
+            "authoritative_writer": authoritative_writer_value,
+            "deployment_id": deployment_id_value,
+            "instance_id": instance_id_value,
+            "code_version": code_version_value,
+            "refresh_reason": refresh_reason_value,
+            "usage_prompt_tokens": usage_prompt_tokens_value,
+            "usage_completion_tokens": usage_completion_tokens_value,
+            "usage_total_tokens": usage_total_tokens_value,
+            "duration_ms": duration_ms_value,
+            "replaced_existing_title": replaced_existing_title_value,
+        }
+
+        validated_output_json = row.get("validated_output_json")
+        if not isinstance(validated_output_json, dict):
+            validated_output_json = {}
 
         representative_post_count = row.get("representative_post_count")
         try:
@@ -4193,17 +7667,93 @@ class PostgresStore:
         except (TypeError, ValueError):
             representative_post_count_value = len(normalized_post_ids)
         representative_post_count_value = max(0, representative_post_count_value)
+        raw_label_value = str(row.get("raw_label") or topic_key).strip() or topic_key
+        narrative_summary_value = str(
+            row.get("narrative_summary")
+            or row.get("context_paragraph")
+            or row.get("short_description")
+            or row.get("abstain_reason")
+            or "Narrative enrichment is unavailable for this trend window."
+        ).strip()
+        short_description_value = str(
+            row.get("short_description")
+            or narrative_summary_value
+            or row.get("raw_label")
+            or topic_key
+        ).strip()
+        context_paragraph_value = str(
+            row.get("context_paragraph")
+            or narrative_summary_value
+            or short_description_value
+        ).strip()
+        status_value = str(row.get("status") or "ok").strip().lower() or "ok"
+        if status_value not in {"ok", "mixed", "insufficient_evidence", "junk"}:
+            status_value = "ok"
+        (
+            canonical_name_value,
+            fallback_label_value,
+            name_status_value,
+            name_source_value,
+        ) = _resolve_topic_ai_name_fields(
+            raw_label=raw_label_value,
+            canonical_name=str(row.get("canonical_name") or "").strip() or None,
+            fallback_label=str(row.get("fallback_label") or "").strip() or None,
+            status=status_value,
+            name_status=str(row.get("name_status") or "").strip().lower() or None,
+            name_source=str(row.get("name_source") or "").strip().lower() or None,
+            narrative_summary=narrative_summary_value,
+            abstain_reason=str(row.get("abstain_reason") or "").strip() or None,
+            mixed_signals=normalized_mixed_signals,
+            metadata_json=metadata_json,
+            writer_identity=writer_identity_value,
+        )
+        ai_display_name_value = canonical_name_value
+        ai_name_status_value = name_status_value
+        ai_name_generated_at_value = generated_at if ai_display_name_value else None
+        ai_name_refreshed_at_value = refreshed_at if ai_display_name_value else None
+        ai_name_source_version_value = (
+            str(row.get("ai_name_source_version") or row.get("prompt_version") or "").strip() or None
+        ) if ai_display_name_value else None
+        metadata_json["resolved_name_status"] = name_status_value
+        metadata_json["resolved_name_source"] = name_source_value
+        metadata_json["ai_display_name"] = ai_display_name_value
+        metadata_json["ai_name_status"] = ai_name_status_value
+        metadata_json["ai_name_generated_at"] = (
+            ai_name_generated_at_value.isoformat()
+            if isinstance(ai_name_generated_at_value, datetime)
+            else None
+        )
+        metadata_json["ai_name_refreshed_at"] = (
+            ai_name_refreshed_at_value.isoformat()
+            if isinstance(ai_name_refreshed_at_value, datetime)
+            else None
+        )
+        metadata_json["ai_name_source_version"] = ai_name_source_version_value
 
         return {
             "topic_key": topic_key,
             "as_of_window_end": row.get("as_of_window_end") or generated_at,
-            "raw_label": str(row.get("raw_label") or topic_key).strip() or topic_key,
-            "canonical_name": str(row.get("canonical_name") or row.get("raw_label") or topic_key).strip() or topic_key,
-            "short_description": str(row.get("short_description") or "").strip(),
-            "context_paragraph": str(row.get("context_paragraph") or "").strip(),
+            "raw_label": raw_label_value,
+            "canonical_name": canonical_name_value,
+            "ai_display_name": ai_display_name_value,
+            "fallback_label": fallback_label_value,
+            "name_status": name_status_value,
+            "ai_name_status": ai_name_status_value,
+            "name_source": name_source_value,
+            "short_description": short_description_value,
+            "context_paragraph": context_paragraph_value,
+            "narrative_summary": narrative_summary_value,
+            "why_attention": str(row.get("why_attention") or "").strip() or None,
+            "status": status_value,
             "key_entities": Jsonb(normalized_entities),
             "trend_category": str(row.get("trend_category") or "").strip() or None,
             "summary_confidence": summary_confidence,
+            "evidence_post_ids": Jsonb(normalized_evidence_post_ids),
+            "mixed_signals": Jsonb(normalized_mixed_signals),
+            "abstain_reason": str(row.get("abstain_reason") or "").strip() or None,
+            "validator_errors": Jsonb(normalized_validator_errors),
+            "validated_output_json": Jsonb(validated_output_json),
+            "raw_response_text": str(row.get("raw_response_text") or "").strip() or None,
             "supporting_post_ids": Jsonb(normalized_post_ids),
             "supporting_sample": Jsonb(supporting_sample),
             "representative_post_count": representative_post_count_value,
@@ -4211,8 +7761,23 @@ class PostgresStore:
             "prompt_version": str(row.get("prompt_version") or "v1").strip() or "v1",
             "input_hash": str(row.get("input_hash") or "").strip(),
             "generated_at": generated_at,
+            "ai_name_generated_at": ai_name_generated_at_value,
             "refreshed_at": refreshed_at,
+            "ai_name_refreshed_at": ai_name_refreshed_at_value,
             "expires_at": row.get("expires_at"),
+            "ai_name_source_version": ai_name_source_version_value,
+            "writer_identity": writer_identity_value,
+            "writer_role": writer_role_value,
+            "authoritative_writer": authoritative_writer_value,
+            "deployment_id": deployment_id_value,
+            "instance_id": instance_id_value,
+            "code_version": code_version_value,
+            "refresh_reason": refresh_reason_value,
+            "usage_prompt_tokens": usage_prompt_tokens_value,
+            "usage_completion_tokens": usage_completion_tokens_value,
+            "usage_total_tokens": usage_total_tokens_value,
+            "duration_ms": duration_ms_value,
+            "replaced_existing_title": replaced_existing_title_value,
             "metadata_json": Jsonb(metadata_json),
         }
 
@@ -4227,7 +7792,10 @@ class PostgresStore:
                 self.connect()
                 if self._conn is None:
                     raise RuntimeError("Database connection is not available")
-                return operation(self._conn)
+                result = operation(self._conn)
+                if self._conn.info.transaction_status != TransactionStatus.IDLE:
+                    self._conn.commit()
+                return result
             except psycopg.OperationalError as error:
                 last_error = error
                 self._logger.warning(
@@ -4270,6 +7838,23 @@ class PostgresStore:
 
         return self._run_with_retry(label, wrapped)
 
+    def _apply_schema_lock_timeout(self, cursor: Any) -> None:
+        if self._schema_lock_timeout_ms <= 0:
+            return
+        cursor.execute(f"SET LOCAL lock_timeout = '{int(self._schema_lock_timeout_ms)}ms'")
+
+    @staticmethod
+    def _apply_statement_timeout(cursor: Any, timeout_seconds: float | None) -> None:
+        if timeout_seconds is None:
+            return
+        try:
+            timeout_ms = int(max(0.0, float(timeout_seconds)) * 1000)
+        except (TypeError, ValueError):
+            timeout_ms = 0
+        if timeout_ms <= 0:
+            return
+        cursor.execute(f"SET LOCAL statement_timeout = '{timeout_ms}ms'")
+
     def _load_column_metadata(self) -> None:
         if self._conn is None:
             return
@@ -4289,6 +7874,12 @@ class PostgresStore:
                         "processed_posts",
                         "post_topics",
                         "topic_ai_enrichments",
+                        "memecoin_assets",
+                        "memecoin_correlation_runs",
+                        "memecoin_market_snapshots",
+                        "memecoin_correlation_results",
+                        "memecoin_correlation_links",
+                        "trend_memecoin_links",
                     ],
                 ),
             )
@@ -4358,6 +7949,9 @@ class PostgresStore:
 
     def _column_metadata(self, table: str, column: str) -> tuple[str, str]:
         return self._column_types.get((table, column), ("", ""))
+
+    def _has_column(self, table: str, column: str) -> bool:
+        return (table, column) in self._column_types
 
     def _expects_json(self, table: str, column: str) -> bool:
         data_type, _udt_name = self._column_metadata(table, column)
