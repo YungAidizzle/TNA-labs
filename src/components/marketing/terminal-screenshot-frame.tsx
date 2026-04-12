@@ -10,8 +10,8 @@ type TerminalScreenshotFrameProps = {
 };
 
 const MASTER_SCREENSHOT_SRC = "/marketing/dashboard-terminal-hero-hq.png";
-const MASTER_SCREENSHOT_WIDTH = 1854;
-const MASTER_SCREENSHOT_HEIGHT = 930;
+const MASTER_SCREENSHOT_WIDTH = 1876;
+const MASTER_SCREENSHOT_HEIGHT = 928;
 
 const CALLOUTS = [
   {
@@ -95,7 +95,7 @@ export function TerminalScreenshotFrame({
             <div
               className={cn(
                 "relative overflow-hidden rounded-b-[24px]",
-                isHero ? "" : "h-[300px] sm:h-[360px] lg:h-[465px]",
+                isHero ? "" : "h-[300px] sm:h-[360px] lg:h-[464px]",
               )}
             >
               <Image
