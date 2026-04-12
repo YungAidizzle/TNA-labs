@@ -15,6 +15,12 @@ const page = await browser.newPage({ viewport, deviceScaleFactor });
 
 try {
   await page.goto(`${baseUrl}/preview/dashboard-hero`, { waitUntil: "networkidle" });
+  await page.evaluate(async () => {
+    if ("fonts" in document) {
+      await document.fonts.ready;
+    }
+  });
+  await page.waitForTimeout(200);
 
   const capture = page.locator('[data-testid="dashboard-preview-capture"]');
   await capture.waitFor({ state: "visible" });
