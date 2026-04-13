@@ -3738,7 +3738,10 @@ class PostgresStore:
                             link_score,
                             support_post_count,
                             support_interaction_score,
-                            is_primary
+                            is_primary,
+                            why_linked,
+                            match_reasons_json,
+                            raw_match_signals_json
                         ) VALUES (
                             %(run_id)s,
                             %(asset_id)s,
@@ -3753,13 +3756,26 @@ class PostgresStore:
                             %(link_score)s,
                             %(support_post_count)s,
                             %(support_interaction_score)s,
-                            %(is_primary)s
+                            %(is_primary)s,
+                            %(why_linked)s,
+                            %(match_reasons_json)s,
+                            %(raw_match_signals_json)s
                         )
                         """,
                         {
                             **row,
                             "run_id": run_id,
                             "asset_id": asset_id,
+                            "match_reasons_json": Jsonb(
+                                row.get("match_reasons_json")
+                                if isinstance(row.get("match_reasons_json"), list)
+                                else []
+                            ),
+                            "raw_match_signals_json": Jsonb(
+                                row.get("raw_match_signals_json")
+                                if isinstance(row.get("raw_match_signals_json"), dict)
+                                else {}
+                            ),
                         },
                     )
 

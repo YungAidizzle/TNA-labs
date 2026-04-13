@@ -102,6 +102,62 @@ GENERIC_SEED_TERMS = {
     "updates",
     "viral",
 }
+NARRATIVE_GENERIC_MATCH_TOKENS = {
+    *GENERIC_SEED_TERMS,
+    "acceleration",
+    "act",
+    "agents",
+    "ai",
+    "business",
+    "campaign",
+    "celebrity",
+    "clip",
+    "clips",
+    "conflict",
+    "crackdown",
+    "culture",
+    "economy",
+    "economic",
+    "election",
+    "escalation",
+    "fed",
+    "geopolitics",
+    "government",
+    "inflation",
+    "jitters",
+    "macro",
+    "market",
+    "markets",
+    "policy",
+    "push",
+    "rates",
+    "risk",
+    "rotation",
+    "surge",
+    "tech",
+    "war",
+}
+NARRATIVE_ALIAS_GROUPS: dict[str, tuple[str, ...]] = {
+    "openai": ("openai", "chatgpt", "gpt"),
+    "anthropic": ("anthropic", "claude"),
+    "federal-reserve": (
+        "fed",
+        "federal reserve",
+        "jerome powell",
+        "powell",
+        "money printer",
+        "printer go brr",
+        "brr",
+        "brrr",
+    ),
+    "trump": ("trump", "donald trump", "maga"),
+    "iran": ("iran", "iranian"),
+    "israel": ("israel", "israeli"),
+    "ukraine": ("ukraine", "ukrainian"),
+    "russia": ("russia", "russian", "putin"),
+    "bitcoin-etf": ("bitcoin etf", "btc etf", "spot bitcoin etf", "blackrock", "ishares"),
+    "tesla-musk": ("elon", "musk", "tesla", "grok", "xai"),
+}
 LOW_INFORMATION_LABEL_TOKENS = {
     "broad",
     "cluster",
@@ -603,6 +659,54 @@ def _unique_preserve(values: list[str]) -> list[str]:
         seen.add(key)
         output.append(normalized)
     return output
+
+
+def _is_narrative_generic_match_token(token: str) -> bool:
+    return str(token or "").strip().lower() in NARRATIVE_GENERIC_MATCH_TOKENS
+
+
+def _specific_match_tokens(value: Any) -> list[str]:
+    return [
+        token
+        for token in _tokenize(value)
+        if len(token) >= 3 and not _is_narrative_generic_match_token(token)
+    ]
+
+
+def _extract_specific_phrase_variants(value: Any, *, max_phrases: int = 6) -> list[str]:
+    phrases: list[str] = []
+    normalized = _normalize_text(value)
+    if normalized:
+        normalized_tokens = _tokenize(normalized)
+        if normalized_tokens and not all(_is_narrative_generic_match_token(token) for token in normalized_tokens):
+            phrases.append(normalized)
+    for phrase in _extract_phrase_variants(value, max_phrases=max_phrases):
+        phrase_tokens = _tokenize(phrase)
+        if phrase_tokens and not all(_is_narrative_generic_match_token(token) for token in phrase_tokens):
+            phrases.append(phrase)
+    return _unique_preserve(phrases)
+
+
+def _extract_alias_groups(values: list[Any]) -> list[str]:
+    combined = " ".join(_normalize_text(value) for value in values if _normalize_text(value))
+    token_set = set(_tokenize(combined))
+    groups: list[str] = []
+    for group, aliases in NARRATIVE_ALIAS_GROUPS.items():
+        matched = False
+        for alias in aliases:
+            normalized_alias = _normalize_text(alias)
+            if not normalized_alias:
+                continue
+            if " " in normalized_alias:
+                if normalized_alias in combined:
+                    matched = True
+                    break
+            elif normalized_alias in token_set:
+                matched = True
+                break
+        if matched:
+            groups.append(group)
+    return _unique_preserve(groups)
 
 
 def _increment_count(counts: dict[str, int], key: str, amount: int = 1) -> None:
@@ -3559,7 +3663,11 @@ def _build_trend_link_reasons(
     *,
     candidate: MarketCandidate,
     trend: ActiveTrendCandidate,
+    match_type: str,
     exact_overlap_terms: list[str],
+    phrase_overlap_terms: list[str],
+    entity_overlap_terms: list[str],
+    alias_overlap_groups: list[str],
     partial_overlap_terms: list[str],
     seed_overlap_terms: list[str],
     best_name_similarity: float,
@@ -3570,20 +3678,36 @@ def _build_trend_link_reasons(
     support_interaction_score: float,
     market_activity_ratio: float,
     generic_penalty: float,
+    evidence_strength_score: float,
+    narrative_strength_score: float,
+    broad_only_match: bool,
+    source_basis: list[str],
 ) -> tuple[str, list[str], dict[str, Any]]:
     match_reasons: list[str] = []
+    if match_type == "explicit_origin":
+        match_reasons.append("coin metadata points to the same named narrative")
+    elif match_type == "strong_narrative":
+        match_reasons.append("coin metadata strongly tracks the same narrative wave")
+    else:
+        match_reasons.append("best available narrative-adjacent fallback")
+    if entity_overlap_terms:
+        match_reasons.append(f"matched named entity '{entity_overlap_terms[0]}'")
+    if phrase_overlap_terms:
+        match_reasons.append(f"matched named phrase '{phrase_overlap_terms[0]}'")
+    if alias_overlap_groups:
+        match_reasons.append(f"matched alias group '{alias_overlap_groups[0]}'")
     if exact_overlap_terms:
         match_reasons.append(f"matched narrative keyword '{exact_overlap_terms[0]}'")
     if partial_overlap_terms:
         match_reasons.append(f"partial term overlap on '{partial_overlap_terms[0]}'")
     if seed_overlap_terms:
-        match_reasons.append(f"seed overlap from '{seed_overlap_terms[0]}'")
+        match_reasons.append(f"secondary seed overlap from '{seed_overlap_terms[0]}'")
     if best_symbol_similarity >= 0.72 and best_symbol_phrase:
         match_reasons.append(f"ticker similarity to '{best_symbol_phrase}'")
     if best_name_similarity >= 0.62 and best_name_phrase:
         match_reasons.append(f"name similarity to '{best_name_phrase}'")
-    if trend.topic_key in candidate.matched_trend_keys:
-        match_reasons.append("candidate surfaced from this narrative's expanded search")
+    if trend.topic_key in candidate.matched_trend_keys and match_type != "fallback":
+        match_reasons.append("candidate also surfaced from this narrative's expanded search")
     if support_post_count > 0:
         match_reasons.append(
             f"{support_post_count} supporting social mention{'s' if support_post_count != 1 else ''}"
@@ -3592,15 +3716,42 @@ def _build_trend_link_reasons(
         match_reasons.append(
             f"market support ${round(candidate.liquidity_usd / 1000)}k liq / ${round(candidate.volume_h24 / 1000)}k vol"
         )
-    if not match_reasons:
-        match_reasons.append("broad fuzzy narrative match with live market activity")
+    if broad_only_match:
+        match_reasons.append("broad thematic overlap only")
     why_linked = "; ".join(match_reasons[:3]).strip().rstrip(".") + "."
     return (
         why_linked,
         match_reasons[:5],
         {
+            "match_type": match_type,
+            "match_score": round(
+                evidence_strength_score if match_type == "explicit_origin" else narrative_strength_score,
+                3,
+            ),
+            "origin_reason": why_linked,
+            "source_basis": source_basis,
+            "evidence_signals": _unique_preserve(
+                [
+                    "entity_overlap" if entity_overlap_terms else "",
+                    "phrase_overlap" if phrase_overlap_terms else "",
+                    "alias_overlap" if alias_overlap_groups else "",
+                    "keyword_overlap" if exact_overlap_terms else "",
+                    "supporting_posts" if support_post_count > 0 else "",
+                    "matched_trend_key" if trend.topic_key in candidate.matched_trend_keys else "",
+                    "broad_only_overlap" if broad_only_match else "",
+                ]
+            ),
+            "evidence_strength_score": round(evidence_strength_score, 3),
+            "narrative_strength_score": round(narrative_strength_score, 3),
+            "matched_entities": entity_overlap_terms,
+            "matched_keywords": exact_overlap_terms,
             "exact_overlap_count": len(exact_overlap_terms),
             "exact_overlap_terms": exact_overlap_terms,
+            "phrase_overlap_count": len(phrase_overlap_terms),
+            "phrase_overlap_terms": phrase_overlap_terms,
+            "entity_overlap_count": len(entity_overlap_terms),
+            "entity_overlap_terms": entity_overlap_terms,
+            "alias_overlap_groups": alias_overlap_groups,
             "partial_overlap_count": len(partial_overlap_terms),
             "partial_overlap_terms": partial_overlap_terms,
             "seed_overlap_count": len(seed_overlap_terms),
@@ -3614,6 +3765,7 @@ def _build_trend_link_reasons(
             "market_activity_ratio": round(max(0.0, market_activity_ratio), 4),
             "generic_penalty": round(generic_penalty, 3),
             "matched_trend_key": trend.topic_key in candidate.matched_trend_keys,
+            "generic_only_match": broad_only_match,
         },
     )
 
@@ -3628,14 +3780,97 @@ def _score_trend_link(
     candidate_tokens = _build_candidate_token_set(candidate)
     trend_tokens = _build_trend_token_set(trend, posts=posts)
     trend_phrases = _build_trend_phrase_candidates(trend, posts=posts)
-    noisy_terms = TOPIC_GENERIC_WEAK_TOKENS.union(TOPIC_NOISE_TOKENS)
+    noisy_terms = TOPIC_GENERIC_WEAK_TOKENS.union(TOPIC_NOISE_TOKENS).union(
+        NARRATIVE_GENERIC_MATCH_TOKENS
+    )
+    trend_origin_values = [
+        trend.display_label,
+        trend.raw_label,
+        trend.narrative_summary or "",
+        trend.context_paragraph or "",
+        *trend.key_entities,
+        *trend_phrases,
+    ]
+    candidate_origin_values = [
+        candidate.token_name,
+        candidate.token_symbol,
+        candidate.description or "",
+        *[
+            str(entry.get("label") or entry.get("url") or "")
+            for entry in candidate.websites
+        ],
+        *[
+            str(
+                entry.get("platform")
+                or entry.get("label")
+                or entry.get("type")
+                or entry.get("handle")
+                or entry.get("url")
+                or ""
+            )
+            for entry in candidate.socials
+        ],
+    ]
+    trend_specific_tokens = {
+        token
+        for value in trend_origin_values
+        for token in _specific_match_tokens(value)
+    }
+    candidate_specific_tokens = {
+        token
+        for value in candidate_origin_values
+        for token in _specific_match_tokens(value)
+    }
     shared_tokens = candidate_tokens.intersection(trend_tokens)
-    exact_overlap_terms = sorted(
-        token for token in shared_tokens if len(token) >= 3 and token not in noisy_terms
+    exact_overlap_terms = sorted(candidate_specific_tokens.intersection(trend_specific_tokens))[:5]
+    generic_overlap_terms = sorted(
+        token
+        for token in shared_tokens
+        if len(token) >= 3 and token not in TOPIC_NOISE_TOKENS and token not in exact_overlap_terms
     )[:5]
+    trend_specific_phrases = _unique_preserve(
+        [
+            phrase
+            for value in trend_origin_values
+            for phrase in _extract_specific_phrase_variants(value, max_phrases=3)
+        ]
+    )
+    candidate_specific_phrases = _unique_preserve(
+        [
+            phrase
+            for value in candidate_origin_values
+            for phrase in _extract_specific_phrase_variants(value, max_phrases=3)
+        ]
+    )
+    candidate_phrase_set = set(_normalize_text(phrase) for phrase in candidate_specific_phrases)
+    candidate_text_normalized = _normalize_text(" ".join(candidate_origin_values))
+    phrase_overlap_terms = [
+        phrase
+        for phrase in trend_specific_phrases
+        if _normalize_text(phrase) in candidate_phrase_set
+        or _normalize_text(phrase) in candidate_text_normalized
+    ][:4]
+    entity_overlap_terms = [
+        entity
+        for entity in _unique_preserve(
+            [*trend.key_entities, trend.display_label, trend.raw_label]
+        )
+        if _compact_identity(entity)
+        and any(
+            not _is_narrative_generic_match_token(token)
+            for token in _tokenize(entity)
+        )
+        and (
+            _compact_identity(entity) in _compact_identity(candidate_text_normalized)
+            or _normalize_text(entity) in candidate_phrase_set
+        )
+    ][:4]
+    trend_alias_groups = set(_extract_alias_groups(trend_origin_values))
+    candidate_alias_groups = set(_extract_alias_groups(candidate_origin_values))
+    alias_overlap_groups = sorted(trend_alias_groups.intersection(candidate_alias_groups))[:3]
     partial_overlap_terms = _collect_partial_overlap_terms(
-        {token for token in candidate_tokens if token not in noisy_terms},
-        {token for token in trend_tokens if token not in noisy_terms},
+        {token for token in candidate_specific_tokens if token not in noisy_terms},
+        {token for token in trend_specific_tokens if token not in noisy_terms},
         limit=5,
     )
     seed_overlap_terms = _unique_preserve(
@@ -3644,29 +3879,40 @@ def _score_trend_link(
             for seed_term in sorted(candidate.seed_terms)
             if str(seed_term).strip()
             and any(
+                not _is_narrative_generic_match_token(token)
+                for token in _tokenize(seed_term)
+            )
+            and any(
                 _normalize_text(seed_term) in _normalize_text(phrase)
                 or _partial_overlap_term_score(seed_term, phrase) >= 0.55
-                for phrase in trend_phrases
+                for phrase in trend_specific_phrases
             )
         ]
     )[:4]
     best_name_similarity, best_name_phrase = _best_similarity_match(candidate.token_name, trend_phrases)
     best_symbol_similarity, best_symbol_phrase = _best_similarity_match(candidate.token_symbol, trend_phrases)
-    generic_penalty = min(8.0, len([token for token in shared_tokens if token in noisy_terms]) * 1.75)
+    broad_only_match = (
+        not exact_overlap_terms
+        and not phrase_overlap_terms
+        and not entity_overlap_terms
+        and not alias_overlap_groups
+    )
+    generic_penalty = min(14.0, len(generic_overlap_terms) * 2.6)
+    if broad_only_match and generic_overlap_terms:
+        generic_penalty += min(10.0, len(generic_overlap_terms) * 1.4)
 
     lexical_score = min(
-        58.0,
-        len(exact_overlap_terms) * 10.0
-        + len(partial_overlap_terms) * 6.5
-        + len(seed_overlap_terms) * 4.2
-        + max(best_name_similarity, best_symbol_similarity) * 24.0,
+        68.0,
+        len(exact_overlap_terms) * 11.0
+        + len(phrase_overlap_terms) * 13.0
+        + len(entity_overlap_terms) * 16.0
+        + len(alias_overlap_groups) * 10.0
+        + len(partial_overlap_terms) * 4.0
+        + len(seed_overlap_terms) * 2.0
+        + max(best_name_similarity, best_symbol_similarity) * 16.0,
     )
-    if trend.topic_key in candidate.matched_trend_keys:
-        lexical_score += 10.0
-    if any(_compact_identity(entity) == candidate.normalized_symbol for entity in trend.key_entities):
-        lexical_score += 12.0
-    if any(_compact_identity(entity) == candidate.normalized_name for entity in trend.key_entities):
-        lexical_score += 14.0
+    if trend.topic_key in candidate.matched_trend_keys and not broad_only_match:
+        lexical_score += 8.0
     if best_name_similarity >= 0.82:
         lexical_score += 8.0
     if best_symbol_similarity >= 0.86:
@@ -3698,22 +3944,115 @@ def _score_trend_link(
     culture_fit_score = 0.0
     if trend.bias.dominant_category in PREFERRED_CATEGORY_TERMS:
         culture_fit_score += min(
-            12.0,
+            6.0,
             _keywords_present(
                 _normalize_text(candidate.token_text),
                 PREFERRED_CATEGORY_TERMS[trend.bias.dominant_category],
             )
-            * 2.5,
+            * 1.4,
         )
-    if trend.topic_key in candidate.matched_trend_keys:
-        culture_fit_score += 8.0
+    if trend.topic_key in candidate.matched_trend_keys and not broad_only_match:
+        culture_fit_score += 6.0
     if candidate.political_dominant and not trend.bias.political_dominant:
         culture_fit_score -= 6.0
+
+    evidence_strength_score = 0.0
+    if trend.topic_key in candidate.matched_trend_keys and (
+        exact_overlap_terms or phrase_overlap_terms or entity_overlap_terms or alias_overlap_groups
+    ):
+        evidence_strength_score += 18.0
+    evidence_strength_score += min(30.0, len(phrase_overlap_terms) * 16.0)
+    evidence_strength_score += min(30.0, len(entity_overlap_terms) * 18.0)
+    evidence_strength_score += min(18.0, len(alias_overlap_groups) * 11.0)
+    evidence_strength_score += min(20.0, len(exact_overlap_terms) * 8.0)
+    if support_post_count > 0 and (
+        phrase_overlap_terms or entity_overlap_terms or alias_overlap_groups or exact_overlap_terms
+    ):
+        evidence_strength_score += min(10.0, support_post_count * 3.0)
+    if broad_only_match:
+        evidence_strength_score = min(evidence_strength_score, 22.0)
+    evidence_strength_score = _clamp(evidence_strength_score, 0.0, 100.0)
+
+    narrative_strength_score = (
+        len(alias_overlap_groups) * 12.0
+        + len(exact_overlap_terms) * 8.0
+        + len(partial_overlap_terms) * 5.0
+        + len(seed_overlap_terms) * 3.5
+        + min(10.0, support_post_count * 3.5)
+        + min(8.0, math.log1p(max(0.0, support_interaction_score)) * 2.2)
+        + min(8.0, max(best_name_similarity, best_symbol_similarity) * 8.0)
+    )
+    if trend.topic_key in candidate.matched_trend_keys and not broad_only_match:
+        narrative_strength_score += 8.0
+    if broad_only_match:
+        narrative_strength_score = min(narrative_strength_score, 34.0)
+    narrative_strength_score = _clamp(narrative_strength_score, 0.0, 100.0)
+
+    has_explicit_origin_evidence = bool(
+        phrase_overlap_terms
+        or entity_overlap_terms
+        or alias_overlap_groups
+        or len(exact_overlap_terms) >= 2
+        or (
+            exact_overlap_terms
+            and any(len(term) >= 5 for term in exact_overlap_terms)
+        )
+    )
+    has_strong_narrative_evidence = bool(
+        alias_overlap_groups
+        or exact_overlap_terms
+        or partial_overlap_terms
+        or seed_overlap_terms
+        or support_post_count > 0
+        or trend.topic_key in candidate.matched_trend_keys
+    )
+    if has_explicit_origin_evidence and evidence_strength_score >= 58.0:
+        match_type = "explicit_origin"
+    elif has_strong_narrative_evidence and narrative_strength_score >= 42.0 and not broad_only_match:
+        match_type = "strong_narrative"
+    else:
+        match_type = "fallback"
+
+    base_match_score = (
+        evidence_strength_score
+        if match_type == "explicit_origin"
+        else narrative_strength_score
+        if match_type == "strong_narrative"
+        else min(34.0, narrative_strength_score * 0.55 + support_post_count * 2.0)
+    )
+    link_score = _clamp(
+        base_match_score * 0.72
+        + mention_score * 0.18
+        + timing_score * 0.1
+        + culture_fit_score * 0.06
+        - generic_penalty,
+        0.0,
+        100.0,
+    )
+    if broad_only_match:
+        link_score = min(link_score, 36.0)
+
+    source_basis = _unique_preserve(
+        [
+            "token_metadata" if phrase_overlap_terms or entity_overlap_terms else "",
+            "alias_dictionary" if alias_overlap_groups else "",
+            "supporting_posts" if support_post_count > 0 else "",
+            "search_seed" if seed_overlap_terms else "",
+            "market_activity" if candidate.liquidity_usd > 0 or candidate.volume_h24 > 0 else "",
+            "website_or_social_text"
+            if any(_normalize_text(value) for value in candidate_origin_values[3:])
+            else "",
+        ]
+    )
 
     why_linked, match_reasons, raw_match_signals = _build_trend_link_reasons(
         candidate=candidate,
         trend=trend,
+        match_type=match_type,
         exact_overlap_terms=exact_overlap_terms,
+        phrase_overlap_terms=phrase_overlap_terms,
+        entity_overlap_terms=entity_overlap_terms,
+        alias_overlap_groups=alias_overlap_groups,
         partial_overlap_terms=partial_overlap_terms,
         seed_overlap_terms=seed_overlap_terms,
         best_name_similarity=best_name_similarity,
@@ -3724,12 +4063,10 @@ def _score_trend_link(
         support_interaction_score=support_interaction_score,
         market_activity_ratio=market_activity_ratio,
         generic_penalty=generic_penalty,
-    )
-
-    link_score = _clamp(
-        lexical_score + mention_score + timing_score + culture_fit_score - generic_penalty,
-        0.0,
-        100.0,
+        evidence_strength_score=evidence_strength_score,
+        narrative_strength_score=narrative_strength_score,
+        broad_only_match=broad_only_match,
+        source_basis=source_basis,
     )
     return TrendLinkScore(
         topic_key=trend.topic_key,
@@ -3751,19 +4088,47 @@ def _score_trend_link(
 
 
 def _trend_link_is_plausible(link: TrendLinkScore) -> bool:
+    match_type = str(link.raw_match_signals.get("match_type") or "").strip().lower()
     exact_overlap_count = _safe_int(link.raw_match_signals.get("exact_overlap_count"))
+    phrase_overlap_count = _safe_int(link.raw_match_signals.get("phrase_overlap_count"))
+    entity_overlap_count = _safe_int(link.raw_match_signals.get("entity_overlap_count"))
+    alias_overlap_count = len(_coerce_text_list(link.raw_match_signals.get("alias_overlap_groups")))
     partial_overlap_count = _safe_int(link.raw_match_signals.get("partial_overlap_count"))
     seed_overlap_count = _safe_int(link.raw_match_signals.get("seed_overlap_count"))
     best_name_similarity = _safe_float(link.raw_match_signals.get("best_name_similarity"))
     best_symbol_similarity = _safe_float(link.raw_match_signals.get("best_symbol_similarity"))
+    if match_type == "explicit_origin":
+        return True
+    if match_type == "strong_narrative" and (
+        phrase_overlap_count > 0
+        or entity_overlap_count > 0
+        or alias_overlap_count > 0
+        or exact_overlap_count > 0
+        or link.support_post_count > 0
+    ):
+        return True
     return bool(
         link.support_post_count > 0
         or exact_overlap_count > 0
+        or phrase_overlap_count > 0
+        or entity_overlap_count > 0
+        or alias_overlap_count > 0
         or partial_overlap_count > 0
         or seed_overlap_count > 0
         or max(best_name_similarity, best_symbol_similarity) >= 0.46
-        or link.link_score >= 8.0
+        or link.link_score >= 16.0
     )
+
+
+def _match_type_priority(value: Any) -> int:
+    normalized = str(value or "").strip().lower()
+    if normalized == "explicit_origin":
+        return 3
+    if normalized == "strong_narrative":
+        return 2
+    if normalized == "fallback":
+        return 1
+    return 0
 
 
 def _candidate_identity(candidate: MarketCandidate) -> str:
@@ -3812,14 +4177,24 @@ def _publish_tier_for_candidate(
     soft_penalty_score: float,
 ) -> str | None:
     adjusted_score = correlation_score - soft_penalty_score * 0.18
+    match_type = str(strongest.raw_match_signals.get("match_type") or "").strip().lower()
     if (
-        adjusted_score >= config.high_confidence_correlation_threshold
+        match_type == "explicit_origin"
+        and adjusted_score >= config.high_confidence_correlation_threshold
+        and candidate.market_score >= config.medium_confidence_market_floor
+        and strongest.link_score >= 34.0
+    ):
+        return "high"
+    if (
+        match_type in {"explicit_origin", "strong_narrative"}
+        and adjusted_score >= config.high_confidence_correlation_threshold
         and candidate.market_score >= config.medium_confidence_market_floor
         and strongest.link_score >= 20.0
     ):
         return "high"
     if (
-        adjusted_score >= config.medium_confidence_correlation_threshold
+        match_type in {"explicit_origin", "strong_narrative"}
+        and adjusted_score >= config.medium_confidence_correlation_threshold
         and candidate.market_score >= config.medium_confidence_market_floor
         and (
             strongest.link_score >= 12.0
@@ -3847,18 +4222,31 @@ def _trend_link_confidence_score(
     link: TrendLinkScore,
     soft_penalty_score: float,
 ) -> float:
+    match_type = str(link.raw_match_signals.get("match_type") or "").strip().lower()
     exact_overlap_count = _safe_int(link.raw_match_signals.get("exact_overlap_count"))
+    phrase_overlap_count = _safe_int(link.raw_match_signals.get("phrase_overlap_count"))
+    entity_overlap_count = _safe_int(link.raw_match_signals.get("entity_overlap_count"))
+    alias_overlap_count = len(_coerce_text_list(link.raw_match_signals.get("alias_overlap_groups")))
     partial_overlap_count = _safe_int(link.raw_match_signals.get("partial_overlap_count"))
     seed_overlap_count = _safe_int(link.raw_match_signals.get("seed_overlap_count"))
     best_similarity = max(
         _safe_float(link.raw_match_signals.get("best_name_similarity")),
         _safe_float(link.raw_match_signals.get("best_symbol_similarity")),
     )
-    matched_key_bonus = 4.0 if link.topic_key in candidate.matched_trend_keys else 0.0
-    seed_bonus = min(5.0, seed_overlap_count * 1.1 + len(candidate.seed_terms) * 0.18)
+    evidence_strength_score = _safe_float(link.raw_match_signals.get("evidence_strength_score"))
+    narrative_strength_score = _safe_float(link.raw_match_signals.get("narrative_strength_score"))
+    matched_key_bonus = (
+        4.0
+        if link.topic_key in candidate.matched_trend_keys and match_type != "fallback"
+        else 0.0
+    )
+    seed_bonus = min(3.0, seed_overlap_count * 0.8 + len(candidate.seed_terms) * 0.08)
     exact_overlap_bonus = min(7.0, exact_overlap_count * 2.0)
+    phrase_bonus = min(10.0, phrase_overlap_count * 3.0)
+    entity_bonus = min(12.0, entity_overlap_count * 3.4)
+    alias_bonus = min(8.0, alias_overlap_count * 2.8)
     partial_overlap_bonus = min(4.5, partial_overlap_count * 1.35)
-    fuzzy_bonus = min(7.0, best_similarity * 7.2)
+    fuzzy_bonus = min(5.0, best_similarity * 5.4)
     support_bonus = min(
         10.0,
         link.support_post_count * 2.1 + math.log1p(max(0.0, link.support_interaction_score)) * 1.3,
@@ -3867,9 +4255,14 @@ def _trend_link_confidence_score(
         link.link_score * 0.52
         + candidate.market_score * 0.14
         + candidate.memecoin_fit_score * 0.06
+        + evidence_strength_score * 0.16
+        + narrative_strength_score * 0.08
         + matched_key_bonus
         + seed_bonus
         + exact_overlap_bonus
+        + phrase_bonus
+        + entity_bonus
+        + alias_bonus
         + partial_overlap_bonus
         + fuzzy_bonus
         + support_bonus
@@ -3877,10 +4270,25 @@ def _trend_link_confidence_score(
     )
     if link.support_post_count <= 0:
         score -= 10.0
-    if exact_overlap_count <= 0 and partial_overlap_count <= 0:
+    if (
+        exact_overlap_count <= 0
+        and phrase_overlap_count <= 0
+        and entity_overlap_count <= 0
+        and alias_overlap_count <= 0
+        and partial_overlap_count <= 0
+    ):
         score -= 6.0
+    if match_type == "fallback":
+        score = min(score, 46.0)
+    elif match_type == "strong_narrative":
+        score = min(score, 82.0 if link.support_post_count <= 0 else 88.0)
     if link.support_post_count <= 0:
-        score = min(score, 79.0 if exact_overlap_count >= 2 or best_similarity >= 0.82 else 68.0)
+        score = min(
+            score,
+            86.0
+            if phrase_overlap_count > 0 or entity_overlap_count > 0 or exact_overlap_count >= 2
+            else 68.0,
+        )
     elif link.support_post_count == 1 and exact_overlap_count <= 1:
         score = min(score, 84.0)
     return round(_clamp(score, 0.0, 100.0), 3)
@@ -3899,6 +4307,7 @@ def _build_trend_memecoin_rows(
         ranked_candidates = sorted(
             trend_candidates.get(trend.topic_key, []),
             key=lambda item: (
+                _match_type_priority(item["trend_link"].raw_match_signals.get("match_type")),
                 tier_priority.get(str(item.get("publish_tier")), 0),
                 float(item.get("confidence_score") or 0.0),
                 item["trend_link"].support_post_count,
@@ -4039,6 +4448,7 @@ def _rank_correlated_candidates(
         )
         trend_links.sort(
             key=lambda item: (
+                _match_type_priority(item.raw_match_signals.get("match_type")),
                 item.link_score,
                 item.support_post_count,
                 item.support_interaction_score,
@@ -4331,6 +4741,9 @@ def _rank_correlated_candidates(
                     "support_post_count": link.support_post_count,
                     "support_interaction_score": link.support_interaction_score,
                     "is_primary": index == 0,
+                    "why_linked": link.why_linked,
+                    "match_reasons_json": link.match_reasons,
+                    "raw_match_signals_json": link.raw_match_signals,
                 }
             )
         item["strongest_link"] = strongest

@@ -320,6 +320,13 @@ function normalizeLink(link: unknown): CorrelatedMemecoinLink | null {
     supportPostCount: Number(record.supportPostCount ?? 0),
     supportInteractionScore: Number(record.supportInteractionScore ?? 0),
     isPrimary: Boolean(record.isPrimary),
+    whyLinked: typeof record.whyLinked === "string" ? record.whyLinked : null,
+    matchReasons: Array.isArray(record.matchReasons)
+      ? record.matchReasons
+          .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+          .filter(Boolean)
+      : null,
+    rawMatchSignals: asRecord(record.rawMatchSignals),
   };
 }
 
@@ -498,7 +505,10 @@ async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
                   'linkScore', l.link_score,
                   'supportPostCount', l.support_post_count,
                   'supportInteractionScore', l.support_interaction_score,
-                  'isPrimary', l.is_primary
+                  'isPrimary', l.is_primary,
+                  'whyLinked', l.why_linked,
+                  'matchReasons', l.match_reasons_json,
+                  'rawMatchSignals', l.raw_match_signals_json
                 )
                 ORDER BY l.is_primary DESC, l.link_score DESC, l.link_id DESC
               )

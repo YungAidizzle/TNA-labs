@@ -8,6 +8,7 @@ import {
   insertFailedAiTrendSnapshot,
   storeSuccessfulAiTrendSnapshot,
 } from "@/lib/ai-trends/repository";
+import { assertAiTrendCanonicalTitle } from "@/lib/ai-trends/title-validation";
 import type {
   GeneratedAiTrendCandidate,
   GeneratedAiTrendSnapshotPayload,
@@ -57,7 +58,7 @@ const GENERATION_SCHEMA = {
         properties: {
           rank: { type: "integer", minimum: 1, maximum: 100 },
           trend_key: { type: "string" },
-          title: { type: "string" },
+          title: { type: "string", minLength: 4, maxLength: 72 },
           summary: { type: "string" },
           confidence_score: { type: "number", minimum: 0, maximum: 100 },
           ai_rank_score: { type: "number", minimum: 0, maximum: 100 },
@@ -122,11 +123,12 @@ function asNonEmptyString(value: unknown) {
 }
 
 function normalizeTrendCandidate(raw: RawModelTrend, index: number): GeneratedAiTrendCandidate {
-  const title = asNonEmptyString(raw.title);
+  const rawTitle = asNonEmptyString(raw.title);
   const summary = asNonEmptyString(raw.summary);
-  if (!title || !summary) {
+  if (!rawTitle || !summary) {
     throw new Error(`Model trend ${index + 1} is missing a title or summary.`);
   }
+  const title = assertAiTrendCanonicalTitle(rawTitle, index);
 
   const rank = Number(raw.rank ?? index + 1);
   const confidenceScore = normalizeModelScore(raw.confidence_score ?? 0, 0);
@@ -193,7 +195,13 @@ function buildGenerationPrompt(trendCount: number) {
     "Use current web-grounded information and prioritize topics that are important now, widely discussed now, or narratively significant now.",
     "This is one shared global board for all users. Do not personalize for a user segment.",
     "Avoid duplicates, near-duplicates, and minor variants of the same story.",
-    "Each title must read like a clean narrative headline, not a fragment.",
+    "The title field is the canonical stored dashboard title and must already be the final compact narrative label.",
+    "Do not generate a long title first. Do not return a long title plus a shorter variant. The title field itself must be short.",
+    "Titles should usually be 3 to 6 words and must never exceed 8 words.",
+    "Titles must sound like clean narrative labels, not newspaper headlines or full sentences.",
+    "Keep the exact subject of the trend in the title, including the specific person, company, event, slogan, meme, policy, or object.",
+    "Do not use ellipses, quotation marks, colons, semicolons, or headline-style framing in titles.",
+    "Good title style examples: EU AI Act Crackdown, Anthropic Mythos Leak, OpenAI Media Push, Fed Inflation Jitters, Iran Escalation Risk, Bitcoin ETF Surge.",
     "Each summary must be concise and factual.",
     "importance_note should explain why the topic matters right now in one short sentence.",
     "category should be a concise label such as AI, Tech, Crypto, Markets, Politics, Business, World, Culture, Entertainment, Sports, or Internet.",
@@ -287,7 +295,7 @@ export async function generateSharedAiTrendSnapshot(options: {
   }
 
   let lastError: Error | null = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
       console.info("[ai-trends] generation attempt start", {
         attempt,

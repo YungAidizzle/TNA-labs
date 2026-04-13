@@ -43,6 +43,8 @@ type TrendMemecoinLinkRow = {
   last_seen_txns_h24: number | null;
 };
 
+type NarrativeMatchType = "explicit_origin" | "strong_narrative" | "fallback";
+
 type NarrativeFamily =
   | "ai"
   | "politics"
@@ -61,8 +63,14 @@ type TrendNarrativeProfile = {
   trendCategory: string | null;
   text: string;
   tokens: Set<string>;
+  thematicTokens: Set<string>;
   phrases: string[];
+  anchorPhrases: string[];
+  anchorPhraseKeys: Set<string>;
   entities: string[];
+  entityKeys: Set<string>;
+  narrativeTokens: Set<string>;
+  aliasGroups: Set<string>;
   tags: string[];
   families: NarrativeFamily[];
 };
@@ -74,7 +82,11 @@ type CoinNarrativeProfile = {
   summaryTokens: Set<string>;
   phrases: string[];
   phraseKeys: Set<string>;
+  originPhrases: string[];
+  originPhraseKeys: Set<string>;
   entityKeys: Set<string>;
+  narrativeTokens: Set<string>;
+  aliasGroups: Set<string>;
   topicKeys: Set<string>;
   tags: string[];
   families: NarrativeFamily[];
@@ -89,7 +101,7 @@ type FamilyAffinityResult = {
 
 type HeuristicNarrativeMatch = {
   linkedCoin: NarrativeLinkedCoin;
-  matchType: "direct" | "inferred" | "fallback";
+  matchType: NarrativeMatchType;
   matchScore: number;
   supportPostCount: number;
   supportInteractionScore: number;
@@ -99,8 +111,8 @@ type HeuristicNarrativeMatch = {
 };
 
 const MAX_LINKS_PER_TREND = 3;
-const DIRECT_MATCH_THRESHOLD = 42;
-const INFERRED_MATCH_THRESHOLD = 48;
+const EXPLICIT_ORIGIN_THRESHOLD = 64;
+const STRONG_NARRATIVE_THRESHOLD = 54;
 
 const STOP_TOKENS = new Set([
   "a",
@@ -194,6 +206,69 @@ const GENERIC_MATCH_TOKENS = new Set([
   "updates",
   "viral",
 ]);
+
+const NARRATIVE_GENERIC_TOKENS = new Set([
+  ...GENERIC_MATCH_TOKENS,
+  "acceleration",
+  "act",
+  "agents",
+  "ai",
+  "business",
+  "campaign",
+  "celebrity",
+  "clip",
+  "clips",
+  "coin",
+  "coins",
+  "conflict",
+  "creator",
+  "crackdown",
+  "crypto",
+  "culture",
+  "economy",
+  "economic",
+  "election",
+  "escalation",
+  "event",
+  "fed",
+  "geopolitics",
+  "government",
+  "inflation",
+  "internet",
+  "jitters",
+  "macro",
+  "market",
+  "markets",
+  "media",
+  "meme",
+  "memecoin",
+  "political",
+  "politics",
+  "policy",
+  "push",
+  "rates",
+  "risk",
+  "rotation",
+  "sentiment",
+  "surge",
+  "tech",
+  "thematic",
+  "volatility",
+  "war",
+]);
+
+const NARRATIVE_ALIAS_GROUPS = [
+  ["openai", ["openai", "chatgpt", "gpt"]],
+  ["anthropic", ["anthropic", "claude"]],
+  ["federal-reserve", ["fed", "federal reserve", "jerome powell", "powell", "money printer", "printer go brr", "brr", "brrr"]],
+  ["trump", ["trump", "donald trump", "maga"]],
+  ["iran", ["iran", "iranian"]],
+  ["israel", ["israel", "israeli"]],
+  ["ukraine", ["ukraine", "ukrainian"]],
+  ["russia", ["russia", "russian", "putin"]],
+  ["bitcoin-etf", ["bitcoin etf", "btc etf", "spot bitcoin etf", "blackrock", "ishares"]],
+  ["tesla-musk", ["elon", "musk", "tesla", "grok", "xai"]],
+] as const;
 
 const FAMILY_LABELS: Record<NarrativeFamily, string> = {
   ai: "AI / compute",
@@ -537,6 +612,106 @@ function uniqueStrings(values: Array<string | null | undefined>) {
   return output;
 }
 
+function isNarrativeGenericToken(token: string) {
+  return NARRATIVE_GENERIC_TOKENS.has(token.toLowerCase());
+}
+
+function tokenizeNarrativeSpecific(value: string | null | undefined) {
+  return tokenize(value).filter((token) => !isNarrativeGenericToken(token));
+}
+
+function extractPhraseVariants(value: string | null | undefined, maxWords = 4) {
+  const tokens = tokenize(value);
+  const phrases: string[] = [];
+
+  for (let size = Math.min(maxWords, tokens.length); size >= 2; size -= 1) {
+    for (let index = 0; index <= tokens.length - size; index += 1) {
+      const phraseTokens = tokens.slice(index, index + size);
+      if (phraseTokens.every((token) => isNarrativeGenericToken(token))) {
+        continue;
+      }
+      phrases.push(phraseTokens.join(" "));
+    }
+  }
+
+  return uniqueStrings(phrases);
+}
+
+function phraseKeySet(values: Iterable<string>) {
+  return new Set(
+    uniqueStrings(Array.from(values))
+      .map((value) => normalizeText(value))
+      .filter(Boolean),
+  );
+}
+
+function narrativeTokenSet(values: Array<string | null | undefined>) {
+  return new Set(uniqueStrings(values.flatMap((value) => tokenizeNarrativeSpecific(value))));
+}
+
+function extractAnchorPhrases(values: Array<string | null | undefined>) {
+  const directPhrases = uniqueStrings(
+    values
+      .map((value) => normalizeText(value))
+      .filter((value) => value.length >= 3)
+      .filter((value) => !tokenize(value).every((token) => isNarrativeGenericToken(token))),
+  );
+  const derivedPhrases = uniqueStrings(values.flatMap((value) => extractPhraseVariants(value)));
+  return uniqueStrings([...directPhrases, ...derivedPhrases]);
+}
+
+function extractExternalNarrativeTerms(links: Array<{ label?: string | null; type?: string | null; url: string }> | null | undefined) {
+  const terms: string[] = [];
+
+  (links ?? []).forEach((link) => {
+    if (link.label) {
+      terms.push(link.label);
+    }
+    if (link.type) {
+      terms.push(link.type);
+    }
+
+    const rawUrl = String(link.url ?? "").trim();
+    if (!rawUrl) {
+      return;
+    }
+
+    try {
+      const parsed = new URL(rawUrl);
+      terms.push(parsed.hostname.replace(/^www\./i, ""));
+      terms.push(parsed.pathname.replace(/[/_-]+/g, " "));
+    } catch {
+      terms.push(rawUrl.replace(/[/_-]+/g, " "));
+    }
+  });
+
+  return uniqueStrings(terms);
+}
+
+function externalTextsFromRow(row: CorrelatedMemecoinRow) {
+  return extractExternalNarrativeTerms([...(row.websites ?? []), ...(row.socials ?? [])]);
+}
+
+function extractAliasGroups(values: Array<string | null | undefined>) {
+  const combinedText = uniqueStrings(values.map((value) => normalizeText(value))).join(" ");
+  const tokenSet = new Set(tokenize(combinedText));
+  const groups = new Set<string>();
+
+  NARRATIVE_ALIAS_GROUPS.forEach(([group, aliases]) => {
+    const matched = aliases.some((alias) => {
+      const normalizedAlias = normalizeText(alias);
+      return normalizedAlias.includes(" ")
+        ? combinedText.includes(normalizedAlias)
+        : tokenSet.has(normalizedAlias);
+    });
+    if (matched) {
+      groups.add(group);
+    }
+  });
+
+  return groups;
+}
+
 function intersectStrings(left: Iterable<string>, right: Iterable<string>) {
   const rightSet = new Set(Array.from(right, (value) => value.toLowerCase()));
   return uniqueStrings(
@@ -723,16 +898,22 @@ function getTrendLabel(row: RankedTrend) {
 function buildTrendProfile(row: RankedTrend): TrendNarrativeProfile {
   const topicKey = getTrendTopicKey(row) ?? row.id;
   const label = getTrendLabel(row);
-  const textValues = uniqueStrings([
+  const anchorSourceValues = uniqueStrings([
     label,
     row.trendRawLabel,
     row.trendFallbackLabel,
+    ...(row.trendKeyEntities ?? []),
+    ...extractQuotedTerms([row.trendNarrativeSummary, row.trendContextParagraph, row.trendDescription]),
+  ]);
+  const textValues = uniqueStrings([
+    ...anchorSourceValues,
     row.trendDescription,
     row.trendContextParagraph,
     row.trendNarrativeSummary,
     row.canonicalKeySummary?.replace(/[-_]+/g, " "),
-    ...(row.trendKeyEntities ?? []),
   ]);
+  const anchorPhrases = extractAnchorPhrases(anchorSourceValues);
+  const narrativeTokens = narrativeTokenSet(textValues);
 
   return {
     topicKey,
@@ -740,17 +921,24 @@ function buildTrendProfile(row: RankedTrend): TrendNarrativeProfile {
     trendCategory: row.trendCategory ?? row.trendEnrichment?.trendCategory ?? null,
     text: textValues.map((value) => normalizeText(value)).filter(Boolean).join(" "),
     tokens: new Set(textValues.flatMap((value) => tokenize(value))),
+    thematicTokens: new Set(
+      uniqueStrings([
+        row.trendDescription,
+        row.trendContextParagraph,
+        row.trendNarrativeSummary,
+      ]).flatMap((value) => tokenize(value)),
+    ),
     phrases: uniqueStrings(
       [label, row.trendRawLabel, row.trendFallbackLabel, ...(row.trendKeyEntities ?? [])]
         .map((value) => normalizeText(value))
         .filter((value) => value.length >= 3),
     ),
-    entities: uniqueStrings([
-      ...(row.trendKeyEntities ?? []),
-      label,
-      row.trendRawLabel,
-      row.trendFallbackLabel,
-    ]),
+    anchorPhrases,
+    anchorPhraseKeys: phraseKeySet(anchorPhrases),
+    entities: anchorSourceValues,
+    entityKeys: new Set(anchorSourceValues.map((value) => compactIdentity(value)).filter(Boolean)),
+    narrativeTokens,
+    aliasGroups: extractAliasGroups(textValues),
     tags: uniqueStrings(textValues.flatMap((value) => extractTagTokens(value))),
     families: inferNarrativeFamilies(textValues, [
       row.trendCategory,
@@ -764,12 +952,23 @@ function buildCoinProfile(row: CorrelatedMemecoinRow): CoinNarrativeProfile {
     link.topicLabel,
     link.narrativeSummary,
     link.trendCategory,
+    link.whyLinked,
+    ...(link.matchReasons ?? []),
+    ...readSignalStringArray(asRecord(link.rawMatchSignals), "supporting_keywords"),
+    ...readSignalStringArray(asRecord(link.rawMatchSignals), "matched_entities"),
+    ...readSignalStringArray(asRecord(link.rawMatchSignals), "matched_keywords"),
   ]);
-  const textValues = uniqueStrings([
+  const externalTexts = extractExternalNarrativeTerms([...(row.websites ?? []), ...(row.socials ?? [])]);
+  const originValues = uniqueStrings([
     row.name,
     row.symbol,
     row.description,
     row.strongestTrendLabel,
+    ...(row.links ?? []).map((link) => link.topicLabel),
+    ...externalTexts,
+  ]);
+  const textValues = uniqueStrings([
+    ...originValues,
     row.strongestTrendSummary,
     ...(row.seedTerms ?? []),
     ...linkTexts,
@@ -782,15 +981,14 @@ function buildCoinProfile(row: CorrelatedMemecoinRow): CoinNarrativeProfile {
   );
   const phrases = uniqueStrings(
     [
-      row.name,
-      row.symbol,
-      row.strongestTrendLabel,
+      ...originValues,
       ...(row.seedTerms ?? []),
-      ...(row.links ?? []).map((link) => link.topicLabel),
     ]
       .map((value) => normalizeText(value))
       .filter((value) => value.length >= 3),
   );
+  const originPhrases = extractAnchorPhrases(originValues);
+  const narrativeTokens = narrativeTokenSet(textValues);
 
   return {
     categories,
@@ -805,11 +1003,15 @@ function buildCoinProfile(row: CorrelatedMemecoinRow): CoinNarrativeProfile {
     ),
     phrases,
     phraseKeys: new Set(phrases.map((value) => compactIdentity(value)).filter(Boolean)),
+    originPhrases,
+    originPhraseKeys: phraseKeySet(originPhrases),
     entityKeys: new Set(
-      uniqueStrings([row.name, row.symbol, ...(row.seedTerms ?? [])])
+      uniqueStrings([row.name, row.symbol, row.strongestTrendLabel, ...(row.links ?? []).map((link) => link.topicLabel)])
         .map((value) => compactIdentity(value))
         .filter(Boolean),
     ),
+    narrativeTokens,
+    aliasGroups: extractAliasGroups(textValues),
     topicKeys: new Set(
       uniqueStrings([
         row.strongestTrendKey,
@@ -827,10 +1029,10 @@ function buildCoinProfile(row: CorrelatedMemecoinRow): CoinNarrativeProfile {
 }
 
 function matchPriority(matchType: string | null | undefined) {
-  if (matchType === "direct") {
+  if (matchType === "explicit_origin" || matchType === "direct") {
     return 3;
   }
-  if (matchType === "inferred") {
+  if (matchType === "strong_narrative" || matchType === "inferred") {
     return 2;
   }
   if (matchType === "fallback") {
@@ -1003,6 +1205,8 @@ function supportingKeywordsFromStoredCoin(linkedCoin: NarrativeLinkedCoin) {
   const signals = asRecord(linkedCoin.rawMatchSignals);
   return uniqueStrings([
     ...readSignalStringArray(signals, "supporting_keywords"),
+    ...readSignalStringArray(signals, "matched_entities"),
+    ...readSignalStringArray(signals, "matched_keywords"),
     ...readSignalStringArray(signals, "exact_overlap_terms"),
     ...readSignalStringArray(signals, "partial_overlap_terms"),
     ...readSignalStringArray(signals, "seed_overlap_terms"),
@@ -1010,24 +1214,57 @@ function supportingKeywordsFromStoredCoin(linkedCoin: NarrativeLinkedCoin) {
   ]).slice(0, 6);
 }
 
-function inferStoredMatchType(linkedCoin: NarrativeLinkedCoin): "direct" | "inferred" | "fallback" {
+function inferStoredMatchType(linkedCoin: NarrativeLinkedCoin): NarrativeMatchType {
   const signals = asRecord(linkedCoin.rawMatchSignals);
   const explicitType = readSignalString(signals, "match_type");
   if (
-    explicitType === "direct" ||
-    explicitType === "inferred" ||
+    explicitType === "explicit_origin" ||
+    explicitType === "strong_narrative" ||
     explicitType === "fallback"
   ) {
-    return explicitType;
+    return explicitType as NarrativeMatchType;
+  }
+  if (explicitType === "direct") {
+    return "explicit_origin";
+  }
+  if (explicitType === "inferred") {
+    return "strong_narrative";
+  }
+
+  const entityMatches = readSignalStringArray(signals, "matched_entities");
+  const phraseMatches = readSignalStringArray(signals, "phrase_overlap_terms");
+  const aliasMatches = readSignalStringArray(signals, "alias_overlap_groups");
+  const keywordMatches = uniqueStrings([
+    ...readSignalStringArray(signals, "matched_keywords"),
+    ...readSignalStringArray(signals, "exact_overlap_terms"),
+  ]);
+  const genericOnlyMatch = Boolean(signals?.generic_only_match);
+
+  if (
+    !genericOnlyMatch &&
+    (entityMatches.length > 0 ||
+      phraseMatches.length > 0 ||
+      aliasMatches.length > 0 ||
+      (keywordMatches.length > 0 &&
+        keywordMatches.some((keyword) => !isNarrativeGenericToken(keyword.toLowerCase()))) ||
+      Boolean(signals?.topic_key_match) ||
+      Boolean(signals?.matched_trend_key) ||
+      (readSignalNumber(signals, "evidence_strength_score") ?? 0) >= EXPLICIT_ORIGIN_THRESHOLD ||
+      (readSignalNumber(signals, "best_name_similarity") ?? 0) >= 0.78 ||
+      (readSignalNumber(signals, "best_symbol_similarity") ?? 0) >= 0.84)
+  ) {
+    return "explicit_origin";
   }
 
   if (
-    (readSignalNumber(signals, "exact_overlap_count") ?? 0) > 0 ||
-    (readSignalNumber(signals, "seed_overlap_count") ?? 0) > 0 ||
-    (readSignalNumber(signals, "best_name_similarity") ?? 0) >= 0.62 ||
-    (readSignalNumber(signals, "best_symbol_similarity") ?? 0) >= 0.72
+    !genericOnlyMatch &&
+    ((readSignalNumber(signals, "narrative_strength_score") ?? 0) >= STRONG_NARRATIVE_THRESHOLD ||
+      keywordMatches.length > 0 ||
+      (readSignalNumber(signals, "support_post_count") ?? 0) > 0 ||
+      (readSignalNumber(signals, "best_name_similarity") ?? 0) >= 0.68 ||
+      (readSignalNumber(signals, "best_symbol_similarity") ?? 0) >= 0.74)
   ) {
-    return "direct";
+    return "strong_narrative";
   }
 
   const reasonText = normalizeText(
@@ -1035,29 +1272,45 @@ function inferStoredMatchType(linkedCoin: NarrativeLinkedCoin): "direct" | "infe
   );
 
   if (
-    reasonText.includes("matched narrative keyword") ||
-    reasonText.includes("seed overlap") ||
-    reasonText.includes("ticker similarity") ||
-    reasonText.includes("name similarity")
+    reasonText.includes("explicit origin") ||
+    reasonText.includes("same named narrative") ||
+    reasonText.includes("same event") ||
+    reasonText.includes("same slogan")
   ) {
-    return "direct";
+    return "explicit_origin";
+  }
+
+  if (
+    reasonText.includes("strong narrative") ||
+    reasonText.includes("origin narrative") ||
+    reasonText.includes("same meme") ||
+    reasonText.includes("same person")
+  ) {
+    return "strong_narrative";
+  }
+
+  if (
+    (readSignalNumber(signals, "best_name_similarity") ?? 0) >= 0.62 ||
+    (readSignalNumber(signals, "best_symbol_similarity") ?? 0) >= 0.72
+  ) {
+    return genericOnlyMatch ? "fallback" : "strong_narrative";
   }
 
   if (linkedCoin.confidence >= 55) {
-    return "inferred";
+    return genericOnlyMatch ? "fallback" : "strong_narrative";
   }
 
   return "fallback";
 }
 
 function confidenceBandForMatch(
-  matchType: "direct" | "inferred" | "fallback",
+  matchType: NarrativeMatchType,
   matchScore: number,
 ) {
-  if (matchType === "direct" && matchScore >= 70) {
+  if (matchType === "explicit_origin" && matchScore >= 72) {
     return "high";
   }
-  if (matchType !== "fallback" && matchScore >= 55) {
+  if (matchType !== "fallback" && matchScore >= 56) {
     return "medium";
   }
   if (matchScore >= 40) {
@@ -1073,10 +1326,10 @@ function normalizeStoredLinkedCoin(linkedCoin: NarrativeLinkedCoin) {
   const matchReason =
     readSignalString(signals, "match_reason") ??
     linkedCoin.whyLinked ??
-    (matchType === "direct"
-      ? "Direct narrative match from stored trend-memecoin linking."
-      : matchType === "inferred"
-        ? "Stored inferred narrative match."
+    (matchType === "explicit_origin"
+      ? "Stored explicit-origin narrative match."
+      : matchType === "strong_narrative"
+        ? "Stored strong narrative match."
         : "Stored fallback narrative match.");
   const supportingKeywords = supportingKeywordsFromStoredCoin(linkedCoin);
 
@@ -1104,11 +1357,17 @@ function getLinkedCoinMatchType(linkedCoin: NarrativeLinkedCoin) {
   const signals = asRecord(linkedCoin.rawMatchSignals);
   const explicitType = readSignalString(signals, "match_type");
   if (
-    explicitType === "direct" ||
-    explicitType === "inferred" ||
+    explicitType === "explicit_origin" ||
+    explicitType === "strong_narrative" ||
     explicitType === "fallback"
   ) {
-    return explicitType;
+    return explicitType as NarrativeMatchType;
+  }
+  if (explicitType === "direct") {
+    return "explicit_origin";
+  }
+  if (explicitType === "inferred") {
+    return "strong_narrative";
   }
   return inferStoredMatchType(linkedCoin);
 }
@@ -1254,16 +1513,30 @@ function buildHeuristicNarrativeMatch(
   const trendProfile = buildTrendProfile(trend);
   const coinProfile = buildCoinProfile(row);
   const topicKeyMatch = coinProfile.topicKeys.has(trendProfile.topicKey);
-  const exactKeywords = intersectStrings(trendProfile.tokens, coinProfile.tokens)
-    .filter((token) => token.length >= 3)
+  const directLink = (row.links ?? []).find((link) => link.topicKey === trendProfile.topicKey) ?? null;
+  const rawBoardLinkMatchType = directLink
+    ? readSignalString(asRecord(directLink.rawMatchSignals), "match_type")
+    : null;
+  const boardLinkMatchType =
+    rawBoardLinkMatchType === "direct"
+      ? "explicit_origin"
+      : rawBoardLinkMatchType === "inferred"
+        ? "strong_narrative"
+        : rawBoardLinkMatchType;
+  const anchorKeywordOverlap = intersectStrings(
+    trendProfile.narrativeTokens,
+    coinProfile.narrativeTokens,
+  ).slice(0, 5);
+  const thematicOverlap = intersectStrings(
+    trendProfile.thematicTokens,
+    coinProfile.summaryTokens.size > 0 ? coinProfile.summaryTokens : coinProfile.tokens,
+  )
+    .filter((token) => token.length >= 4 && !anchorKeywordOverlap.includes(token))
     .slice(0, 5);
-  const phraseOverlap = trendProfile.phrases
+  const phraseOverlap = trendProfile.anchorPhrases
     .filter((phrase) => {
-      const compactPhrase = compactIdentity(phrase);
-      return (
-        compactPhrase.length >= 3 &&
-        (coinProfile.phraseKeys.has(compactPhrase) || coinProfile.text.includes(phrase))
-      );
+      const normalizedPhrase = normalizeText(phrase);
+      return normalizedPhrase.length >= 3 && coinProfile.originPhraseKeys.has(normalizedPhrase);
     })
     .slice(0, 4);
   const entityOverlap = trendProfile.entities
@@ -1272,85 +1545,114 @@ function buildHeuristicNarrativeMatch(
       const normalizedEntity = normalizeText(entity);
       return (
         compactEntity.length >= 3 &&
-        (coinProfile.entityKeys.has(compactEntity) || coinProfile.text.includes(normalizedEntity))
+        (coinProfile.entityKeys.has(compactEntity) ||
+          coinProfile.text.includes(normalizedEntity) ||
+          coinProfile.originPhraseKeys.has(normalizedEntity))
       );
     })
     .slice(0, 4);
+  const aliasOverlap = intersectStrings(trendProfile.aliasGroups, coinProfile.aliasGroups).slice(0, 3);
   const tagOverlap = uniqueStrings(
     trendProfile.tags.filter(
       (tag) => coinProfile.tags.includes(tag) || coinProfile.tokens.has(tag),
     ),
   ).slice(0, 3);
   const familyAffinity = resolveFamilyAffinity(trendProfile.families, coinProfile.families);
-  const thematicTokensSource =
-    coinProfile.summaryTokens.size > 0 ? coinProfile.summaryTokens : coinProfile.tokens;
-  const thematicOverlap = intersectStrings(trendProfile.tokens, thematicTokensSource)
-    .filter((token) => token.length >= 4 && !exactKeywords.includes(token))
-    .slice(0, 5);
   const categoryExact = trendProfile.trendCategory
     ? coinProfile.categories.has(normalizeCategoryKey(trendProfile.trendCategory))
     : false;
-  const summarySimilarity = jaccardSimilarity(trendProfile.tokens, thematicTokensSource);
-  const directLink = (row.links ?? []).find((link) => link.topicKey === trendProfile.topicKey) ?? null;
+  const summarySimilarity = jaccardSimilarity(
+    trendProfile.thematicTokens,
+    coinProfile.summaryTokens.size > 0 ? coinProfile.summaryTokens : coinProfile.tokens,
+  );
   const supportPostCount = directLink?.supportPostCount ?? row.links?.[0]?.supportPostCount ?? 0;
   const supportInteractionScore =
     directLink?.supportInteractionScore ?? row.links?.[0]?.supportInteractionScore ?? 0;
+  const broadOnlyEvidence =
+    anchorKeywordOverlap.length === 0 &&
+    phraseOverlap.length === 0 &&
+    entityOverlap.length === 0 &&
+    aliasOverlap.length === 0 &&
+    tagOverlap.length === 0;
 
-  let directScore = 0;
+  let explicitOriginScore = 0;
   if (topicKeyMatch) {
-    directScore += 68;
+    explicitOriginScore += 78;
   }
-  if (directLink?.isPrimary) {
-    directScore += 12;
+  if (boardLinkMatchType === "explicit_origin") {
+    explicitOriginScore += 72;
+  } else if (directLink?.isPrimary) {
+    explicitOriginScore += 16;
   }
-  directScore += Math.min(30, exactKeywords.length * 10);
-  directScore += Math.min(18, phraseOverlap.length * 9);
-  directScore += Math.min(24, entityOverlap.length * 12);
-  directScore += Math.min(16, tagOverlap.length * 8);
+  explicitOriginScore += Math.min(24, phraseOverlap.length * 16);
+  explicitOriginScore += Math.min(24, entityOverlap.length * 18);
+  explicitOriginScore += Math.min(20, aliasOverlap.length * 12);
+  explicitOriginScore += Math.min(18, anchorKeywordOverlap.length * 9);
+  explicitOriginScore += Math.min(12, tagOverlap.length * 8);
+  if (supportPostCount > 0 && (phraseOverlap.length > 0 || entityOverlap.length > 0 || aliasOverlap.length > 0)) {
+    explicitOriginScore += 10;
+  }
+  if (broadOnlyEvidence) {
+    explicitOriginScore = 0;
+  }
+  explicitOriginScore = clamp(explicitOriginScore, 0, 100);
+
+  let strongNarrativeScore = 0;
+  if (boardLinkMatchType === "strong_narrative") {
+    strongNarrativeScore += 62;
+  }
+  strongNarrativeScore += Math.min(20, aliasOverlap.length * 12);
+  strongNarrativeScore += Math.min(18, anchorKeywordOverlap.length * 7);
+  strongNarrativeScore += Math.min(16, phraseOverlap.length * 8);
+  strongNarrativeScore += Math.min(12, thematicOverlap.length * 4);
+  strongNarrativeScore += Math.min(10, supportPostCount * 4);
+  strongNarrativeScore += Math.min(8, coinProfile.boardLinkCount * 2);
+  strongNarrativeScore += Math.min(8, summarySimilarity * 14);
+  if (supportPostCount > 0) {
+    strongNarrativeScore += 6;
+  }
+  if (broadOnlyEvidence) {
+    strongNarrativeScore = Math.min(strongNarrativeScore, 28);
+  }
+  strongNarrativeScore = clamp(strongNarrativeScore, 0, 100);
+
+  let fallbackScore = 0;
+  if (familyAffinity.score > 0) {
+    fallbackScore += familyAffinity.score * 18;
+  }
+  fallbackScore += Math.min(10, thematicOverlap.length * 3);
   if (categoryExact) {
-    directScore += 8;
+    fallbackScore += 8;
   }
-  if (familyAffinity.shared.length > 0) {
-    directScore += 6;
+  if (coinProfile.boardLinkCount > 0) {
+    fallbackScore += Math.min(6, coinProfile.boardLinkCount * 1.5);
   }
-  directScore = clamp(directScore, 0, 100);
+  fallbackScore += Math.min(6, summarySimilarity * 10);
+  fallbackScore = clamp(fallbackScore, 0, 42);
 
-  const narrativeEvidenceCount =
-    familyAffinity.shared.length +
-    thematicOverlap.length +
-    tagOverlap.length +
-    (familyAffinity.score > 0 ? 1 : 0) +
-    (categoryExact ? 1 : 0);
-  let narrativeScore = 0;
-  if (narrativeEvidenceCount > 0) {
-    narrativeScore += familyAffinity.score * 48;
-    narrativeScore += Math.min(16, familyAffinity.shared.length * 8);
-    narrativeScore += Math.min(20, thematicOverlap.length * 5);
-    if (categoryExact) {
-      narrativeScore += 10;
-    }
-    narrativeScore += Math.min(8, coinProfile.boardLinkCount * 2);
-    narrativeScore += Math.min(18, summarySimilarity * 18);
-    narrativeScore = clamp(narrativeScore, 0, 100);
-  }
-
-  const hasDirectEvidence =
+  const hasExplicitOriginEvidence =
     topicKeyMatch ||
-    Boolean(directLink) ||
-    entityOverlap.length > 0 ||
+    boardLinkMatchType === "explicit_origin" ||
     phraseOverlap.length > 0 ||
-    exactKeywords.length >= 2 ||
-    tagOverlap.length > 0;
-  const hasNarrativeEvidence =
-    narrativeEvidenceCount > 0 &&
-    (familyAffinity.score >= 0.35 || thematicOverlap.length > 0 || categoryExact);
+    entityOverlap.length > 0 ||
+    aliasOverlap.length > 0 ||
+    anchorKeywordOverlap.length >= 2 ||
+    (anchorKeywordOverlap.length === 1 &&
+      anchorKeywordOverlap.some((keyword) => keyword.length >= 5 && !isNarrativeGenericToken(keyword)));
+  const hasStrongNarrativeEvidence =
+    !hasExplicitOriginEvidence &&
+    (boardLinkMatchType === "strong_narrative" ||
+      (anchorKeywordOverlap.length > 0 && supportPostCount > 0) ||
+      aliasOverlap.length > 0 ||
+      phraseOverlap.length > 0 ||
+      thematicOverlap.length > 0);
 
-  const matchType: "direct" | "inferred" | "fallback" | null =
-    hasDirectEvidence && directScore >= DIRECT_MATCH_THRESHOLD
-      ? "direct"
-      : hasNarrativeEvidence && narrativeScore >= INFERRED_MATCH_THRESHOLD
-        ? "inferred"
-        : hasNarrativeEvidence && narrativeScore > 0
+  const matchType: NarrativeMatchType | null =
+    hasExplicitOriginEvidence && explicitOriginScore >= EXPLICIT_ORIGIN_THRESHOLD
+      ? "explicit_origin"
+      : hasStrongNarrativeEvidence && strongNarrativeScore >= STRONG_NARRATIVE_THRESHOLD
+        ? "strong_narrative"
+        : fallbackScore > 0 && (familyAffinity.score >= 0.35 || thematicOverlap.length > 0 || categoryExact)
           ? "fallback"
           : null;
 
@@ -1367,61 +1669,102 @@ function buildHeuristicNarrativeMatch(
   const supportingKeywords = uniqueStrings([
     ...entityOverlap,
     ...phraseOverlap,
-    ...exactKeywords,
+    ...anchorKeywordOverlap,
+    ...aliasOverlap,
     ...tagOverlap,
     ...thematicOverlap,
   ]).slice(0, 6);
+  const evidenceSignals = uniqueStrings([
+    topicKeyMatch ? "topic_key_match" : null,
+    boardLinkMatchType === "explicit_origin" ? "stored_explicit_origin" : null,
+    boardLinkMatchType === "strong_narrative" ? "stored_strong_narrative" : null,
+    phraseOverlap.length > 0 ? "phrase_overlap" : null,
+    entityOverlap.length > 0 ? "entity_overlap" : null,
+    aliasOverlap.length > 0 ? "alias_overlap" : null,
+    anchorKeywordOverlap.length > 0 ? "keyword_overlap" : null,
+    supportPostCount > 0 ? "supporting_posts" : null,
+    familyAffinity.shared.length > 0 ? "family_affinity" : null,
+    categoryExact ? "category_affinity" : null,
+    broadOnlyEvidence ? "broad_only_overlap" : null,
+  ]);
   const reasons: string[] = [];
-  if (topicKeyMatch || directLink) {
-    reasons.push("same topic cluster");
+  if (topicKeyMatch) {
+    reasons.push("same canonical narrative key");
+  }
+  if (boardLinkMatchType === "explicit_origin") {
+    reasons.push("stored as an explicit origin match");
+  } else if (boardLinkMatchType === "strong_narrative") {
+    reasons.push("stored as a strong narrative match");
   }
   if (entityOverlap.length > 0) {
-    reasons.push(`same entity: ${entityOverlap[0]}`);
+    reasons.push(`same named entity: ${entityOverlap[0]}`);
   }
-  if (phraseOverlap.length > 0 && entityOverlap.length === 0) {
-    reasons.push(`shared phrase: ${phraseOverlap[0]}`);
+  if (phraseOverlap.length > 0) {
+    reasons.push(`same named phrase: ${phraseOverlap[0]}`);
   }
-  if (exactKeywords.length > 0 && phraseOverlap.length === 0) {
-    reasons.push(`shared keyword: ${exactKeywords[0]}`);
+  if (aliasOverlap.length > 0) {
+    reasons.push(`same narrative alias cluster: ${aliasOverlap[0]}`);
+  }
+  if (anchorKeywordOverlap.length > 0) {
+    reasons.push(`specific keyword overlap: ${anchorKeywordOverlap[0]}`);
   }
   if (tagOverlap.length > 0) {
     reasons.push(`shared tag: ${tagOverlap[0]}`);
   }
-  if (familyAffinity.shared.length > 0) {
-    reasons.push(`same ${familyLabel(familyAffinity.shared[0])} narrative`);
-  } else if (dominantFamily && familyAffinity.score >= 0.45) {
-    reasons.push(`adjacent ${familyLabel(dominantFamily)} narrative`);
+  if (thematicOverlap.length > 0 && anchorKeywordOverlap.length === 0) {
+    reasons.push(`secondary narrative overlap: ${thematicOverlap[0]}`);
   }
-  if (thematicOverlap.length > 0 && exactKeywords.length === 0) {
-    reasons.push(`summary overlap: ${thematicOverlap[0]}`);
-  }
-  if (reasons.length === 0 && dominantFamily) {
-    reasons.push(`best ${familyLabel(dominantFamily)} narrative fit`);
+  if (reasons.length === 0 && familyAffinity.shared.length > 0) {
+    reasons.push(`same ${familyLabel(familyAffinity.shared[0])} family`);
+  } else if (reasons.length === 0 && dominantFamily) {
+    reasons.push(`best adjacent ${familyLabel(dominantFamily)} fit`);
   }
 
   const prefix =
-    matchType === "direct"
-      ? "Direct narrative match"
-      : matchType === "inferred"
-        ? "Inferred narrative fit"
-        : "Fallback narrative fit";
+    matchType === "explicit_origin"
+      ? "Explicit origin match"
+      : matchType === "strong_narrative"
+        ? "Strong narrative match"
+        : "Fallback narrative match";
   const matchScore = Math.round(
-    clamp(matchType === "direct" ? directScore : narrativeScore, 0, 100),
+    clamp(
+      matchType === "explicit_origin"
+        ? explicitOriginScore
+        : matchType === "strong_narrative"
+          ? strongNarrativeScore
+          : fallbackScore,
+      0,
+      100,
+    ),
   );
   const whyLinked = `${prefix}: ${reasons.slice(0, 3).join("; ")}.`;
   const rawMatchSignals = {
     match_type: matchType,
     match_score: matchScore,
     match_reason: whyLinked,
+    origin_reason: whyLinked,
+    source_basis: uniqueStrings([
+      phraseOverlap.length > 0 ? "token_metadata" : null,
+      entityOverlap.length > 0 ? "named_entities" : null,
+      aliasOverlap.length > 0 ? "alias_dictionary" : null,
+      supportPostCount > 0 ? "supporting_posts" : null,
+      directLink ? "stored_board_links" : null,
+      externalTextsFromRow(row).length > 0 ? "website_or_social_text" : null,
+    ]),
+    evidence_signals: evidenceSignals,
+    evidence_strength_score: Math.round(explicitOriginScore),
+    narrative_strength_score: Math.round(strongNarrativeScore),
+    matched_entities: entityOverlap,
+    matched_keywords: anchorKeywordOverlap,
     supporting_keywords: supportingKeywords,
     topic_key_match: topicKeyMatch,
-    direct_score: Math.round(directScore),
-    narrative_score: Math.round(narrativeScore),
+    generic_only_match: broadOnlyEvidence,
     category_match: categoryExact,
     summary_similarity: Number(summarySimilarity.toFixed(3)),
-    exact_overlap_terms: exactKeywords,
+    exact_overlap_terms: anchorKeywordOverlap,
     phrase_overlap_terms: phraseOverlap,
     entity_overlap_terms: entityOverlap,
+    alias_overlap_groups: aliasOverlap,
     tag_overlap_terms: tagOverlap,
     shared_families: familyAffinity.shared,
     adjacent_families: familyAffinity.adjacent,
@@ -1508,18 +1851,27 @@ function resolveNarrativeLinkedCoins(
   });
 
   const heuristicMatches = collectHeuristicNarrativeMatches(trend, boardRows);
-  const directBoardCoins = heuristicMatches
-    .filter((match) => match.matchType === "direct")
+  const exactBoardCoins = heuristicMatches
+    .filter((match) => match.matchType === "explicit_origin")
     .slice(0, MAX_LINKS_PER_TREND)
     .map((match) => match.linkedCoin);
 
-  directBoardCoins.forEach((linkedCoin) => {
+  exactBoardCoins.forEach((linkedCoin) => {
     const existing = resolvedById.get(linkedCoin.id);
     resolvedById.set(
       linkedCoin.id,
       existing ? mergeNarrativeLinkedCoins(existing, linkedCoin) : linkedCoin,
     );
   });
+
+  if (resolvedById.size === 0) {
+    heuristicMatches
+      .filter((match) => match.matchType === "strong_narrative")
+      .slice(0, MAX_LINKS_PER_TREND)
+      .forEach((match) => {
+        resolvedById.set(match.linkedCoin.id, match.linkedCoin);
+      });
+  }
 
   if (resolvedById.size === 0) {
     const bestHeuristic = heuristicMatches[0]?.linkedCoin ?? null;

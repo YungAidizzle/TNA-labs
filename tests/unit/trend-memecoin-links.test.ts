@@ -171,7 +171,7 @@ describe("trend memecoin linking", () => {
     }));
   });
 
-  it("preserves stored direct links and annotates explainability fields", async () => {
+  it("preserves stored explicit-origin links and annotates explainability fields", async () => {
     const aiTrend = buildTrend({
       topicKey: "ai-openai-compute-race",
       label: "OpenAI Compute Race",
@@ -226,7 +226,7 @@ describe("trend memecoin linking", () => {
 
     expect(linkedCoin?.symbol).toBe("OAI");
     expect(linkedCoin?.rawMatchSignals).toMatchObject({
-      match_type: "direct",
+      match_type: "explicit_origin",
       match_score: 91,
       supporting_keywords: ["openai", "gpu"],
     });
@@ -237,17 +237,17 @@ describe("trend memecoin linking", () => {
     const trends = [
       buildTrend({
         topicKey: "ai-openai-anthropic-compute",
-        label: "OpenAI vs Anthropic Compute Race",
+        label: "OpenAI Anthropic Race",
         category: "ai_tech",
         summary: "OpenAI, Anthropic, model scaling, compute limits, and GPUs are driving discourse.",
         entities: ["OpenAI", "Anthropic", "GPU"],
       }),
       buildTrend({
-        topicKey: "geopolitics-conflict-escalation",
-        label: "Geopolitical Conflict Escalation",
+        topicKey: "geopolitics-iran-escalation",
+        label: "Iran Escalation Risk",
         category: "politics",
-        summary: "War risk, military escalation, leaders, and country-level conflict are dominating headlines.",
-        entities: ["leader", "military", "war"],
+        summary: "Iran missile threats and escalation risk are dominating geopolitical headlines.",
+        entities: ["Iran", "missile", "escalation"],
       }),
       buildTrend({
         topicKey: "macro-fed-inflation",
@@ -257,11 +257,18 @@ describe("trend memecoin linking", () => {
         entities: ["Fed", "inflation", "recession"],
       }),
       buildTrend({
+        topicKey: "politics-trump-maga",
+        label: "Trump MAGA Push",
+        category: "politics",
+        summary: "Trump, MAGA slogans, and campaign messaging are dominating political chatter.",
+        entities: ["Trump", "MAGA", "campaign"],
+      }),
+      buildTrend({
         topicKey: "celeb-media-viral-clip",
-        label: "Celebrity Media Viral Clip",
+        label: "Taylor Media Spiral",
         category: "entertainment",
-        summary: "Celebrity interviews, creator clips, fanbase memes, and viral media reactions are spreading.",
-        entities: ["celebrity", "clip", "fanbase"],
+        summary: "Taylor Swift interview clips and fanbase media reactions are spreading fast.",
+        entities: ["Taylor Swift", "interview clip", "fanbase"],
       }),
       buildTrend({
         topicKey: "crypto-native-solana-memecoin",
@@ -291,15 +298,15 @@ describe("trend memecoin linking", () => {
           seedTerms: ["openai", "compute", "gpu", "agent"],
         }),
         buildBoardRow({
-          id: "solana:war-token:war-pair",
-          symbol: "WAR",
-          name: "War Mode",
-          strongestTrendKey: "macro-fear",
-          strongestTrendLabel: "War Fear",
+          id: "solana:iran-token:iran-pair",
+          symbol: "IRAN",
+          name: "Iran Risk",
+          strongestTrendKey: "iran-escalation",
+          strongestTrendLabel: "Iran Escalation",
           strongestTrendCategory: "politics",
           strongestTrendSummary:
-            "Military escalation, leader rhetoric, conflict, and country-risk memes are accelerating.",
-          seedTerms: ["military", "conflict", "war", "leader"],
+            "Iran missile headlines and escalation memes are accelerating this launch story.",
+          seedTerms: ["iran", "missile", "escalation"],
         }),
         buildBoardRow({
           id: "solana:brr-token:brr-pair",
@@ -313,15 +320,26 @@ describe("trend memecoin linking", () => {
           seedTerms: ["fiat", "printer", "debasement", "central bank"],
         }),
         buildBoardRow({
-          id: "solana:clip-token:clip-pair",
-          symbol: "CLIP",
-          name: "Fandom Clip",
-          strongestTrendKey: "creator-viral",
-          strongestTrendLabel: "Creator Clips",
+          id: "solana:maga-token:maga-pair",
+          symbol: "MAGA",
+          name: "MAGA Coin",
+          strongestTrendKey: "trump-rally",
+          strongestTrendLabel: "Trump Rally",
+          strongestTrendCategory: "politics",
+          strongestTrendSummary:
+            "Trump campaign slogans, MAGA chants, and election memes are driving this coin.",
+          seedTerms: ["trump", "maga", "campaign"],
+        }),
+        buildBoardRow({
+          id: "solana:swift-token:swift-pair",
+          symbol: "SWIFT",
+          name: "Swift Clip",
+          strongestTrendKey: "taylor-clip",
+          strongestTrendLabel: "Taylor Clip",
           strongestTrendCategory: "creator",
           strongestTrendSummary:
-            "Streamer clips, celebrity fanbase memes, and viral interview reactions are spreading.",
-          seedTerms: ["creator", "clip", "fanbase", "viral"],
+            "Taylor Swift interview clips and fan reactions are driving this coin narrative.",
+          seedTerms: ["taylor", "swift", "clip", "fanbase"],
         }),
         buildBoardRow({
           id: "solana:pump-token:pump-pair",
@@ -344,22 +362,118 @@ describe("trend memecoin linking", () => {
     );
 
     expect(topByTopic.get("ai-openai-anthropic-compute")?.symbol).toBe("OAI");
-    expect(topByTopic.get("geopolitics-conflict-escalation")?.symbol).toBe("WAR");
+    expect(topByTopic.get("geopolitics-iran-escalation")?.symbol).toBe("IRAN");
     expect(topByTopic.get("macro-fed-inflation")?.symbol).toBe("BRR");
-    expect(topByTopic.get("celeb-media-viral-clip")?.symbol).toBe("CLIP");
+    expect(topByTopic.get("politics-trump-maga")?.symbol).toBe("MAGA");
+    expect(topByTopic.get("celeb-media-viral-clip")?.symbol).toBe("SWIFT");
     expect(topByTopic.get("crypto-native-solana-memecoin")?.symbol).toBe("PUMP");
 
-    linkedState.leaderboard.forEach((trend) => {
+      linkedState.leaderboard.forEach((trend) => {
       const linkedCoin = trend.linkedCoins?.[0] ?? null;
       expect(linkedCoin).not.toBeNull();
       expect(linkedCoin?.rawMatchSignals).toMatchObject({
-        match_type: expect.stringMatching(/direct|inferred|fallback/),
+        match_type: expect.stringMatching(/explicit_origin|strong_narrative|fallback/),
         match_score: expect.any(Number),
         match_reason: expect.any(String),
       });
       expect(Array.isArray((linkedCoin?.rawMatchSignals as Record<string, unknown>)?.supporting_keywords)).toBe(
         true,
       );
+    });
+  });
+
+  it("prioritizes exact narrative-origin coins over broad thematic coins", async () => {
+    const trend = buildTrend({
+      topicKey: "openai-media-push",
+      label: "OpenAI Media Push",
+      category: "ai_tech",
+      summary: "OpenAI media partnerships and ChatGPT distribution talks are back in focus.",
+      entities: ["OpenAI", "ChatGPT"],
+    });
+    const state = buildState([trend]);
+
+    postgresMocks.query.mockResolvedValueOnce({ rows: [] });
+
+    const correlatedMemecoins: CorrelatedMemecoinBoard = {
+      runId: 777,
+      updatedAt: "2026-04-13T12:00:00.000Z",
+      rows: [
+        buildBoardRow({
+          id: "solana:oai-token:oai-pair",
+          symbol: "OAI",
+          name: "OpenAI Dog",
+          strongestTrendKey: "openai-media-push",
+          strongestTrendLabel: "OpenAI Media Push",
+          strongestTrendCategory: "ai_tech",
+          strongestTrendSummary:
+            "OpenAI and ChatGPT media distribution rumors are driving this launch narrative.",
+          seedTerms: ["openai", "chatgpt", "media"],
+          matchedTrendKeys: ["openai-media-push"],
+        }),
+        buildBoardRow({
+          id: "solana:gai-token:gai-pair",
+          symbol: "GAI",
+          name: "Generic AI",
+          strongestTrendKey: "ai-agents",
+          strongestTrendLabel: "AI Agents",
+          strongestTrendCategory: "ai_tech",
+          strongestTrendSummary:
+            "Generic agent and compute chatter without any OpenAI or ChatGPT origin story.",
+          seedTerms: ["ai", "agents", "compute"],
+          matchedTrendKeys: ["ai-agents"],
+        }),
+      ],
+      diagnostics: null,
+    };
+
+    const linkedState = await attachTrendMemecoinLinks(state, correlatedMemecoins);
+    const linkedCoins = linkedState.leaderboard[0]?.linkedCoins ?? [];
+
+    expect(linkedCoins[0]?.symbol).toBe("OAI");
+    expect(linkedCoins[0]?.rawMatchSignals).toMatchObject({
+      match_type: "explicit_origin",
+    });
+    expect(linkedCoins.some((coin) => coin.symbol === "GAI")).toBe(false);
+  });
+
+  it("marks category-only matches as fallback when no exact narrative coin exists", async () => {
+    const trend = buildTrend({
+      topicKey: "fed-inflation-jitters",
+      label: "Fed Inflation Jitters",
+      category: "macro",
+      summary: "Macro chatter is rising around inflation, rates, and central bank risk.",
+      entities: ["Fed", "inflation"],
+    });
+    const state = buildState([trend]);
+
+    postgresMocks.query.mockResolvedValueOnce({ rows: [] });
+
+    const correlatedMemecoins: CorrelatedMemecoinBoard = {
+      runId: 778,
+      updatedAt: "2026-04-13T12:00:00.000Z",
+      rows: [
+        buildBoardRow({
+          id: "solana:econ-token:econ-pair",
+          symbol: "ECON",
+          name: "Macro Mood",
+          strongestTrendKey: "macro-fear",
+          strongestTrendLabel: "Macro Fear",
+          strongestTrendCategory: "finance",
+          strongestTrendSummary:
+            "Generic economy and inflation chatter without a specific event-origin coin story.",
+          seedTerms: ["economy", "inflation", "macro"],
+          matchedTrendKeys: ["macro-fear"],
+        }),
+      ],
+      diagnostics: null,
+    };
+
+    const linkedState = await attachTrendMemecoinLinks(state, correlatedMemecoins);
+    const linkedCoin = linkedState.leaderboard[0]?.linkedCoins?.[0] ?? null;
+
+    expect(linkedCoin?.symbol).toBe("ECON");
+    expect(linkedCoin?.rawMatchSignals).toMatchObject({
+      match_type: "fallback",
     });
   });
 });

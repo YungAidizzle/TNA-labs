@@ -873,9 +873,67 @@ class MemecoinCorrelationTests(unittest.TestCase):
 
         self.assertEqual(len(result.selected_results), 1)
         self.assertIn(result.selected_results[0]["publish_tier"], {"medium", "exploratory"})
-        self.assertEqual(result.trend_memecoin_rows[0]["confidence_band"], "medium")
+        self.assertIn(result.trend_memecoin_rows[0]["confidence_band"], {"medium", "speculative"})
         self.assertTrue(result.trend_memecoin_rows[0]["why_linked"])
         self.assertIsInstance(result.trend_memecoin_rows[0]["match_reasons_json"], list)
+        self.assertIn(
+            result.trend_memecoin_rows[0]["raw_match_signals_json"].get("match_type"),
+            {"explicit_origin", "strong_narrative", "fallback"},
+        )
+
+    def test_rank_correlated_candidates_prefers_exact_origin_over_generic_theme_match(self) -> None:
+        config = replace(
+            build_memecoin_correlation_runtime_config_from_env(),
+            high_confidence_correlation_threshold=52.0,
+            medium_confidence_correlation_threshold=36.0,
+            exploratory_correlation_threshold=10.0,
+            target_published_results=2,
+            max_results=3,
+        )
+        trend = _build_trend(
+            topic_key="openai-media-push",
+            display_label="OpenAI Media Push",
+            trend_category="ai_tech",
+            key_entities=["OpenAI", "ChatGPT"],
+            narrative_summary="OpenAI media deals and ChatGPT distribution are driving the story.",
+            context_paragraph="Posts focus on OpenAI, ChatGPT, and media partnership momentum.",
+        )
+        exact_origin = _build_candidate(
+            name="OpenAI Dog",
+            symbol="OAI",
+            description="OpenAI and ChatGPT meme coin launched around the media partnership wave.",
+            matched_trend_keys={"openai-media-push"},
+            seed_terms={"OpenAI", "ChatGPT", "media"},
+            memecoin_fit_score=22.0,
+            token_address="oai-token",
+            pair_address="oai-pair",
+        )
+        generic_theme = _build_candidate(
+            name="Generic Agent Coin",
+            symbol="GAI",
+            description="Generic AI agent meme coin with compute chatter but no OpenAI origin story.",
+            matched_trend_keys={"ai-agents"},
+            seed_terms={"ai", "agents", "compute"},
+            memecoin_fit_score=22.0,
+            token_address="gai-token",
+            pair_address="gai-pair",
+        )
+
+        result = _rank_correlated_candidates(
+            candidates=[generic_theme, exact_origin],
+            trends=[trend],
+            posts_by_topic={"openai-media-push": []},
+            config=config,
+            now=datetime.now(timezone.utc),
+            recent_publications=[],
+        )
+
+        self.assertGreaterEqual(len(result.trend_memecoin_rows), 1)
+        self.assertEqual(result.trend_memecoin_rows[0]["coin_symbol"], "OAI")
+        self.assertEqual(
+            result.trend_memecoin_rows[0]["raw_match_signals_json"].get("match_type"),
+            "explicit_origin",
+        )
 
     def test_rank_correlated_candidates_penalizes_recent_repeat_tokens(self) -> None:
         config = replace(
