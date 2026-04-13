@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getDashboardRefreshState,
-  requestDashboardBackgroundRefresh,
-} from "@/lib/dashboard/background-refresh";
+import { generateSharedAiTrendSnapshot } from "@/lib/ai-trends/generator";
+import { getLatestSuccessfulAiTrendSnapshotView } from "@/lib/ai-trends/repository";
 import { requirePaidApiUser } from "@/lib/supabase/auth";
 import { DateRangePreset, TrendScope } from "@/types/domain";
-import { DashboardRefreshMode } from "@/types/view-models";
 
 const RANGE_OPTIONS: DateRangePreset[] = ["1h", "6h", "24h", "7d"];
 const SCOPE_OPTIONS: TrendScope[] = ["overall", "memes"];
@@ -16,8 +13,14 @@ export async function GET() {
     return authResult;
   }
 
-  const state = await getDashboardRefreshState();
-  return NextResponse.json(state);
+  const view = await getLatestSuccessfulAiTrendSnapshotView();
+  return NextResponse.json({
+    status: view.snapshot ? "succeeded" : "idle",
+    latestSnapshotId: view.snapshot?.id ?? null,
+    latestGeneratedAt: view.snapshot?.generatedAt ?? null,
+    trendCount: view.snapshot?.trendCount ?? 0,
+    freshnessMinutes: view.freshnessMinutes,
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -27,24 +30,16 @@ export async function POST(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const requestedMode = searchParams.get("mode");
   const force = searchParams.get("force") === "true";
-  const mode: DashboardRefreshMode =
-    requestedMode === "manual_full_regroup"
-      ? "manual_full_regroup"
-      : requestedMode === "external_refresh" || requestedMode === "local_rebuild"
-        ? "local_rebuild"
-        : "local_rebuild";
   const trigger = searchParams.get("trigger")?.trim() || "api-trigger";
   const scope = searchParams.get("scope");
   const range = searchParams.get("range");
-  const query =
-    SCOPE_OPTIONS.includes(scope as TrendScope) && RANGE_OPTIONS.includes(range as DateRangePreset)
-      ? [{ scope: scope as TrendScope, range: range as DateRangePreset }]
-      : undefined;
-  const state = await requestDashboardBackgroundRefresh(mode, trigger, {
-    force,
-    queries: query,
+  const hasTargetedQuery =
+    SCOPE_OPTIONS.includes(scope as TrendScope) &&
+    RANGE_OPTIONS.includes(range as DateRangePreset);
+  const result = await generateSharedAiTrendSnapshot({
+    force: force || hasTargetedQuery,
+    trigger,
   });
-  return NextResponse.json(state, { status: 202 });
+  return NextResponse.json(result, { status: 202 });
 }
