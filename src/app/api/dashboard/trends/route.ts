@@ -1,27 +1,64 @@
-import { NextResponse } from "next/server";
-import { getLatestSuccessfulTrendSnapshotView } from "@/lib/gpt-trends/repository";
+import { NextRequest, NextResponse } from "next/server";
+import type {
+  DashboardApiView,
+  TrendDashboardMemecoinsResponse,
+  TrendDashboardStatusResponse,
+  TrendDashboardSummaryResponse,
+} from "@/lib/dashboard/api";
+import { parseTrendDashboardRequestQuery } from "@/lib/dashboard/api";
+import { getSharedTrendDashboardSummaryState } from "@/lib/dashboard/cached-state";
+import { buildTrendDashboardStatusStripItems } from "@/lib/dashboard/status-strip";
 import { requirePaidApiUser } from "@/lib/supabase/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const RESPONSE_HEADERS = {
+  "Cache-Control": "private, max-age=15, stale-while-revalidate=60",
+};
+
+function resolveView(value: string | null): DashboardApiView {
+  if (value === "status" || value === "memecoins") {
+    return value;
+  }
+
+  return "summary";
+}
+
+export async function GET(request: NextRequest) {
   const user = await requirePaidApiUser();
   if (user instanceof NextResponse) {
     return user;
   }
 
-  const view = await getLatestSuccessfulTrendSnapshotView();
-  const headers = new Headers({
-    "Cache-Control": "private, max-age=300, stale-while-revalidate=3600",
-  });
+  const { searchParams } = new URL(request.url);
+  const view = resolveView(searchParams.get("view"));
+  const query = parseTrendDashboardRequestQuery(searchParams);
+  const summaryState = await getSharedTrendDashboardSummaryState(query);
 
-  if (view.snapshot?.id) {
-    headers.set("X-Trend-Snapshot-Id", String(view.snapshot.id));
-  }
-  if (view.snapshot?.generatedAt) {
-    headers.set("X-Trend-Snapshot-Generated-At", view.snapshot.generatedAt);
+  if (view === "status") {
+    const payload: TrendDashboardStatusResponse = {
+      items: buildTrendDashboardStatusStripItems(summaryState),
+      dataStatus: summaryState.dataStatus ?? null,
+    };
+
+    return NextResponse.json(payload, { headers: RESPONSE_HEADERS });
   }
 
-  return NextResponse.json(view, { headers });
+  if (view === "memecoins") {
+    const payload: TrendDashboardMemecoinsResponse = {
+      correlatedMemecoins: summaryState.correlatedMemecoins ?? null,
+      dataStatus: summaryState.dataStatus ?? null,
+    };
+
+    return NextResponse.json(payload, { headers: RESPONSE_HEADERS });
+  }
+
+  const payload: TrendDashboardSummaryResponse = {
+    query: summaryState.query,
+    leaderboard: summaryState.leaderboard,
+    dataStatus: summaryState.dataStatus ?? null,
+  };
+
+  return NextResponse.json(payload, { headers: RESPONSE_HEADERS });
 }
