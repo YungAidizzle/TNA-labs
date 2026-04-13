@@ -1,8 +1,8 @@
-export type SharedTrendSnapshotStatus = "pending" | "succeeded" | "failed";
+export type SharedAiTrendSnapshotStatus = "pending" | "succeeded" | "failed";
 
-export type SharedTrendSnapshot = {
+export type SharedAiTrendSnapshot = {
   id: number;
-  status: SharedTrendSnapshotStatus;
+  status: SharedAiTrendSnapshotStatus;
   createdAt: string;
   generatedAt: string;
   completedAt: string | null;
@@ -12,7 +12,7 @@ export type SharedTrendSnapshot = {
   errorMessage: string | null;
 };
 
-export type SharedTrendSnapshotItem = {
+export type SharedAiTrendSnapshotItem = {
   id: number;
   snapshotId: number;
   rank: number;
@@ -28,13 +28,13 @@ export type SharedTrendSnapshotItem = {
   generatedAt: string;
 };
 
-export type SharedTrendSnapshotView = {
-  snapshot: SharedTrendSnapshot | null;
-  trends: SharedTrendSnapshotItem[];
+export type SharedAiTrendSnapshotView = {
+  snapshot: SharedAiTrendSnapshot | null;
+  trends: SharedAiTrendSnapshotItem[];
   freshnessMinutes: number | null;
 };
 
-export type GeneratedTrendCandidate = {
+export type GeneratedAiTrendCandidate = {
   rank: number;
   trendKey: string;
   title: string;
@@ -47,11 +47,11 @@ export type GeneratedTrendCandidate = {
   sourceCount: number | null;
 };
 
-export type GeneratedTrendSnapshotPayload = {
+export type GeneratedAiTrendSnapshotPayload = {
   generatedAt: string;
   modelName: string;
   promptVersion: string;
-  trends: GeneratedTrendCandidate[];
+  trends: GeneratedAiTrendCandidate[];
   rawResponseJson?: Record<string, unknown> | null;
   notesJson?: Record<string, unknown> | null;
 };

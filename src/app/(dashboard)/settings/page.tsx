@@ -2,7 +2,11 @@ import Link from "next/link";
 import { getConfiguredBillingPlanSummary, formatBillingIntervalLabel } from "@/lib/billing/plan";
 import { getCurrentViewerSubscription } from "@/lib/billing/subscriptions";
 import { BRAND_ACCESS_NAME } from "@/lib/brand";
-import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
+import {
+  LEGAL_CONTACT,
+  getSupportContactHref,
+  getSupportContactLabel,
+} from "@/lib/legal/contact-details";
 import { getCurrentPolicyAcceptanceMap } from "@/lib/legal/policy-acceptances";
 import {
   BILLING_VERSION,
@@ -54,12 +58,12 @@ export default async function SettingsPage() {
 
         <div className="mt-6 grid gap-3 md:grid-cols-3">
           <div className="border border-white/[0.08] bg-[#07101a] p-4">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Current plan</p>
-            <p className="mt-2 text-[16px] font-semibold text-[#eef5ff]">
-              {plan?.displayPrice ?? "Configured in Stripe"}
-            </p>
-            <p className="mt-1 text-[13px] capitalize text-[#8ea4bc]">{billingInterval}</p>
-          </div>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Current plan</p>
+              <p className="mt-2 text-[16px] font-semibold text-[#eef5ff]">
+              {plan?.displayPrice ?? "Active subscription pricing"}
+              </p>
+              <p className="mt-1 text-[13px] capitalize text-[#8ea4bc]">{billingInterval}</p>
+            </div>
           <div className="border border-white/[0.08] bg-[#07101a] p-4">
             <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Access state</p>
             <p className="mt-2 text-[16px] font-semibold capitalize text-[#eef5ff]">
@@ -71,7 +75,16 @@ export default async function SettingsPage() {
           </div>
           <div className="border border-white/[0.08] bg-[#07101a] p-4">
             <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Support</p>
-            <p className="mt-2 text-[13px] text-[#8ea4bc]">{LEGAL_CONTACT.serviceAddress}</p>
+            {LEGAL_CONTACT.serviceAddress ? (
+              <p className="mt-2 text-[13px] text-[#8ea4bc]">{LEGAL_CONTACT.serviceAddress}</p>
+            ) : null}
+            {LEGAL_CONTACT.supportEmail ? (
+              <p className="mt-2 text-[13px] text-[#8ea4bc]">
+                <a className="text-cyan hover:text-[#b8f2ff]" href={getSupportContactHref("support") ?? undefined}>
+                  {getSupportContactLabel("support")}
+                </a>
+              </p>
+            ) : null}
             <p className="mt-2 text-[13px] text-[#8ea4bc]">
               Billing management and cancellation stay available through the Stripe customer portal.
             </p>

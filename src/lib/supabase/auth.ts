@@ -1,6 +1,6 @@
 import "server-only";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
@@ -10,6 +10,7 @@ import {
   type AppOnboardingState,
   type ProfileAccessState,
 } from "@/lib/billing/shared";
+import { buildAuthRedirectPath } from "@/lib/supabase/shared";
 
 export type AppProfile = {
   id: string;
@@ -134,7 +135,10 @@ export async function requireAuthenticatedUser() {
   const user = await getCurrentUser();
 
   if (!user) {
-    redirect("/sign-in");
+    const headerStore = await headers();
+    const pathname = headerStore.get("x-attentra-pathname") ?? "";
+    const search = headerStore.get("x-attentra-search") ?? "";
+    redirect(buildAuthRedirectPath(pathname, search));
   }
 
   return user;

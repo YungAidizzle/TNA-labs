@@ -2502,14 +2502,8 @@ function buildScopedAnalyticsSnapshot(
   const lookbackBlueskyPostSnapshotsAll = blueskyPostSnapshots.filter(
     (snapshot) => snapshot.createdUtc >= cutoffUtc,
   );
-  const scopedBlueskyInteractions = limitBlueskyInteractionsForAnalytics(
-    lookbackBlueskyInteractionsAll,
-    query.range,
-  );
-  const scopedBlueskyPostSnapshots = limitBlueskySnapshotsForAnalytics(
-    lookbackBlueskyPostSnapshotsAll,
-    query.range,
-  );
+  const scopedBlueskyInteractions = lookbackBlueskyInteractionsAll;
+  const scopedBlueskyPostSnapshots = lookbackBlueskyPostSnapshotsAll;
   const activeLookbackBlueskyRootIds = new Set(
     scopedBlueskyInteractions.map((interaction) => getBlueskyInteractionRootId(interaction)),
   );
@@ -3220,9 +3214,29 @@ function getBestBlueskyUrlCandidate(root: CanonicalBlueskyRoot) {
     })[0] ?? null;
 }
 
+function getBlueskyUrlAnchorRootCounts(roots: CanonicalBlueskyRoot[]) {
+  return roots.reduce((counts, root) => {
+    const seenKeys = new Set(
+      root.candidateTopicKeys
+        .filter((candidate) => candidate.candidateType === "url")
+        .map((candidate) => candidate.key),
+    );
+
+    seenKeys.forEach((key) => {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+
+    return counts;
+  }, new Map<string, number>());
+}
+
 function selectBlueskyRootAssignment(
   root: CanonicalBlueskyRoot,
   canonicalAiKeys: Map<string, string>,
+  options: {
+    urlAnchorRootCounts: Map<string, number>;
+    allowUniqueUrlAnchors: boolean;
+  },
 ): BlueskyRootAssignment {
   const aiCandidateKey = root.primaryAiGroupingKey
     ? `ai:${canonicalAiKeys.get(root.primaryAiGroupingKey) ?? root.primaryAiGroupingKey}`
@@ -3234,6 +3248,9 @@ function selectBlueskyRootAssignment(
   const aiQualityScore = aiInterpretation ? getBlueskyAiLabelQualityScore(root, aiInterpretation, aiLabel) : 0;
   const bestSemanticCandidate = getBestBlueskySemanticCandidate(root);
   const bestUrlCandidate = getBestBlueskyUrlCandidate(root);
+  const urlAnchorRootCount = bestUrlCandidate
+    ? options.urlAnchorRootCounts.get(bestUrlCandidate.key) ?? 0
+    : 0;
   const templateCandidate = root.candidateTopicKeys.find(
     (candidate) => candidate.candidateType === "author_template",
   );
@@ -3273,6 +3290,23 @@ function selectBlueskyRootAssignment(
     };
   }
 
+  if (
+    bestUrlCandidate &&
+    bestUrlCandidate.qualityScore >= 54 &&
+    (urlAnchorRootCount > 1 || options.allowUniqueUrlAnchors || !bestSemanticCandidate)
+  ) {
+    return {
+      root,
+      assignedKey: bestUrlCandidate.key,
+      assignedLabel: bestUrlCandidate.label,
+      assignedLabelType: bestUrlCandidate.labelType,
+      assignedLabelQualityScore: bestUrlCandidate.qualityScore,
+      groupingSource: "canonical_url_anchor",
+      groupingBasis: "url",
+      groupingReason: `canonical URL anchor (${bestUrlCandidate.key}, roots=${urlAnchorRootCount})`,
+    };
+  }
+
   if (bestSemanticCandidate) {
     const semanticBasis = bestSemanticCandidate.candidateType === "ai_semantic" ? "ai" : "heuristic";
     return {
@@ -3284,19 +3318,6 @@ function selectBlueskyRootAssignment(
       groupingSource: "ai_semantic_cluster",
       groupingBasis: semanticBasis,
       groupingReason: `${bestSemanticCandidate.candidateType} semantic anchor (${bestSemanticCandidate.key})`,
-    };
-  }
-
-  if (bestUrlCandidate && bestUrlCandidate.qualityScore >= 54) {
-    return {
-      root,
-      assignedKey: bestUrlCandidate.key,
-      assignedLabel: bestUrlCandidate.label,
-      assignedLabelType: bestUrlCandidate.labelType,
-      assignedLabelQualityScore: bestUrlCandidate.qualityScore,
-      groupingSource: "canonical_url_anchor",
-      groupingBasis: "url",
-      groupingReason: `canonical URL anchor (${bestUrlCandidate.key})`,
     };
   }
 
@@ -3984,8 +4005,15 @@ async function buildExhaustiveBlueskyTrendGroups(
 
   const interpretedRoots = applyAiInterpretationsToBlueskyRoots(roots, aiInterpretations);
   const canonicalAiKeys = resolveAiGroupingCanonicalKeys(interpretedRoots);
+  const urlAnchorRootCounts = getBlueskyUrlAnchorRootCounts(interpretedRoots);
+  const allowUniqueUrlAnchors = (aiDiagnostics.processedRootCount ?? 0) > 0;
 
-  const rootAssignments = interpretedRoots.map((root) => selectBlueskyRootAssignment(root, canonicalAiKeys));
+  const rootAssignments = interpretedRoots.map((root) =>
+    selectBlueskyRootAssignment(root, canonicalAiKeys, {
+      urlAnchorRootCounts,
+      allowUniqueUrlAnchors,
+    }),
+  );
   const groupsByKey = new Map<typeof rootAssignments[number]["assignedKey"], typeof rootAssignments>();
   rootAssignments.forEach((assignment) => {
     const existing = groupsByKey.get(assignment.assignedKey);

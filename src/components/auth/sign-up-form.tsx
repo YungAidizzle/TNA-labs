@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/policy-versions";
 import { getSupabaseBrowserClient, hasSupabaseBrowserConfig } from "@/lib/supabase/browser";
@@ -12,6 +12,7 @@ function validateEmail(email: string) {
 
 export function SignUpForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const authConfigured = hasSupabaseBrowserConfig();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -21,13 +22,16 @@ export function SignUpForm() {
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  const next = searchParams.get("next");
+  const signInHref = next ? `/sign-in?next=${encodeURIComponent(next)}` : "/sign-in";
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setSuccessMessage(null);
 
     if (!authConfigured) {
-      setError("Supabase auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+      setError("Account creation is not available in this deployment yet.");
       return;
     }
 
@@ -72,7 +76,7 @@ export function SignUpForm() {
       const emailRedirectTo =
         typeof window === "undefined"
           ? undefined
-          : `${window.location.origin}/sign-in?verified=1`;
+          : `${window.location.origin}/auth/confirm?next=${encodeURIComponent("/sign-in?verified=1")}`;
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -91,7 +95,10 @@ export function SignUpForm() {
 
       setSuccessMessage("Account created. Preparing access setup.");
       const mode = data.session ? "created" : "check-email";
-      router.replace(`/onboarding?mode=${mode}&email=${encodeURIComponent(email)}`);
+      const onboardingHref = next
+        ? `/onboarding?mode=${mode}&email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`
+        : `/onboarding?mode=${mode}&email=${encodeURIComponent(email)}`;
+      router.replace(onboardingHref);
       router.refresh();
     } finally {
       setLoading(false);
@@ -159,7 +166,7 @@ export function SignUpForm() {
 
       {!authConfigured ? (
         <div className="border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
-          Auth is not configured in the environment yet.
+          Account creation is not available in this deployment yet.
         </div>
       ) : null}
 
@@ -194,7 +201,7 @@ export function SignUpForm() {
 
       <p className="text-[13px] text-[#8ba1b8]">
         Already have an account?{" "}
-        <Link href="/sign-in" className="text-cyan hover:text-[#b8f2ff]">
+        <Link href={signInHref} className="text-cyan hover:text-[#b8f2ff]">
           Sign in
         </Link>
       </p>

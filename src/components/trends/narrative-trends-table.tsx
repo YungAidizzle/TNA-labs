@@ -17,7 +17,7 @@ type NarrativeTrendsTableProps = {
 };
 
 const TABLE_CLASS =
-  "grid w-full grid-cols-[40px_minmax(0,1fr)_88px] gap-x-3 md:grid-cols-[46px_minmax(0,1fr)_96px]";
+  "grid w-full grid-cols-[30px_minmax(0,1fr)_62px] gap-x-2.5 md:grid-cols-[36px_minmax(0,1fr)_70px]";
 const NARRATIVE_NAME_WIDTHS = [
   "w-[72%]",
   "w-[54%]",
@@ -148,11 +148,11 @@ export function NarrativeTrendsTable({
                   {row.rank}
                 </span>
 
-                <p className="truncate text-[15px] font-semibold tracking-[-0.02em] text-[#eef4fd]">
+                <p className="line-clamp-2 min-w-0 pr-1 text-[14px] font-semibold leading-[1.25] tracking-[-0.02em] text-[#eef4fd] md:text-[15px]">
                   {getTrendDisplayNameOrPlaceholder(row)}
                 </p>
 
-                <span className="text-right font-mono text-[14px] font-semibold text-[#d7e1ee]">
+                <span className="text-right font-mono text-[13px] font-semibold text-[#d7e1ee] md:text-[14px]">
                   {formatCompactNumber(getTrendPostCount(row))}
                 </span>
               </button>

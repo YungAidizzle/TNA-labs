@@ -200,8 +200,8 @@ function createCoin(input: {
     fdvUsd: Math.round(input.liquidityUsd * 11.8),
     marketCapUsd: Math.round(input.liquidityUsd * 9.2),
     description: `${input.name} is rotating with the ${input.strongestTrendLabel.toLowerCase()} cluster.`,
-    websites: [{ label: "Website", type: "website", url: "https://example.com" }],
-    socials: [{ label: "X", type: "twitter", url: "https://x.com" }],
+    websites: [],
+    socials: [],
     tradingviewSymbol: input.tradingviewSymbol ?? null,
     tradingviewExchange: input.tradingviewSymbol ? "CRYPTO" : null,
     hasVerifiedTradingviewPreview: Boolean(input.tradingviewSymbol),
@@ -570,7 +570,7 @@ export function DashboardPreviewSurface() {
                     ) : null
                   }
                 >
-                  <SelectedCoinPanel selectedCoin={selectedCoin} />
+                  <SelectedCoinPanel selectedCoin={selectedCoin} allowMarketPreview={false} />
                 </TerminalPanel>
               </div>
             </section>

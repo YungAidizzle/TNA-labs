@@ -1,7 +1,5 @@
-import { GptTrendsDashboard } from "@/components/trends/gpt-trends-dashboard";
-import { getLatestSuccessfulTrendSnapshotView } from "@/lib/gpt-trends/repository";
+import { TrendDashboardPage } from "@/features/trends/trend-dashboard-page";
 
-export async function TrendsPage() {
-  const view = await getLatestSuccessfulTrendSnapshotView();
-  return <GptTrendsDashboard view={view} />;
+export function TrendsPage() {
+  return <TrendDashboardPage scope="overall" />;
 }

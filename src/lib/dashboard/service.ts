@@ -1,6 +1,7 @@
 import "server-only";
 
 import { requestDashboardBackgroundRefresh } from "@/lib/dashboard/background-refresh";
+import { getSharedAiTrendDashboardState } from "@/lib/dashboard/ai-trend-source";
 import {
   DashboardProfiler,
   formatDashboardProfileLog,
@@ -604,9 +605,11 @@ export async function getTrendDashboardState(
   // runtime snapshots from diverging from the read-model source of truth.
   if (FORCE_DATABASE_TREND_SOURCE) {
     try {
-      return await getSupabaseTrendDashboardState(query, {
+      const baseState = await getSupabaseTrendDashboardState(query, {
         readProfile: options.readProfile,
       });
+      const aiState = await getSharedAiTrendDashboardState(query, baseState);
+      return aiState ?? baseState;
     } catch (error) {
       console.error("[dashboard] database-backed trend source failed", {
         query,
@@ -634,9 +637,11 @@ export async function getTrendDashboardState(
   // The runtime-store path below is retained as an explicit legacy fallback.
   if (shouldUseSupabaseTrendSource()) {
     try {
-      return await getSupabaseTrendDashboardState(query, {
+      const baseState = await getSupabaseTrendDashboardState(query, {
         readProfile: options.readProfile,
       });
+      const aiState = await getSharedAiTrendDashboardState(query, baseState);
+      return aiState ?? baseState;
     } catch (error) {
       const allowFallback = allowLegacyTrendFallbackOnSupabaseError();
       console.error("[dashboard] Supabase trend source failed", {

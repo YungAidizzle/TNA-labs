@@ -151,7 +151,7 @@ export function TerminalLeaderboardTable({
                       )}
                       {!hasTrustedDisplayName && !showLoadingLabel ? (
                         <span className="rounded-[4px] border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#8ea2bb]">
-                          Fallback
+                          Derived
                         </span>
                       ) : null}
                       {row.lowDataWarning ? (

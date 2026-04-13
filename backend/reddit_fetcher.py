@@ -464,6 +464,32 @@ def _scan_new_posts_for_subreddit_public_json(
     }
 
 
+def _backfill_posts_for_subreddit_public_json(
+    subreddit_name: str,
+    *,
+    cutoff_utc: int,
+    page_limit: int = BACKFILL_PAGE_LIMIT,
+    max_posts: int = BACKFILL_MAX_POSTS_PER_SUBREDDIT,
+    max_pages: int = BACKFILL_MAX_PAGES_PER_SUBREDDIT,
+) -> Dict[str, Any]:
+    """Compatibility wrapper for legacy callers and backend tests.
+
+    Backfill now flows through the generalized scanner, but the older helper name
+    is still exercised by tests that validate cutoff behavior directly.
+    """
+
+    return _scan_new_posts_for_subreddit_public_json(
+        subreddit_name,
+        cutoff_utc=cutoff_utc,
+        page_limit=page_limit,
+        max_posts=max_posts,
+        max_pages=max_pages,
+        existing_post_ids=None,
+        skip_known_posts=False,
+        stop_at_known_frontier=False,
+    )
+
+
 def fetch_backfill_posts_for_subreddit(
     subreddit_name: str,
     *,

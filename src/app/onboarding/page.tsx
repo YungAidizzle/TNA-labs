@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/auth/sign-out-button";
 import { BRAND_NAME } from "@/lib/brand";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
 import { isPaidAccessState } from "@/lib/billing/shared";
+import { resolveSafeRedirectTarget } from "@/lib/supabase/shared";
 
 type OnboardingPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -19,6 +20,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
   const { user, profile } = await getCurrentAuthContext();
   const mode = readQueryValue(params.mode) ?? "created";
   const email = readQueryValue(params.email) ?? user?.email ?? profile?.email ?? null;
+  const next = resolveSafeRedirectTarget(readQueryValue(params.next), "/dashboard");
   const hasPaidAccess = isPaidAccessState(profile?.access_state);
 
   if (!user && !email) {
@@ -86,7 +88,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
           <div className="mt-8 flex flex-wrap gap-3">
             {hasPaidAccess ? (
               <Link
-                href="/dashboard"
+                href={next}
                 className="inline-flex h-11 items-center gap-2 border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
               >
                 Continue to platform
@@ -94,7 +96,11 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
               </Link>
             ) : (
               <Link
-                href={user ? "/pricing" : "/sign-in"}
+                href={
+                  user
+                    ? `/pricing?next=${encodeURIComponent(next)}`
+                    : `/sign-in?next=${encodeURIComponent(next)}`
+                }
                 className="inline-flex h-11 items-center gap-2 border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
               >
                 {user ? "View pricing" : "Go to sign in"}

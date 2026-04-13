@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils/cn";
 import {
   BlueskyLiveStatusInput,
@@ -47,28 +47,7 @@ export function BlueskyLiveStatusBadge({
     };
   }, [updateIntervalMs]);
 
-  const status = useMemo(
-    () =>
-      deriveBlueskyLiveStatus(
-        {
-          ...input,
-        },
-        nowMs,
-      ),
-    [
-      input.detailLatestPointAt,
-      input.detailStaleGapMinutes,
-      input.lastAggregateRefreshAt,
-      input.lastEventAt,
-      input.lastReceivedAt,
-      input.latestRunStatus,
-      input.pipelineHealthState,
-      input.streamLagSeconds,
-      input.workerAlive,
-      input.workerHeartbeatAt,
-      nowMs,
-    ],
-  );
+  const status = deriveBlueskyLiveStatus(input, nowMs);
 
   return (
     <span

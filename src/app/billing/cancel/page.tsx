@@ -1,5 +1,18 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Activity, ArrowRight, Ban } from "lucide-react";
+import { buildPageMetadata } from "@/lib/metadata";
+
+export const metadata: Metadata = buildPageMetadata({
+  title: "Billing Canceled",
+  description:
+    "Review the Attentra billing cancel return state and decide whether to restart checkout or return to the site.",
+  path: "/billing/cancel",
+  robots: {
+    index: false,
+    follow: false,
+  },
+});
 
 export default function BillingCancelPage() {
   return (

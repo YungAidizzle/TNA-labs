@@ -249,7 +249,7 @@ function setScenario(scenario: QueryScenario) {
     }
 
     if (text.includes("/* stable_cluster_day_series */")) {
-      const [dayIso, _dayStartIso, _dayEndIso, windowStartIso, windowEndIso, mappingJson] = parameters as [
+      const [dayIso, , , windowStartIso, windowEndIso, mappingJson] = parameters as [
         string,
         string,
         string,
@@ -320,8 +320,8 @@ async function loadSupabaseTrendsModule() {
 async function fetchStableVm(
   query: Partial<TrendDashboardQuery> & Pick<TrendDashboardQuery, "range" | "mode" | "sort">,
 ) {
-  const module = await loadSupabaseTrendsModule();
-  return module.getSupabaseTrendDashboardState({
+  const supabaseTrendsModule = await loadSupabaseTrendsModule();
+  return supabaseTrendsModule.getSupabaseTrendDashboardState({
     scope: (query.scope ?? "overall") as TrendScope,
     range: query.range,
     mode: query.mode,

@@ -12,6 +12,7 @@ import {
   getStripeServerClient,
   resolveRequestOrigin,
 } from "@/lib/stripe/server";
+import { resolveSafeRedirectTarget } from "@/lib/supabase/shared";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,6 +23,10 @@ async function readCheckoutConsent(request: Request) {
   return {
     acceptedTermsPrivacy: formData.get("accept_terms_privacy") === "on",
     acceptedBillingDisclosure: formData.get("accept_billing_disclosure") === "on",
+    next: resolveSafeRedirectTarget(
+      typeof formData.get("next") === "string" ? String(formData.get("next")) : null,
+      "/dashboard",
+    ),
   };
 }
 
@@ -102,8 +107,8 @@ export async function POST(request: Request) {
           supabaseUserId: user.id,
         },
       },
-      success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/billing/cancel`,
+      success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}&next=${encodeURIComponent(consent.next)}`,
+      cancel_url: `${origin}/billing/cancel?next=${encodeURIComponent(consent.next)}`,
     });
 
     if (!session.url) {

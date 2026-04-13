@@ -2,16 +2,16 @@ import "server-only";
 
 import crypto from "node:crypto";
 import OpenAI from "openai";
-import { getGptTrendConfig } from "@/lib/gpt-trends/config";
+import { getAiTrendConfig } from "@/lib/ai-trends/config";
 import {
-  getLatestSuccessfulTrendSnapshot,
-  insertFailedTrendSnapshot,
-  storeSuccessfulTrendSnapshot,
-} from "@/lib/gpt-trends/repository";
+  getLatestSuccessfulAiTrendSnapshot,
+  insertFailedAiTrendSnapshot,
+  storeSuccessfulAiTrendSnapshot,
+} from "@/lib/ai-trends/repository";
 import type {
-  GeneratedTrendCandidate,
-  GeneratedTrendSnapshotPayload,
-} from "@/lib/gpt-trends/types";
+  GeneratedAiTrendCandidate,
+  GeneratedAiTrendSnapshotPayload,
+} from "@/lib/ai-trends/types";
 
 type RawModelTrend = {
   rank?: unknown;
@@ -121,7 +121,7 @@ function asNonEmptyString(value: unknown) {
   return normalized || null;
 }
 
-function normalizeTrendCandidate(raw: RawModelTrend, index: number): GeneratedTrendCandidate {
+function normalizeTrendCandidate(raw: RawModelTrend, index: number): GeneratedAiTrendCandidate {
   const title = asNonEmptyString(raw.title);
   const summary = asNonEmptyString(raw.summary);
   if (!title || !summary) {
@@ -149,7 +149,7 @@ function normalizeTrendCandidate(raw: RawModelTrend, index: number): GeneratedTr
   };
 }
 
-function normalizeModelPayload(content: string, expectedTrendCount: number): GeneratedTrendSnapshotPayload {
+function normalizeModelPayload(content: string, expectedTrendCount: number): GeneratedAiTrendSnapshotPayload {
   const parsed = JSON.parse(content) as RawModelPayload;
   if (!Array.isArray(parsed.trends)) {
     throw new Error("Model payload is missing a trends array.");
@@ -158,16 +158,13 @@ function normalizeModelPayload(content: string, expectedTrendCount: number): Gen
   const normalized = parsed.trends.map((row, index) => normalizeTrendCandidate(row as RawModelTrend, index));
   normalized.sort((left, right) => left.rank - right.rank);
 
-  const seenRanks = new Set<number>();
   const seenKeys = new Set<string>();
   const trends = normalized.map((trend, index) => {
-    const nextRank = index + 1;
-    const key = seenKeys.has(trend.trendKey) ? `${trend.trendKey}-${nextRank}` : trend.trendKey;
+    const key = seenKeys.has(trend.trendKey) ? `${trend.trendKey}-${index + 1}` : trend.trendKey;
     seenKeys.add(key);
-    seenRanks.add(nextRank);
     return {
       ...trend,
-      rank: nextRank,
+      rank: index + 1,
       trendKey: key,
       aiRankScore: clampScore(trend.aiRankScore || 100 - index, 100 - index),
     };
@@ -175,10 +172,6 @@ function normalizeModelPayload(content: string, expectedTrendCount: number): Gen
 
   if (trends.length !== expectedTrendCount) {
     throw new Error(`Expected exactly ${expectedTrendCount} trends but received ${trends.length}.`);
-  }
-
-  if (seenRanks.size !== expectedTrendCount) {
-    throw new Error("Generated trend ranks were not unique.");
   }
 
   return {
@@ -195,27 +188,26 @@ function normalizeModelPayload(content: string, expectedTrendCount: number): Gen
 function buildGenerationPrompt(trendCount: number) {
   const nowIso = new Date().toISOString();
   return [
-    "Generate the current top internet narrative trends for a shared product leaderboard.",
+    "Generate the current top internet narrative trends for a shared dashboard leaderboard.",
     `Return exactly ${trendCount} trends ranked from 1 to ${trendCount}.`,
-    "Use current web-grounded information and prioritize trends that are important now, widely discussed now, or narratively significant now.",
-    "Do not personalize the output for a user segment. This is one shared global trend board.",
-    "Do not rank by social post counts. Rank by overall current importance, narrative significance, breadth of coverage, and confidence.",
-    "Avoid duplicates, near-duplicates, and micro-variants of the same story.",
-    "Each title should read like a clean trend headline, not a fragment.",
-    "Each summary should be concise and factual.",
-    "importance_note should explain why the trend matters right now in one short sentence.",
+    "Use current web-grounded information and prioritize topics that are important now, widely discussed now, or narratively significant now.",
+    "This is one shared global board for all users. Do not personalize for a user segment.",
+    "Avoid duplicates, near-duplicates, and minor variants of the same story.",
+    "Each title must read like a clean narrative headline, not a fragment.",
+    "Each summary must be concise and factual.",
+    "importance_note should explain why the topic matters right now in one short sentence.",
     "category should be a concise label such as AI, Tech, Crypto, Markets, Politics, Business, World, Culture, Entertainment, Sports, or Internet.",
     "source_scope should describe the breadth briefly, such as global, regional, niche, mainstream, or mixed.",
-    "source_count should be the approximate number of distinct web sources materially supporting the trend.",
+    "source_count should be the approximate number of distinct web sources materially supporting the topic.",
     `Generate the board as of ${nowIso}.`,
   ].join("\n");
 }
 
-async function requestGeneratedTrendSnapshot(attempt: number) {
-  const config = getGptTrendConfig();
+async function requestGeneratedAiTrendSnapshot(attempt: number) {
+  const config = getAiTrendConfig();
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error("Missing OPENAI_API_KEY for GPT trend generation.");
+    throw new Error("Missing OPENAI_API_KEY for shared AI trend generation.");
   }
 
   const client = new OpenAI({ apiKey });
@@ -225,7 +217,7 @@ async function requestGeneratedTrendSnapshot(attempt: number) {
     text: {
       format: {
         type: "json_schema",
-        name: "shared_hourly_trend_snapshot",
+        name: "shared_ai_trend_snapshot",
         strict: true,
         schema: GENERATION_SCHEMA,
       },
@@ -266,11 +258,11 @@ async function requestGeneratedTrendSnapshot(attempt: number) {
   };
 }
 
-export async function generateSharedTrendSnapshot(options: {
+export async function generateSharedAiTrendSnapshot(options: {
   force?: boolean;
   trigger?: string;
 } = {}) {
-  const config = getGptTrendConfig();
+  const config = getAiTrendConfig();
   if (!config.enabled) {
     return {
       skipped: true,
@@ -278,7 +270,7 @@ export async function generateSharedTrendSnapshot(options: {
     } as const;
   }
 
-  const latestSnapshot = await getLatestSuccessfulTrendSnapshot();
+  const latestSnapshot = await getLatestSuccessfulAiTrendSnapshot();
   if (!options.force && latestSnapshot?.generatedAt) {
     const latestTimestamp = Date.parse(latestSnapshot.generatedAt);
     if (Number.isFinite(latestTimestamp)) {
@@ -297,8 +289,14 @@ export async function generateSharedTrendSnapshot(options: {
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      const generated = await requestGeneratedTrendSnapshot(attempt);
-      const snapshotId = await storeSuccessfulTrendSnapshot({
+      console.info("[ai-trends] generation attempt start", {
+        attempt,
+        trigger: options.trigger ?? "manual",
+        model: config.modelName,
+        useWebSearch: config.useWebSearch,
+      });
+      const generated = await requestGeneratedAiTrendSnapshot(attempt);
+      const snapshotId = await storeSuccessfulAiTrendSnapshot({
         ...generated,
         notesJson: {
           ...(generated.notesJson ?? {}),
@@ -306,6 +304,11 @@ export async function generateSharedTrendSnapshot(options: {
           refresh_interval_seconds: config.refreshIntervalSeconds,
           used_web_search: config.useWebSearch,
         },
+      });
+      console.info("[ai-trends] generation stored", {
+        snapshotId,
+        trendCount: generated.trends.length,
+        generatedAt: generated.generatedAt,
       });
       return {
         skipped: false,
@@ -315,14 +318,19 @@ export async function generateSharedTrendSnapshot(options: {
       } as const;
     } catch (error) {
       lastError = error as Error;
+      console.error("[ai-trends] generation attempt failed", {
+        attempt,
+        trigger: options.trigger ?? "manual",
+        error: String(lastError?.message ?? error),
+      });
     }
   }
 
-  await insertFailedTrendSnapshot({
+  await insertFailedAiTrendSnapshot({
     modelName: config.modelName,
     promptVersion: config.promptVersion,
     generatedAt: new Date().toISOString(),
-    errorMessage: String(lastError?.message ?? "GPT trend generation failed."),
+    errorMessage: String(lastError?.message ?? "Shared AI trend generation failed."),
   });
-  throw lastError ?? new Error("GPT trend generation failed.");
+  throw lastError ?? new Error("Shared AI trend generation failed.");
 }

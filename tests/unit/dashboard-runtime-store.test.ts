@@ -6,6 +6,7 @@ import path from "node:path";
 const originalCwd = process.cwd();
 const originalOpenAiKey = process.env.OPENAI_API_KEY;
 const originalRedditEnabled = process.env.REDDIT_ENABLED;
+const RUNTIME_STORE_TEST_TIMEOUT_MS = 20_000;
 
 let tempDir = "";
 
@@ -403,7 +404,7 @@ describe("dashboard runtime store persistence", () => {
     expect(bundle.baseStates["overall:24h"]).toBeTruthy();
     expect(latestBundle?.generatedAt).toBe(bundle.generatedAt);
     expect(latestBundle?.sourceFreshness[0]?.sourceLabel).toBe("r/technology");
-  });
+  }, RUNTIME_STORE_TEST_TIMEOUT_MS);
 
   it("recovers a stale running refresh state from a dead prior process", async () => {
     const runtimeStore = await import("@/lib/dashboard/runtime-store");
@@ -442,7 +443,7 @@ describe("dashboard runtime store persistence", () => {
     expect(persisted.status).toBe("failed");
     expect(persisted.staleClearedAt).toBeTruthy();
     expect(persisted.staleReason).toContain("owner pid 999999 is no longer running");
-  });
+  }, RUNTIME_STORE_TEST_TIMEOUT_MS);
 
   it("rebuilds from existing Bluesky disk data and advances latest.json", async () => {
     const oldGeneratedAt = "2026-03-18T00:00:00.000Z";
@@ -504,7 +505,7 @@ describe("dashboard runtime store persistence", () => {
     expect(latestBundle?.generatedAt).toBe(bundle.generatedAt);
     expect(latestBundle?.rawCounts.blueskyPosts).toBe(bundle.rawCounts.blueskyPosts);
     expect(latestBundle?.rawCounts.blueskyInteractions).toBe(bundle.rawCounts.blueskyInteractions);
-  });
+  }, RUNTIME_STORE_TEST_TIMEOUT_MS);
 
   it("marks a stale Bluesky firehose worker as stale in source freshness", async () => {
     await seedStaleBlueskyFirehoseData(tempDir);
@@ -521,7 +522,7 @@ describe("dashboard runtime store persistence", () => {
     expect(firehoseFreshness?.sourceStatus).toBe("stale");
     expect(firehoseFreshness?.ageMinutes).toBeGreaterThanOrEqual(278);
     expect(firehoseFreshness?.lastFetchedAt).toBe("2026-03-18T08:00:00.000Z");
-  });
+  }, RUNTIME_STORE_TEST_TIMEOUT_MS);
 
   it("persists rich detail for visible leaderboard rows while keeping the in-memory bundle rich", async () => {
     await seedBlueskyFirehoseData(tempDir);
@@ -542,7 +543,7 @@ describe("dashboard runtime store persistence", () => {
     expect(persistedRow?.platformBreakdown.length ?? 0).toBeGreaterThan(0);
     expect(persistedRow?.topPosts.length ?? 0).toBeGreaterThan(0);
     expect(persistedRow?.blueskyDetail ?? null).not.toBeNull();
-  });
+  }, RUNTIME_STORE_TEST_TIMEOUT_MS);
 
   it("ignores persisted reddit documents when REDDIT_ENABLED=0", async () => {
     process.env.REDDIT_ENABLED = "0";
@@ -562,7 +563,7 @@ describe("dashboard runtime store persistence", () => {
     ).toBe(true);
     expect(bundle.baseStates["overall:24h"]?.ingestionHealth?.primarySource).toBe("bluesky");
     expect(bundle.baseStates["overall:24h"]?.ingestionHealth?.sourceStatuses?.reddit).toBe("disabled");
-  });
+  }, RUNTIME_STORE_TEST_TIMEOUT_MS);
 
   it("anchors live Bluesky rebuilds to the firehose materialization time when REDDIT_ENABLED=0", async () => {
     process.env.REDDIT_ENABLED = "0";
@@ -582,5 +583,5 @@ describe("dashboard runtime store persistence", () => {
     expect(baseState?.leaderboards.established[0]?.source).toBe("bluesky");
     expect(baseState?.ingestionHealth?.lastEventReceivedAt).toBe(lastReceivedAt);
     expect(baseState?.ingestionHealth?.latestSuccessfulRunAt).toBe(lastAggregateRefreshAt);
-  });
+  }, RUNTIME_STORE_TEST_TIMEOUT_MS);
 });

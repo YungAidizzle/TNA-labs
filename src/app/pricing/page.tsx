@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, BadgeCheck, ShieldCheck } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
@@ -5,15 +6,28 @@ import { BRAND_ACCESS_NAME, BRAND_NAME } from "@/lib/brand";
 import { getCurrentViewerSubscription } from "@/lib/billing/subscriptions";
 import { formatBillingIntervalLabel, getConfiguredBillingPlanSummary } from "@/lib/billing/plan";
 import { isPaidAccessState } from "@/lib/billing/shared";
-import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
+import {
+  LEGAL_CONTACT,
+  getSupportContactHref,
+  getSupportContactLabel,
+} from "@/lib/legal/contact-details";
 import { SHORT_MARKETING_DISCLAIMER } from "@/lib/legal/disclaimers";
 import { BILLING_VERSION, PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/policy-versions";
+import { buildPageMetadata } from "@/lib/metadata";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
+import { resolveSafeRedirectTarget } from "@/lib/supabase/shared";
 import {
   hasStripeCheckoutConfig,
   hasStripeServerConfig,
   hasStripeWebhookConfig,
 } from "@/lib/stripe/server";
+
+export const metadata: Metadata = buildPageMetadata({
+  title: "Pricing",
+  description:
+    "Review Attentra subscription pricing, billing terms, cancellation rules, refund handling, and the exact research access included before checkout.",
+  path: "/pricing",
+});
 
 type PricingPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -34,6 +48,7 @@ function formatPeriodEnd(value: string | null | undefined) {
 export default async function PricingPage({ searchParams }: PricingPageProps) {
   const params = searchParams ? await searchParams : {};
   const error = readQueryValue(params.error);
+  const next = resolveSafeRedirectTarget(readQueryValue(params.next), "/dashboard");
   const { user, profile } = await getCurrentAuthContext();
   const subscription = await getCurrentViewerSubscription(user?.id);
   const hasPaidAccess = isPaidAccessState(profile?.access_state);
@@ -98,7 +113,7 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
               <div>
                 <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Price</p>
                 <p className="mt-3 text-[28px] font-semibold tracking-[-0.04em] text-[#eef5ff]">
-                  {plan?.displayPrice ?? "Configured in Stripe"}
+                  {plan?.displayPrice ?? "Live price shown at checkout"}
                 </p>
               </div>
               <div>
@@ -142,7 +157,8 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
                 {error === "stripe_not_configured" && "Stripe is not configured yet."}
                 {error === "checkout_unavailable" && "Checkout session could not be created."}
                 {error === "missing_customer" && "A billing customer record was not found for this account."}
-                {error === "stripe_request_failed" && "Stripe rejected the request. Check the server logs and Stripe configuration."}
+                {error === "stripe_request_failed" &&
+                  "Stripe could not complete the request. Please retry in a moment or contact billing support if the problem continues."}
                 {error === "checkout_consent_required" &&
                   "You must accept the legal and billing disclosures before starting checkout."}
               </div>
@@ -150,13 +166,13 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
 
             {!stripeServerConfigured ? (
               <div className="mt-5 border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
-                Stripe server env vars are missing or invalid.
+                Billing checkout is not available in this deployment yet.
               </div>
             ) : null}
 
             {stripeServerConfigured && !stripeWebhookConfigured ? (
               <div className="mt-5 border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
-                Stripe webhook configuration is missing or invalid. Checkout stays disabled because access unlocks only after the subscription state sync completes.
+                Billing checkout is temporarily unavailable because subscription confirmation is not fully configured in this deployment.
               </div>
             ) : null}
 
@@ -194,15 +210,23 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
                 </div>
 
                 <p className="text-[13px] text-[#8fa5bd]">
-                  Cancellation is handled through the Stripe customer portal. Billing support:{" "}
-                  <a className="text-cyan hover:text-[#b8f2ff]" href={`mailto:${LEGAL_CONTACT.billingSupportEmail}`}>
-                    {LEGAL_CONTACT.billingSupportEmail}
-                  </a>
+                  Cancellation is handled through the Stripe customer portal.{" "}
+                  {LEGAL_CONTACT.billingSupportEmail ? (
+                    <>
+                      Billing support:{" "}
+                      <a className="text-cyan hover:text-[#b8f2ff]" href={getSupportContactHref("billing") ?? undefined}>
+                        {getSupportContactLabel("billing")}
+                      </a>
+                    </>
+                  ) : (
+                    "Billing support remains available through the customer portal and your account."
+                  )}
                 </p>
               </div>
             ) : user ? (
               <div className="mt-8 space-y-4">
                 <form action="/api/stripe/checkout" method="post" className="space-y-4">
+                  <input type="hidden" name="next" value={next} />
                   <label className="flex items-start gap-3 border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-[13px] leading-6 text-[#9ab0c8]">
                     <input type="checkbox" name="accept_terms_privacy" required className="mt-1 h-4 w-4 shrink-0 border border-white/[0.16] bg-[#07101a]" />
                     <span>
@@ -235,10 +259,16 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
                 </form>
 
                 <p className="text-[13px] text-[#8ea4bc]">
-                  Billing support:{" "}
-                  <a className="text-cyan hover:text-[#b8f2ff]" href={`mailto:${LEGAL_CONTACT.billingSupportEmail}`}>
-                    {LEGAL_CONTACT.billingSupportEmail}
-                  </a>
+                  {LEGAL_CONTACT.billingSupportEmail ? (
+                    <>
+                      Billing support:{" "}
+                      <a className="text-cyan hover:text-[#b8f2ff]" href={getSupportContactHref("billing") ?? undefined}>
+                        {getSupportContactLabel("billing")}
+                      </a>
+                    </>
+                  ) : (
+                    "Billing support remains available through the Stripe customer portal and your account."
+                  )}
                 </p>
               </div>
             ) : (
@@ -248,13 +278,13 @@ export default async function PricingPage({ searchParams }: PricingPageProps) {
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <Link
-                    href="/sign-in"
+                    href={`/sign-in?next=${encodeURIComponent(next)}`}
                     className="inline-flex h-11 items-center border border-white/[0.1] bg-white/[0.02] px-5 text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e0ee]"
                   >
                     Sign in
                   </Link>
                   <Link
-                    href="/sign-up"
+                    href={`/sign-up?next=${encodeURIComponent(next)}`}
                     className="inline-flex h-11 items-center gap-2 border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
                   >
                     Create account

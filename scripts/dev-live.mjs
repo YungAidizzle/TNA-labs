@@ -58,6 +58,11 @@ const runningChildren = new Set();
 const restartTimers = new Set();
 let shuttingDown = false;
 const redditEnabled = parseEnabledFlag("REDDIT_ENABLED");
+const blueskyEnabled = parseEnabledFlag("BLUESKY_ENABLED");
+const blueskyFirehoseEnabled = parseEnabledFlag("BLUESKY_FIREHOSE_ENABLED");
+const blueskyWorkerMode = String(process.env.BLUESKY_LIVE_WORKER_MODE ?? "authoritative")
+  .trim()
+  .toLowerCase();
 
 function terminateChild(child) {
   if (!child || child.exitCode !== null || child.killed) {
@@ -176,10 +181,29 @@ process.on("SIGTERM", () => shutdown(0));
 
 console.info("[dev-live] resolved source flags", {
   redditEnabled,
+  blueskyEnabled,
+  blueskyFirehoseEnabled,
+  blueskyWorkerMode,
 });
 
 spawnProcess("next-dev", ["dev"]);
-console.info("[dev-live] GPT trends now refresh through the hourly cron route; no local Bluesky worker is started.");
+if (blueskyEnabled && blueskyFirehoseEnabled) {
+  if (blueskyWorkerMode === "legacy") {
+    spawnProcess("bluesky-firehose", ["fetch:bluesky:firehose:live"], {
+      restartOnExit: true,
+      restartDelayMs: 3000,
+    });
+  } else {
+    spawnProcess("bluesky-worker", ["worker:bluesky"], {
+      restartOnExit: true,
+      restartDelayMs: 3000,
+    });
+  }
+} else {
+  console.info(
+    "[dev-live] skipping Bluesky worker because BLUESKY_ENABLED=0 or BLUESKY_FIREHOSE_ENABLED=0",
+  );
+}
 if (redditEnabled) {
   spawnProcess("reddit-rotation", ["fetch:reddit:rotate"], {
     restartOnExit: true,

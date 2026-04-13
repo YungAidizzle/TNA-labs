@@ -21,6 +21,7 @@ import type { MemecoinTerminalRow } from "@/components/trends/memecoin-market-ta
 type SelectedCoinPanelProps = {
   selectedCoin: MemecoinTerminalRow | null;
   loading?: boolean;
+  allowMarketPreview?: boolean;
 };
 
 function formatTokenPrice(value: number | null | undefined) {
@@ -154,7 +155,15 @@ function resolvePreviewRenderMode(
   return "unavailable";
 }
 
-function previewSubtitle(mode: PreviewRenderMode, loading: boolean) {
+function previewSubtitle(
+  mode: PreviewRenderMode,
+  loading: boolean,
+  marketPreviewEnabled: boolean,
+) {
+  if (!marketPreviewEnabled) {
+    return "Static marketing capture";
+  }
+
   if (loading) {
     return "Resolving market preview";
   }
@@ -166,7 +175,11 @@ function previewSubtitle(mode: PreviewRenderMode, loading: boolean) {
   return mode === "dexscreener" ? "Dexscreener market preview" : "Preview unavailable";
 }
 
-function previewBadgeText(mode: PreviewRenderMode) {
+function previewBadgeText(mode: PreviewRenderMode, marketPreviewEnabled: boolean) {
+  if (!marketPreviewEnabled) {
+    return "STATIC";
+  }
+
   if (mode === "tradingview") {
     return null;
   }
@@ -226,11 +239,23 @@ function buildPreviewDebugLog(
   };
 }
 
-export function SelectedCoinPanel({ selectedCoin, loading = false }: SelectedCoinPanelProps) {
-  const [copied, setCopied] = useState(false);
-  const [widgetMounted, setWidgetMounted] = useState(false);
-  const [widgetFailureCode, setWidgetFailureCode] = useState<TradingViewPreviewFailureCode | null>(null);
+type ChartPreviewState = {
+  key: string;
+  mounted: boolean;
+  failureCode: TradingViewPreviewFailureCode | null;
+};
 
+export function SelectedCoinPanel({
+  selectedCoin,
+  loading = false,
+  allowMarketPreview = true,
+}: SelectedCoinPanelProps) {
+  const [copiedCoinId, setCopiedCoinId] = useState<string | null>(null);
+  const [chartPreviewState, setChartPreviewState] = useState<ChartPreviewState>({
+    key: "empty",
+    mounted: false,
+    failureCode: null,
+  });
   const row = selectedCoin?.row ?? null;
   const rowIsLive = row ? row.isLive !== false && row.validationStatus !== "invalid" : false;
   const previewQuery = useQuery({
@@ -258,18 +283,19 @@ export function SelectedCoinPanel({ selectedCoin, loading = false }: SelectedCoi
 
       return dashboardClient.getMemecoinPreview(row, { signal });
     },
-    enabled: Boolean(row && rowIsLive && row.dexscreenerUrl),
+    enabled: Boolean(allowMarketPreview && row && rowIsLive && row.dexscreenerUrl),
     staleTime: 5 * 60_000,
   });
-
-  useEffect(() => {
-    setCopied(false);
-  }, [row?.id]);
-
-  useEffect(() => {
-    setWidgetMounted(false);
-    setWidgetFailureCode(null);
-  }, [row?.id, previewQuery.data?.tradingviewSymbol]);
+  const previewSessionKey = row
+    ? `${row.id}:${previewQuery.data?.tradingviewSymbol ?? "none"}`
+    : "empty";
+  const copied = copiedCoinId === row?.id;
+  const widgetMounted =
+    chartPreviewState.key === previewSessionKey && chartPreviewState.mounted;
+  const widgetFailureCode =
+    chartPreviewState.key === previewSessionKey
+      ? chartPreviewState.failureCode
+      : null;
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production" || !previewQuery.data) {
@@ -427,10 +453,12 @@ export function SelectedCoinPanel({ selectedCoin, loading = false }: SelectedCoi
   const previewDexUrl = preview?.dexUrl || row.dexscreenerUrl;
   const previewSnapshotUrl = preview?.snapshotImageUrl ?? null;
   const previewSymbol = preview?.status === "tradingview" ? preview.tradingviewSymbol : null;
-  const previewRenderMode = resolvePreviewRenderMode(preview, {
-    widgetFailureCode,
-    dexUrl: previewDexUrl,
-  });
+  const previewRenderMode = allowMarketPreview
+    ? resolvePreviewRenderMode(preview, {
+        widgetFailureCode,
+        dexUrl: previewDexUrl,
+      })
+    : "unavailable";
   const showChart = previewRenderMode === "tradingview";
   const showDexPreview = previewRenderMode === "dexscreener";
   const showChartLoadingOverlay =
@@ -438,19 +466,28 @@ export function SelectedCoinPanel({ selectedCoin, loading = false }: SelectedCoi
 
   const handleChartStatusChange = (status: TradingViewChartPreviewStatus) => {
     if (status.state === "mounting") {
-      setWidgetMounted(false);
-      setWidgetFailureCode(null);
+      setChartPreviewState({
+        key: previewSessionKey,
+        mounted: false,
+        failureCode: null,
+      });
       return;
     }
 
     if (status.state === "mounted") {
-      setWidgetMounted(true);
-      setWidgetFailureCode(null);
+      setChartPreviewState({
+        key: previewSessionKey,
+        mounted: true,
+        failureCode: null,
+      });
       return;
     }
 
-    setWidgetMounted(false);
-    setWidgetFailureCode(status.failureCode);
+    setChartPreviewState({
+      key: previewSessionKey,
+      mounted: false,
+      failureCode: status.failureCode,
+    });
   };
 
   return (
@@ -536,21 +573,41 @@ export function SelectedCoinPanel({ selectedCoin, loading = false }: SelectedCoi
         <div className="mb-2 flex items-center justify-between gap-3">
           <div>
             <p className="text-[12px] font-medium text-[#6d819a]">Chart Preview</p>
-            <p className="text-[13px] text-[#a7b7ca]">{previewSubtitle(previewRenderMode, previewQuery.isPending)}</p>
+            <p className="text-[13px] text-[#a7b7ca]">
+              {previewSubtitle(previewRenderMode, previewQuery.isPending, allowMarketPreview)}
+            </p>
           </div>
           {previewSymbol ? (
             <span className="border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[12px] font-mono text-[#c9d4e2]">
               {previewSymbol}
             </span>
-          ) : previewBadgeText(previewRenderMode) ? (
+          ) : previewBadgeText(previewRenderMode, allowMarketPreview) ? (
             <span className="border border-white/[0.12] bg-white/[0.04] px-2 py-1 text-[12px] font-mono text-[#c9d4e2]">
-              {previewBadgeText(previewRenderMode)}
+              {previewBadgeText(previewRenderMode, allowMarketPreview)}
             </span>
           ) : null}
         </div>
 
         <div className="relative h-[320px] border border-white/[0.08] bg-[#050911]">
-          {showChart && previewSymbol ? (
+          {!allowMarketPreview ? (
+            <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+              <CoinIcon
+                src={row.iconUrl}
+                symbol={row.symbol}
+                name={row.name}
+                className="h-16 w-16 rounded-[14px]"
+                labelClassName="text-[13px]"
+              />
+              <div>
+                <p className="text-[18px] font-semibold tracking-[-0.03em] text-[#eef4fd]">
+                  Static preview capture
+                </p>
+                <p className="mt-2 max-w-[320px] text-[13px] leading-[1.55] text-[#9cb0c7]">
+                  Live market embeds are disabled for this marketing capture so the preview stays self-contained.
+                </p>
+              </div>
+            </div>
+          ) : showChart && previewSymbol ? (
             <>
               <TradingViewChartPreview symbol={previewSymbol} onStatusChange={handleChartStatusChange} />
               {showChartLoadingOverlay ? (
@@ -702,10 +759,10 @@ export function SelectedCoinPanel({ selectedCoin, loading = false }: SelectedCoi
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(row.pairAddress || row.tokenAddress);
-                  setCopied(true);
-                  window.setTimeout(() => setCopied(false), 1500);
+                  setCopiedCoinId(row.id);
+                  window.setTimeout(() => setCopiedCoinId((current) => (current === row.id ? null : current)), 1500);
                 } catch {
-                  setCopied(false);
+                  setCopiedCoinId(null);
                 }
               }}
               className="inline-flex items-center gap-2 border border-white/[0.1] bg-white/[0.03] px-3 py-2 text-[12px] font-medium text-[#dce6f4] transition-colors hover:bg-white/[0.06]"

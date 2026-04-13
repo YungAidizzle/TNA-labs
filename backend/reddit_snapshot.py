@@ -46,13 +46,48 @@ def _read_worker_state(path: Path = ROTATION_WORKER_STATE_PATH) -> Dict[str, Any
 
 def _rotation_worker_runtime(schedule: Dict[str, Any]) -> Dict[str, Any]:
     rotation_state = dict(schedule.get("rotationState") or {})
-    worker_state = _read_worker_state()
+    rotation_has_worker_metadata = any(
+        value
+        for value in [
+            rotation_state.get("workerPid"),
+            rotation_state.get("runtimeVersion"),
+            rotation_state.get("workerStartedAt"),
+            rotation_state.get("workerHeartbeatAt"),
+            rotation_state.get("workerStoppedAt"),
+        ]
+    )
+    worker_state = _read_worker_state() if rotation_has_worker_metadata else {}
     worker_pid = int(worker_state.get("pid", 0) or 0) or int(rotation_state.get("workerPid", 0) or 0) or None
     worker_alive = _process_exists(worker_pid)
+    has_worker_metadata = any(
+        value
+        for value in [
+            worker_state.get("pid"),
+            worker_state.get("runtimeVersion"),
+            worker_state.get("startedAt"),
+            worker_state.get("updatedAt"),
+            worker_state.get("stoppedAt"),
+            worker_state.get("lastPid"),
+            rotation_state.get("workerPid"),
+            rotation_state.get("runtimeVersion"),
+            rotation_state.get("workerStartedAt"),
+            rotation_state.get("workerHeartbeatAt"),
+            rotation_state.get("workerStoppedAt"),
+        ]
+    )
+
+    if worker_alive:
+        status = "running"
+    elif has_worker_metadata:
+        status = "stopped"
+    else:
+        status = "unknown"
+
     return {
         "alive": worker_alive,
         "pid": worker_pid if worker_alive else None,
-        "status": "running" if worker_alive else "stopped",
+        "status": status,
+        "configured": has_worker_metadata,
         "runtimeVersion": worker_state.get("runtimeVersion") or rotation_state.get("runtimeVersion"),
         "startedAt": worker_state.get("startedAt") or rotation_state.get("workerStartedAt"),
         "heartbeatAt": worker_state.get("updatedAt") or rotation_state.get("workerHeartbeatAt"),
@@ -282,7 +317,7 @@ def _build_health_summary(
     if freshness_state == "fresh" and float(rotation_summary.get("liveCoveragePct", 0.0) or 0.0) < 50.0:
         freshness_state = "delayed"
 
-    if not worker_runtime.get("alive", False):
+    if worker_runtime.get("status") == "stopped":
         if (latest_success_age or 10**9) > 60 or int(rotation_summary.get("liveDueSources", 0) or 0) > 0:
             freshness_state = "stale"
         elif freshness_state == "fresh":
@@ -345,7 +380,7 @@ def build_dashboard_snapshot(
     )
     schedule_metadata = _schedule_metadata(schedule)
     source_rows = {}
-    all_source_keys = set(schedule_metadata.keys()) if schedule_metadata else (set(schedule_metadata.keys()) | set(sources.keys()))
+    all_source_keys = set(schedule_metadata.keys()) | set(sources.keys())
     for key in all_source_keys:
         merged = {
             **schedule_metadata.get(str(key).lower(), {}),

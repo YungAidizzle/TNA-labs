@@ -14,7 +14,7 @@ const NAV_LINKS = [
   { href: "/#proof", label: "Features" },
   { href: "/pricing", label: "Pricing" },
   { href: "/#faq", label: "FAQ" },
-  { href: "/#product", label: "Demo" },
+  { href: "/#product", label: "Platform" },
 ] as const;
 
 export function MarketingHeader({

@@ -5,7 +5,7 @@ import {
   TrendNameStatus,
 } from "@/types/view-models";
 
-export const TREND_NAME_PLACEHOLDER = "Unresolved Narrative Cluster";
+export const TREND_NAME_PLACEHOLDER = "Emerging narrative";
 
 const READY_SOURCES = new Set<TrendNameSource>([
   "ai_exact",

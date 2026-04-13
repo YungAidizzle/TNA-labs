@@ -3,11 +3,11 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { getServerPostgresPool, hasDatabaseUrl } from "@/lib/db/server-postgres";
 import type {
-  GeneratedTrendSnapshotPayload,
-  SharedTrendSnapshot,
-  SharedTrendSnapshotItem,
-  SharedTrendSnapshotView,
-} from "@/lib/gpt-trends/types";
+  GeneratedAiTrendSnapshotPayload,
+  SharedAiTrendSnapshot,
+  SharedAiTrendSnapshotItem,
+  SharedAiTrendSnapshotView,
+} from "@/lib/ai-trends/types";
 
 type SnapshotRow = {
   id: number;
@@ -50,7 +50,7 @@ function toIsoString(value: Date | string | null | undefined) {
   return parsed.toISOString();
 }
 
-function mapSnapshotRow(row: SnapshotRow): SharedTrendSnapshot {
+function mapSnapshotRow(row: SnapshotRow): SharedAiTrendSnapshot {
   return {
     id: row.id,
     status: row.status,
@@ -64,7 +64,7 @@ function mapSnapshotRow(row: SnapshotRow): SharedTrendSnapshot {
   };
 }
 
-function mapSnapshotItemRow(row: SnapshotItemRow): SharedTrendSnapshotItem {
+function mapSnapshotItemRow(row: SnapshotItemRow): SharedAiTrendSnapshotItem {
   return {
     id: row.id,
     snapshotId: row.snapshot_id,
@@ -88,7 +88,7 @@ function isMissingRelationError(error: unknown) {
   return databaseError?.code === "42P01" || message.includes("does not exist");
 }
 
-export async function getLatestSuccessfulTrendSnapshotView(): Promise<SharedTrendSnapshotView> {
+export async function getLatestSuccessfulAiTrendSnapshotView(): Promise<SharedAiTrendSnapshotView> {
   if (!hasDatabaseUrl()) {
     return {
       snapshot: null,
@@ -150,6 +150,7 @@ export async function getLatestSuccessfulTrendSnapshotView(): Promise<SharedTren
       `,
       [snapshot.id],
     );
+
     const trends = itemsResult.rows.map(mapSnapshotItemRow);
     const generatedTimestamp = Date.parse(snapshot.generatedAt);
     const freshnessMinutes = Number.isFinite(generatedTimestamp)
@@ -173,12 +174,12 @@ export async function getLatestSuccessfulTrendSnapshotView(): Promise<SharedTren
   }
 }
 
-export async function getLatestSuccessfulTrendSnapshot(): Promise<SharedTrendSnapshot | null> {
-  const view = await getLatestSuccessfulTrendSnapshotView();
+export async function getLatestSuccessfulAiTrendSnapshot(): Promise<SharedAiTrendSnapshot | null> {
+  const view = await getLatestSuccessfulAiTrendSnapshotView();
   return view.snapshot;
 }
 
-export async function insertFailedTrendSnapshot(params: {
+export async function insertFailedAiTrendSnapshot(params: {
   modelName: string;
   promptVersion: string;
   generatedAt: string;
@@ -219,7 +220,7 @@ export async function insertFailedTrendSnapshot(params: {
 async function insertSnapshotItems(
   client: PoolClient,
   snapshotId: number,
-  payload: GeneratedTrendSnapshotPayload,
+  payload: GeneratedAiTrendSnapshotPayload,
 ) {
   const values: Array<string | number | null> = [];
   const placeholders: string[] = [];
@@ -266,9 +267,9 @@ async function insertSnapshotItems(
   );
 }
 
-export async function storeSuccessfulTrendSnapshot(payload: GeneratedTrendSnapshotPayload) {
+export async function storeSuccessfulAiTrendSnapshot(payload: GeneratedAiTrendSnapshotPayload) {
   if (!hasDatabaseUrl()) {
-    throw new Error("Missing DATABASE_URL for GPT trend snapshot storage.");
+    throw new Error("Missing DATABASE_URL for shared AI trend snapshot storage.");
   }
 
   const pool = getServerPostgresPool();
@@ -309,7 +310,7 @@ export async function storeSuccessfulTrendSnapshot(payload: GeneratedTrendSnapsh
     );
     const snapshotId = snapshotResult.rows[0]?.id;
     if (!snapshotId) {
-      throw new Error("Failed to create trend snapshot row.");
+      throw new Error("Failed to create shared AI trend snapshot row.");
     }
 
     await insertSnapshotItems(client, snapshotId, payload);

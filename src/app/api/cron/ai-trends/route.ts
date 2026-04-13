@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getGptTrendConfig } from "@/lib/gpt-trends/config";
-import { generateSharedTrendSnapshot } from "@/lib/gpt-trends/generator";
+import { getAiTrendConfig } from "@/lib/ai-trends/config";
+import { generateSharedAiTrendSnapshot } from "@/lib/ai-trends/generator";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function isAuthorized(request: NextRequest) {
-  const { cronSecret } = getGptTrendConfig();
+  const { cronSecret } = getAiTrendConfig();
   if (!cronSecret) {
     return process.env.NODE_ENV !== "production";
   }
@@ -29,17 +29,17 @@ async function handleRequest(request: NextRequest) {
 
   try {
     const force = request.nextUrl.searchParams.get("force") === "true";
-    const result = await generateSharedTrendSnapshot({
+    const result = await generateSharedAiTrendSnapshot({
       force,
       trigger: "cron",
     });
     return NextResponse.json(result);
   } catch (error) {
-    console.error("[gpt-trends-cron] generation failed", error);
+    console.error("[ai-trends-cron] generation failed", error);
     return NextResponse.json(
       {
         error: {
-          code: "GPT_TREND_GENERATION_FAILED",
+          code: "AI_TREND_GENERATION_FAILED",
           message: String((error as Error)?.message ?? error ?? "Unknown generation failure."),
         },
       },

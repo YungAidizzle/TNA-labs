@@ -21,12 +21,23 @@ function getSupabaseAuthConfig() {
 
 export async function updateSession(request: NextRequest) {
   const config = getSupabaseAuthConfig();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-attentra-pathname", request.nextUrl.pathname);
+  requestHeaders.set("x-attentra-search", request.nextUrl.search);
 
   if (!config) {
-    return NextResponse.next({ request });
+    return NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
   }
 
-  let response = NextResponse.next({ request });
+  const response = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
   const supabase = createServerClient(config.url, config.anonKey, {
     cookies: {
       getAll() {

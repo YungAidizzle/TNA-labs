@@ -5,7 +5,10 @@ import { MarketingHeader } from "@/components/marketing/marketing-header";
 import { TerminalScreenshotFrame } from "@/components/marketing/terminal-screenshot-frame";
 import { TerminalWorkflowDiagram } from "@/components/marketing/terminal-workflow-diagram";
 import { BRAND_ACCESS_NAME, BRAND_DESCRIPTOR, BRAND_NAME } from "@/lib/brand";
-import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
+import {
+  LEGAL_CONTACT,
+  getSupportContactHref,
+} from "@/lib/legal/contact-details";
 import { SHORT_MARKETING_DISCLAIMER } from "@/lib/legal/disclaimers";
 
 type LandingPageProps = {
@@ -154,8 +157,8 @@ export function LandingPage({
       : "/sign-up";
 
   const accessLabel = pricing?.productName ?? BRAND_ACCESS_NAME;
-  const priceLabel = pricing?.displayPrice ?? "Configured in Stripe";
-  const billingLabel = pricing?.billingInterval ?? "Recurring";
+  const priceLabel = pricing?.displayPrice ?? "Live pricing at checkout";
+  const billingLabel = pricing?.billingInterval ?? "Recurring access";
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#05080d] text-foreground">
@@ -315,7 +318,7 @@ export function LandingPage({
                 <SectionIntro
                   eyebrow="Pricing / Access"
                   title="One plan. Clear access."
-                  text="The membership section should read like product access, not like a pricing template."
+                  text="One subscription unlocks the live narrative terminal, linked memecoin board, and validation workflow without upsells, tier confusion, or hidden modules."
                 />
               </div>
 
@@ -329,7 +332,7 @@ export function LandingPage({
                       {accessLabel}
                     </h3>
                     <p className="mt-3 max-w-[560px] text-[15px] leading-7 text-[#8fa4bc]">
-                      Full access to the narrative terminal, linked memecoin board, and validation workflow.
+                      Full access to the live narrative terminal, correlated memecoin board, and validation workflow from a single paid account.
                     </p>
                   </div>
 
@@ -355,7 +358,7 @@ export function LandingPage({
                       <p>Live narrative ranking and monitoring.</p>
                       <p>Linked memecoin discovery in the same workflow.</p>
                       <p>Market validation context beside the signal.</p>
-                      <p>One account for current and future terminal modules.</p>
+                      <p>One account for the full live Attentra research workflow.</p>
                     </div>
                   </div>
 
@@ -428,7 +431,11 @@ export function LandingPage({
             <Link href="/terms" className="hover:text-[#eef4fb]">Terms</Link>
             <Link href="/risk-disclosure" className="hover:text-[#eef4fb]">Risk Disclosure</Link>
             <Link href="/refund-policy" className="hover:text-[#eef4fb]">Refund Policy</Link>
-            <a href={`mailto:${LEGAL_CONTACT.supportEmail}`} className="hover:text-[#eef4fb]">Support</a>
+            {LEGAL_CONTACT.supportEmail ? (
+              <a href={getSupportContactHref("support") ?? undefined} className="hover:text-[#eef4fb]">
+                Support
+              </a>
+            ) : null}
           </div>
         </footer>
       </div>

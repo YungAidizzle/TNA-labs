@@ -13,7 +13,10 @@ import {
 import { PageTransition } from "@/components/layout/page-transition";
 import { TerminalSidebar } from "@/components/layout/terminal-sidebar";
 import { BRAND_NAME } from "@/lib/brand";
-import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
+import {
+  LEGAL_CONTACT,
+  getSupportContactHref,
+} from "@/lib/legal/contact-details";
 import { EXPANDED_PRODUCT_DISCLAIMER, SHORT_PRODUCT_DISCLAIMER } from "@/lib/legal/disclaimers";
 import { cn } from "@/lib/utils/cn";
 import { useAppStore } from "@/store/app-store";
@@ -51,7 +54,7 @@ export function AppShell({ children }: AppShellProps) {
 
     if (event.altKey && !event.ctrlKey && !event.metaKey) {
       const matchingRoute = NAV_ITEMS.find(
-        (item) => item.status === "available" && item.shortcut === event.key,
+        (item) => item.shortcut === event.key,
       );
       if (matchingRoute) {
         event.preventDefault();
@@ -66,7 +69,7 @@ export function AppShell({ children }: AppShellProps) {
   });
 
   const activeRouteLabel = useMemo(
-    () => getNavigationItemByPathname(pathname)?.label ?? "Overview",
+    () => getNavigationItemByPathname(pathname)?.label ?? "Trends",
     [pathname],
   );
 
@@ -132,9 +135,11 @@ export function AppShell({ children }: AppShellProps) {
               <Link href="/terms" className="hover:text-[#eef5ff]">Terms</Link>
               <Link href="/privacy" className="hover:text-[#eef5ff]">Privacy</Link>
               <Link href="/settings" className="hover:text-[#eef5ff]">Settings</Link>
-              <a href={`mailto:${LEGAL_CONTACT.supportEmail}`} className="hover:text-[#eef5ff]">
-                Support
-              </a>
+              {LEGAL_CONTACT.supportEmail ? (
+                <a href={getSupportContactHref("support") ?? undefined} className="hover:text-[#eef5ff]">
+                  Support
+                </a>
+              ) : null}
             </div>
           </div>
 

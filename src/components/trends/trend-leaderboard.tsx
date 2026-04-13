@@ -144,7 +144,7 @@ const TrendLeaderboardRow = memo(function TrendLeaderboardRow({
               <span className="text-[10px] uppercase tracking-[0.14em] text-muted">Loading...</span>
             </div>
           )}
-          {!hasTrustedDisplayName && !showLoadingLabel ? <Badge>Fallback</Badge> : null}
+          {!hasTrustedDisplayName && !showLoadingLabel ? <Badge>Derived</Badge> : null}
           {row.lifecycleStage !== "Unknown" ? (
             <Badge tone={getLifecycleTone(row.lifecycleStage)}>
               {row.lifecycleStage}

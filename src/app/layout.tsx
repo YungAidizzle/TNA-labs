@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { AppProviders } from "@/providers/app-providers";
 import { BRAND_DESCRIPTOR, BRAND_META_DESCRIPTION, BRAND_NAME } from "@/lib/brand";
+import { getMetadataBase } from "@/lib/site";
 import "./globals.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -17,6 +18,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: getMetadataBase(),
   title: {
     default: `${BRAND_NAME} | ${BRAND_DESCRIPTOR}`,
     template: `%s | ${BRAND_NAME}`,
@@ -28,11 +30,20 @@ export const metadata: Metadata = {
     description: BRAND_META_DESCRIPTION,
     siteName: BRAND_NAME,
     type: "website",
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 1200,
+        height: 630,
+        alt: `${BRAND_NAME} social preview`,
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: `${BRAND_NAME} | ${BRAND_DESCRIPTOR}`,
     description: BRAND_META_DESCRIPTION,
+    images: ["/twitter-image"],
   },
 };
 

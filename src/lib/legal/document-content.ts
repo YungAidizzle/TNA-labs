@@ -1,4 +1,11 @@
-import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
+import {
+  LEGAL_CONTACT,
+  getBillingSupportSentence,
+  getComplaintsContactSentence,
+  getLegalContactFooterLines,
+  getPrivacyContactSentence,
+  getPublicCompanyReference,
+} from "@/lib/legal/contact-details";
 import {
   BILLING_VERSION,
   EFFECTIVE_DATE,
@@ -18,7 +25,7 @@ export const TERMS_DOCUMENT = {
     {
       title: "1. Service Description",
       paragraphs: [
-        `${LEGAL_CONTACT.companyLegalName} operates ${LEGAL_CONTACT.serviceName} as a subscription software service for internet narrative tracking, market research, correlated asset discovery, and financial information workflows.`,
+        `${getPublicCompanyReference()} operates ${LEGAL_CONTACT.serviceName} as a subscription software service for internet narrative tracking, market research, correlated asset discovery, and financial information workflows.`,
         "The service may surface public internet narratives, market-linked assets, memecoins, market data references, rankings, and analytics. The service is informational software only.",
       ],
     },
@@ -108,10 +115,7 @@ export const TERMS_DOCUMENT = {
     },
     {
       title: "13. Contact",
-      paragraphs: [
-        `${LEGAL_CONTACT.companyLegalName} | ${LEGAL_CONTACT.serviceAddress}`,
-        `Support: ${LEGAL_CONTACT.supportEmail} | Billing: ${LEGAL_CONTACT.billingSupportEmail} | Legal: ${LEGAL_CONTACT.legalEmail}`,
-      ],
+      paragraphs: getLegalContactFooterLines(),
     },
   ],
 } as const;
@@ -127,7 +131,7 @@ export const PRIVACY_DOCUMENT = {
     {
       title: "1. Controller and Contact",
       paragraphs: [
-        `${LEGAL_CONTACT.companyLegalName} is the operator of ${LEGAL_CONTACT.serviceName}. Privacy requests can be sent to ${LEGAL_CONTACT.legalEmail} or ${LEGAL_CONTACT.supportEmail}.`,
+        `${getPublicCompanyReference()} is the operator of ${LEGAL_CONTACT.serviceName}. ${getPrivacyContactSentence()}`,
       ],
     },
     {
@@ -188,7 +192,7 @@ export const PRIVACY_DOCUMENT = {
     {
       title: "10. Complaints",
       paragraphs: [
-        `Please contact us first at ${LEGAL_CONTACT.legalEmail} so we can investigate and respond. If you are in Australia, you may also contact the OAIC. Users in other jurisdictions may contact their local regulator where available.`,
+        `${getComplaintsContactSentence()} If you are in Australia, you may also contact the OAIC. Users in other jurisdictions may contact their local regulator where available.`,
       ],
     },
   ],
@@ -277,7 +281,7 @@ export const REFUND_POLICY_DOCUMENT = {
     {
       title: "5. Support",
       paragraphs: [
-        `Billing support requests can be sent to ${LEGAL_CONTACT.billingSupportEmail}.`,
+        getBillingSupportSentence(),
       ],
     },
   ],

@@ -53,10 +53,10 @@ export function AuthShell({
               Access surface
             </p>
             <h1 className="mt-5 max-w-[520px] text-[38px] font-semibold leading-[1.02] tracking-[-0.05em] text-[#f2f8ff]">
-              The account flow now matches the platform it leads into.
+              Secure account access for the live Attentra terminal.
             </h1>
             <p className="mt-5 max-w-[520px] text-[15px] leading-7 text-[#94a9c1]">
-              Account creation is the first step. Legal assent, billing disclosure, and premium activation are wired so the service is harder to misread as advice or execution.
+              Sign in, create an account, and manage access with the same research-first product language used across the platform. Legal assent and billing disclosures stay explicit before paid access unlocks.
             </p>
 
             <div className="mt-8 grid gap-3">

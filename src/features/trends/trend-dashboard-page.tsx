@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { EmptyState } from "@/components/shared/empty-state";
 import type { MemecoinTerminalRow } from "@/components/trends/memecoin-market-table";
 import { OverviewStatusStrip } from "@/components/trends/overview-status-strip";
 import { dashboardClient } from "@/lib/dashboard/client";
@@ -80,6 +81,14 @@ function resolveRangePreset(value: string | null): DateRangePreset {
   }
 
   return "24h";
+}
+
+function formatQueryError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 function sortAllMemecoinRows(left: MemecoinTerminalRow, right: MemecoinTerminalRow) {
@@ -358,20 +367,70 @@ export function TrendDashboardPage({
   const selectedCoin =
     displayedMemecoinRows.find((item) => item.row.id === selectedCoinId) ?? null;
 
-  useEffect(() => {
-    if (!manualSelectedCoinId || manualSelectedCoinId === selectedCoinId) {
-      return;
-    }
-    setManualSelectedCoinId(selectedCoinId);
-  }, [manualSelectedCoinId, selectedCoinId]);
+  const summaryErrorMessage =
+    summaryQuery.isError && !summaryQuery.data
+      ? formatQueryError(
+          summaryQuery.error,
+          "The narrative ranking request failed. Retry to load the latest ranked trends.",
+        )
+      : null;
+  const memecoinsErrorMessage =
+    memecoinsQuery.isError && !memecoinsQuery.data
+      ? formatQueryError(
+          memecoinsQuery.error,
+          "The linked market request failed. Retry to load the latest memecoin rows.",
+        )
+      : null;
+  const validationErrorMessage =
+    memecoinsQuery.isError && !memecoinsQuery.data
+      ? formatQueryError(
+          memecoinsQuery.error,
+          "Validation data is unavailable until the market request succeeds.",
+        )
+      : null;
+  const topLevelDashboardError =
+    statusQuery.isError && !statusQuery.data
+      ? formatQueryError(
+          statusQuery.error,
+          "The dashboard status request failed. Retry to reconnect to live data.",
+        )
+      : null;
+  const hasAnyStaleData =
+    (summaryQuery.isError && Boolean(summaryQuery.data)) ||
+    (memecoinsQuery.isError && Boolean(memecoinsQuery.data)) ||
+    (statusQuery.isError && Boolean(statusQuery.data));
 
   return (
     <div className={TREND_DASHBOARD_LAYOUT_CLASS_NAME}>
       {statusQuery.data ? (
         <OverviewStatusStrip items={statusQuery.data.items} />
-      ) : (
+      ) : statusQuery.isPending ? (
         <TrendStatusStripSkeleton />
+      ) : (
+        <div className="surface-panel border border-white/[0.08] p-4">
+          <EmptyState
+            title="Live status unavailable"
+            detail={topLevelDashboardError ?? "The status strip could not be loaded."}
+          />
+          <div className="mt-4 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                void statusQuery.refetch();
+              }}
+              className="inline-flex h-10 items-center border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-4 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
+            >
+              Retry status
+            </button>
+          </div>
+        </div>
       )}
+
+      {hasAnyStaleData ? (
+        <div className="surface-panel border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
+          Live refresh is degraded. You are viewing the most recent synced dashboard data while requests reconnect.
+        </div>
+      ) : null}
 
       <section data-testid="trend-main-workspace" className={TREND_DASHBOARD_WORKSPACE_CLASS_NAME}>
         <LazyTrendNarrativesPanel
@@ -382,6 +441,17 @@ export function TrendDashboardPage({
           onSelect={handleSelect}
           loading={summaryQuery.isPending && !summaryQuery.data}
           connecting={summaryQuery.isFetching}
+          errorMessage={summaryErrorMessage}
+          staleMessage={
+            summaryQuery.data && summaryQuery.isError
+              ? "Showing last synced narratives while refresh reconnects."
+              : summaryQuery.data && summaryQuery.isFetching
+                ? "Refreshing live narratives..."
+                : null
+          }
+          onRetry={() => {
+            void summaryQuery.refetch();
+          }}
         />
 
         <LazyTrendMemecoinsPanel
@@ -393,12 +463,34 @@ export function TrendDashboardPage({
           onSelectCoin={setManualSelectedCoinId}
           loading={memecoinsQuery.isPending && !memecoinsQuery.data}
           connecting={memecoinsQuery.isFetching}
+          errorMessage={memecoinsErrorMessage}
+          staleMessage={
+            memecoinsQuery.data && memecoinsQuery.isError
+              ? "Showing last synced market rows while refresh reconnects."
+              : memecoinsQuery.data && memecoinsQuery.isFetching
+                ? "Refreshing market rows..."
+                : null
+          }
+          onRetry={() => {
+            void memecoinsQuery.refetch();
+          }}
         />
 
         <LazyTrendValidationPanel
           selectedCoin={selectedCoin}
           loading={memecoinsQuery.isPending && !memecoinsQuery.data}
           connecting={memecoinsQuery.isFetching}
+          errorMessage={validationErrorMessage}
+          staleMessage={
+            memecoinsQuery.data && memecoinsQuery.isError
+              ? "Showing last synced validation context while refresh reconnects."
+              : memecoinsQuery.data && memecoinsQuery.isFetching
+                ? "Refreshing validation context..."
+                : null
+          }
+          onRetry={() => {
+            void memecoinsQuery.refetch();
+          }}
         />
       </section>
     </div>

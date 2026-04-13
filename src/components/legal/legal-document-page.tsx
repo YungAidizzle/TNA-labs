@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
+import {
+  LEGAL_CONTACT,
+  getPublicCompanyReference,
+  getSupportContactHref,
+  getSupportContactLabel,
+} from "@/lib/legal/contact-details";
 
 type LegalDocumentSection = {
   title: string;
@@ -76,18 +81,42 @@ export function LegalDocumentPage({
           </div>
 
           <div className="mt-8 border-t border-white/[0.07] pt-6 text-[14px] leading-7 text-[#8ea4bc]">
-            <p>
-              Contact: {LEGAL_CONTACT.companyLegalName} | {LEGAL_CONTACT.serviceAddress}
-            </p>
-            <p>
-              Support: <a className="text-cyan hover:text-[#b8f2ff]" href={`mailto:${LEGAL_CONTACT.supportEmail}`}>{LEGAL_CONTACT.supportEmail}</a>
-            </p>
-            <p>
-              Billing: <a className="text-cyan hover:text-[#b8f2ff]" href={`mailto:${LEGAL_CONTACT.billingSupportEmail}`}>{LEGAL_CONTACT.billingSupportEmail}</a>
-            </p>
-            <p>
-              Legal: <a className="text-cyan hover:text-[#b8f2ff]" href={`mailto:${LEGAL_CONTACT.legalEmail}`}>{LEGAL_CONTACT.legalEmail}</a>
-            </p>
+            {LEGAL_CONTACT.companyLegalName || LEGAL_CONTACT.serviceAddress ? (
+              <p>
+                Contact: {[getPublicCompanyReference(), LEGAL_CONTACT.serviceAddress].filter(Boolean).join(" | ")}
+              </p>
+            ) : (
+              <p>
+                Support, billing, and legal contact channels are provided through the authenticated product experience.
+              </p>
+            )}
+
+            {LEGAL_CONTACT.supportEmail ? (
+              <p>
+                Support:{" "}
+                <a className="text-cyan hover:text-[#b8f2ff]" href={getSupportContactHref("support") ?? undefined}>
+                  {getSupportContactLabel("support")}
+                </a>
+              </p>
+            ) : null}
+
+            {LEGAL_CONTACT.billingSupportEmail ? (
+              <p>
+                Billing:{" "}
+                <a className="text-cyan hover:text-[#b8f2ff]" href={getSupportContactHref("billing") ?? undefined}>
+                  {getSupportContactLabel("billing")}
+                </a>
+              </p>
+            ) : null}
+
+            {LEGAL_CONTACT.legalEmail ? (
+              <p>
+                Legal:{" "}
+                <a className="text-cyan hover:text-[#b8f2ff]" href={getSupportContactHref("legal") ?? undefined}>
+                  {getSupportContactLabel("legal")}
+                </a>
+              </p>
+            ) : null}
           </div>
         </div>
       </div>

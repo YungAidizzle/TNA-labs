@@ -23,15 +23,24 @@ export function SignInForm() {
       return "Email confirmed. Sign in to continue.";
     }
 
+    if (searchParams.get("reset") === "1") {
+      return "Password updated. Sign in with your new password.";
+    }
+
     return null;
   }, [searchParams]);
+  const next = searchParams.get("next");
+  const forgotPasswordHref = next
+    ? `/forgot-password?next=${encodeURIComponent(next)}`
+    : "/forgot-password";
+  const signUpHref = next ? `/sign-up?next=${encodeURIComponent(next)}` : "/sign-up";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
     if (!authConfigured) {
-      setError("Supabase auth is not configured. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+      setError("Account access is not available in this deployment yet.");
       return;
     }
 
@@ -89,7 +98,9 @@ export function SignInForm() {
           <label htmlFor="password" className="block text-[12px] font-medium uppercase tracking-[0.16em] text-[#8ea4bc]">
             Password
           </label>
-          <span className="text-[12px] text-[#6f86a1]">Forgot password coming soon</span>
+          <Link href={forgotPasswordHref} className="text-[12px] text-cyan hover:text-[#b8f2ff]">
+            Forgot password?
+          </Link>
         </div>
         <input
           id="password"
@@ -116,7 +127,7 @@ export function SignInForm() {
 
       {!authConfigured ? (
         <div className="border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
-          Auth is not configured in the environment yet.
+          Account access is not available in this deployment yet.
         </div>
       ) : null}
 
@@ -130,7 +141,7 @@ export function SignInForm() {
 
       <p className="text-[13px] text-[#8ba1b8]">
         Need an account?{" "}
-        <Link href="/sign-up" className="text-cyan hover:text-[#b8f2ff]">
+        <Link href={signUpHref} className="text-cyan hover:text-[#b8f2ff]">
           Create one
         </Link>
       </p>

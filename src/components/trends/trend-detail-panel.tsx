@@ -50,6 +50,10 @@ type BlueskyTopPostMeta = {
   likeCount: number | null;
 };
 
+type TrendDetailPanelContentProps = Omit<TrendDetailPanelProps, "detail"> & {
+  detail: TrendDetailVM;
+};
+
 function SummaryMetric({ label, value, tone = "default" }: SummaryMetricProps) {
   return (
     <div className="rounded-2xl border border-border bg-white/4 px-3 py-3">
@@ -191,6 +195,24 @@ export const TrendDetailPanel = memo(function TrendDetailPanel({
     );
   }
 
+  return (
+    <TrendDetailPanelContent
+      detail={detail}
+      onSelectTrend={onSelectTrend}
+      movingAverageWindow={movingAverageWindow}
+      loading={loading}
+      refreshing={refreshing}
+    />
+  );
+});
+
+function TrendDetailPanelContent({
+  detail,
+  onSelectTrend,
+  movingAverageWindow = 1,
+  loading = false,
+  refreshing = false,
+}: TrendDetailPanelContentProps) {
   const smoothedAttentionGraph = useMemo(
     () => applyChartMovingAverage(detail.attentionGraph, movingAverageWindow),
     [detail.attentionGraph, movingAverageWindow],
@@ -207,73 +229,77 @@ export const TrendDetailPanel = memo(function TrendDetailPanel({
   const trendDisplayName = getTrendDisplayNameOrPlaceholder(detail.trend);
   const hasTrustedDisplayName = hasTrustedTrendDisplayName(detail.trend);
   const showLoadingLabel = trendDisplayName === TREND_NAME_PLACEHOLDER;
-  const staleGapMarkArea =
-    attentionWindow?.hasTrailingGap && attentionWindow.latestPointAt
-      ? {
-          silent: true,
-          itemStyle: {
-            color: "rgba(255, 190, 100, 0.06)",
-          },
-          data: [
-            [
-              {
-                xAxis: attentionWindow.latestPointAt,
-              },
-              {
-                xAxis: attentionWindow.windowEnd,
-              },
-            ],
-          ],
-        }
-      : undefined;
   const latestBucketLabel =
     attentionWindow?.staleGapMinutes !== null && attentionWindow?.staleGapMinutes !== undefined
       ? formatAgeMinutes(attentionWindow.staleGapMinutes)
       : null;
 
   const attentionOption = useMemo(
-    () => ({
-      ...baseChartOptions(),
-      xAxis: {
-        ...baseChartOptions().xAxis,
-        type: "time",
-        min: attentionWindow?.windowStart,
-        max: attentionWindow?.windowEnd,
-        boundaryGap: false,
-        axisLabel: {
-          color: "#6f839e",
-          formatter: (value: number) =>
-            attentionWindow?.range === "7d"
-              ? formatDateTime(new Date(value).toISOString())
-              : formatTimeOnly(new Date(value).toISOString()),
-        },
-      },
-      yAxis: {
-        ...baseChartOptions().yAxis,
-        type: "value",
-        name: bucketDurationLabel,
-        nameGap: 24,
-      },
-      series: [
-        {
-          type: "line",
-          data: smoothedAttentionGraph.map((point) => [point.timestamp, point.value]),
-          smooth: true,
-          showSymbol: false,
-          connectNulls: false,
-          markArea: staleGapMarkArea,
-          lineStyle: {
-            width: 3,
-            color: "#5ee7ff",
+    () => {
+      const chartBase = baseChartOptions();
+      const staleGapMarkArea =
+        attentionWindow?.hasTrailingGap && attentionWindow.latestPointAt
+          ? {
+              silent: true,
+              itemStyle: {
+                color: "rgba(255, 190, 100, 0.06)",
+              },
+              data: [
+                [
+                  {
+                    xAxis: attentionWindow.latestPointAt,
+                  },
+                  {
+                    xAxis: attentionWindow.windowEnd,
+                  },
+                ],
+              ],
+            }
+          : undefined;
+
+      return {
+        ...chartBase,
+        xAxis: {
+          ...chartBase.xAxis,
+          type: "time",
+          min: attentionWindow?.windowStart,
+          max: attentionWindow?.windowEnd,
+          boundaryGap: false,
+          axisLabel: {
+            color: "#6f839e",
+            formatter: (value: number) =>
+              attentionWindow?.range === "7d"
+                ? formatDateTime(new Date(value).toISOString())
+                : formatTimeOnly(new Date(value).toISOString()),
           },
-          areaStyle: {
-            color: "#5ee7ff",
-            opacity: 0.08,
-          },
         },
-      ],
-    }),
-    [attentionWindow, bucketDurationLabel, smoothedAttentionGraph, staleGapMarkArea],
+        yAxis: {
+          ...chartBase.yAxis,
+          type: "value",
+          name: bucketDurationLabel,
+          nameGap: 24,
+        },
+        series: [
+          {
+            type: "line",
+            data: smoothedAttentionGraph.map((point) => [point.timestamp, point.value]),
+            smooth: true,
+            showSymbol: false,
+            connectNulls: false,
+            markArea: staleGapMarkArea,
+            lineStyle: {
+              width: 3,
+              color: "#5ee7ff",
+            },
+            areaStyle: {
+              color: "#5ee7ff",
+              opacity: 0.08,
+            },
+          },
+        ],
+      };
+    },
+    [attentionWindow, bucketDurationLabel, smoothedAttentionGraph],
   );
 
   const platformOption = useMemo(
@@ -395,7 +421,7 @@ export const TrendDetailPanel = memo(function TrendDetailPanel({
       >
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {showLoadingLabel ? <Badge tone="neutral">Loading...</Badge> : null}
-          {!hasTrustedDisplayName && !showLoadingLabel ? <Badge tone="neutral">Fallback label</Badge> : null}
+          {!hasTrustedDisplayName && !showLoadingLabel ? <Badge tone="neutral">Derived label</Badge> : null}
           {detail.trend.lifecycleStage !== "Unknown" ? (
             <Badge tone={getLifecycleTone(detail.trend.lifecycleStage)}>
               {detail.trend.lifecycleStage}
@@ -699,4 +725,4 @@ export const TrendDetailPanel = memo(function TrendDetailPanel({
       </Panel>
     </div>
   );
-});
+}

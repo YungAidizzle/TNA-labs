@@ -1,6 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
+import { EmptyState } from "@/components/shared/empty-state";
 import { NarrativeTrendsTable } from "@/components/trends/narrative-trends-table";
 import { MemecoinMarketTable, type MemecoinTerminalRow } from "@/components/trends/memecoin-market-table";
 import { SelectedCoinPanel } from "@/components/trends/selected-coin-panel";
@@ -16,6 +17,9 @@ type TrendNarrativesPanelProps = {
   onSelect: (id: string) => void;
   loading?: boolean;
   connecting?: boolean;
+  errorMessage?: string | null;
+  staleMessage?: string | null;
+  onRetry?: () => void;
 };
 
 type TrendMemecoinsPanelProps = {
@@ -27,13 +31,46 @@ type TrendMemecoinsPanelProps = {
   onSelectCoin: (id: string) => void;
   loading?: boolean;
   connecting?: boolean;
+  errorMessage?: string | null;
+  staleMessage?: string | null;
+  onRetry?: () => void;
 };
 
 type TrendValidationPanelProps = {
   selectedCoin: MemecoinTerminalRow | null;
   loading?: boolean;
   connecting?: boolean;
+  errorMessage?: string | null;
+  staleMessage?: string | null;
+  onRetry?: () => void;
 };
+
+function PanelMessage({
+  title,
+  detail,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  detail: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-[240px] flex-col items-center justify-center gap-4 px-6 text-center">
+      <EmptyState title={title} detail={detail} className="w-full max-w-[420px]" />
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="inline-flex h-10 items-center border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-4 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 export function TrendNarrativesPanel({
   rows,
@@ -43,7 +80,12 @@ export function TrendNarrativesPanel({
   onSelect,
   loading = false,
   connecting = false,
+  errorMessage = null,
+  staleMessage = null,
+  onRetry,
 }: TrendNarrativesPanelProps) {
+  const hasRows = rows.length > 0;
+
   return (
     <div id="signals" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
       <TerminalPanel
@@ -68,9 +110,33 @@ export function TrendNarrativesPanel({
             </label>
           </div>
         )}
-        disclaimer={connecting ? "Live data connecting..." : undefined}
+        disclaimer={
+          errorMessage && hasRows
+            ? staleMessage ?? "Showing last synced narratives while live refresh reconnects."
+            : connecting
+              ? staleMessage ?? "Refreshing live narratives..."
+              : staleMessage ?? undefined
+        }
       >
-        <NarrativeTrendsTable rows={rows} selectedId={selectedId} onSelect={onSelect} loading={loading} />
+        {errorMessage && !hasRows && !loading ? (
+          <PanelMessage
+            title="Narratives unavailable"
+            detail={errorMessage}
+            actionLabel={onRetry ? "Retry" : undefined}
+            onAction={onRetry}
+          />
+        ) : !loading && !errorMessage && !hasRows ? (
+          <PanelMessage
+            title={searchTerm.trim() ? "No matching narratives" : "No narratives available"}
+            detail={
+              searchTerm.trim()
+                ? "Adjust the search term to broaden the narrative list."
+                : "No ranked narratives are available for the selected range yet."
+            }
+          />
+        ) : (
+          <NarrativeTrendsTable rows={rows} selectedId={selectedId} onSelect={onSelect} loading={loading} />
+        )}
       </TerminalPanel>
     </div>
   );
@@ -85,7 +151,12 @@ export function TrendMemecoinsPanel({
   onSelectCoin,
   loading = false,
   connecting = false,
+  errorMessage = null,
+  staleMessage = null,
+  onRetry,
 }: TrendMemecoinsPanelProps) {
+  const hasRows = rows.length > 0;
+
   return (
     <div id="memecoins" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
       <TerminalPanel
@@ -106,17 +177,37 @@ export function TrendMemecoinsPanel({
             ) : null}
           </div>
         )}
-        disclaimer={connecting ? "Live data connecting..." : undefined}
+        disclaimer={
+          errorMessage && hasRows
+            ? staleMessage ?? "Showing last synced market rows while refresh reconnects."
+            : connecting
+              ? staleMessage ?? "Refreshing market rows..."
+              : staleMessage ?? undefined
+        }
       >
-        <MemecoinMarketTable
-          rows={rows}
-          selectedCoinId={selectedCoinId}
-          selectedTrendLabel={selectedTrendLabel}
-          mode={mode}
-          onModeChange={onModeChange}
-          onSelectCoin={onSelectCoin}
-          loading={loading}
-        />
+        {errorMessage && !hasRows && !loading ? (
+          <PanelMessage
+            title="Memecoins unavailable"
+            detail={errorMessage}
+            actionLabel={onRetry ? "Retry" : undefined}
+            onAction={onRetry}
+          />
+        ) : !loading && !errorMessage && !hasRows ? (
+          <PanelMessage
+            title="No linked markets available"
+            detail="No market rows are available for the current narrative and filter combination."
+          />
+        ) : (
+          <MemecoinMarketTable
+            rows={rows}
+            selectedCoinId={selectedCoinId}
+            selectedTrendLabel={selectedTrendLabel}
+            mode={mode}
+            onModeChange={onModeChange}
+            onSelectCoin={onSelectCoin}
+            loading={loading}
+          />
+        )}
       </TerminalPanel>
     </div>
   );
@@ -126,6 +217,9 @@ export function TrendValidationPanel({
   selectedCoin,
   loading = false,
   connecting = false,
+  errorMessage = null,
+  staleMessage = null,
+  onRetry,
 }: TrendValidationPanelProps) {
   return (
     <div id="validation" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
@@ -147,9 +241,24 @@ export function TrendValidationPanel({
             {selectedCoin.row.symbol}
           </span>
         ) : null}
-        disclaimer={connecting ? "Live data connecting..." : undefined}
+        disclaimer={
+          errorMessage && selectedCoin
+            ? staleMessage ?? "Showing last synced validation context while refresh reconnects."
+            : connecting
+              ? staleMessage ?? "Refreshing validation context..."
+              : staleMessage ?? undefined
+        }
       >
-        <SelectedCoinPanel selectedCoin={selectedCoin} loading={loading} />
+        {errorMessage && !selectedCoin && !loading ? (
+          <PanelMessage
+            title="Validation unavailable"
+            detail={errorMessage}
+            actionLabel={onRetry ? "Retry" : undefined}
+            onAction={onRetry}
+          />
+        ) : (
+          <SelectedCoinPanel selectedCoin={selectedCoin} loading={loading} />
+        )}
       </TerminalPanel>
     </div>
   );
