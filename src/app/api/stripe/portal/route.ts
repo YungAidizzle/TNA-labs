@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import Stripe from "stripe";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
 import { getSubscriptionForUser } from "@/lib/billing/subscriptions";
 import {
@@ -30,11 +31,23 @@ export async function POST(request: Request) {
     return NextResponse.redirect(new URL("/pricing?error=missing_customer", request.url));
   }
 
-  const stripe = getStripeServerClient();
-  const session = await stripe.billingPortal.sessions.create({
-    customer: stripeCustomerId,
-    return_url: `${resolveRequestOrigin(request)}/pricing`,
-  });
+  try {
+    const stripe = getStripeServerClient();
+    const session = await stripe.billingPortal.sessions.create({
+      customer: stripeCustomerId,
+      return_url: `${resolveRequestOrigin(request)}/settings`,
+    });
 
-  return NextResponse.redirect(session.url, { status: 303 });
+    return NextResponse.redirect(session.url, { status: 303 });
+  } catch (error) {
+    console.error("[stripe-portal] failed to create billing portal session", {
+      userId: user.id,
+      stripeCustomerId,
+      error:
+        error instanceof Stripe.errors.StripeError
+          ? { type: error.type, code: error.code, message: error.message }
+          : error,
+    });
+    return NextResponse.redirect(new URL("/pricing?error=stripe_request_failed", request.url));
+  }
 }

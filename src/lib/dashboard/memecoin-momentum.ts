@@ -6,7 +6,7 @@ export type MemecoinMomentumSignal =
   | "Breakout starting"
   | "Volume confirmation"
   | "Early continuation"
-  | "Buy pressure"
+  | "Order flow"
   | "Early strength";
 
 export type MemecoinMomentumAssessment = {
@@ -394,7 +394,7 @@ function resolveMomentumSignal(row: CorrelatedMemecoinRow, assessment: Omit<Meme
     return "Early continuation" satisfies MemecoinMomentumSignal;
   }
   if (orderFlow >= 0.66 && assessment.momentumScore >= 55) {
-    return "Buy pressure" satisfies MemecoinMomentumSignal;
+    return "Order flow" satisfies MemecoinMomentumSignal;
   }
 
   return "Early strength" satisfies MemecoinMomentumSignal;

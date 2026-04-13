@@ -1,6 +1,7 @@
 "use client";
 
 import { Search } from "lucide-react";
+import { BRAND_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils/cn";
 
 type SignalStripItem = {
@@ -42,7 +43,7 @@ export function TerminalLiveSignalStrip({
       <div className="grid gap-2.5 px-3 py-2.5 xl:grid-cols-[200px_minmax(0,1fr)_280px] xl:items-center xl:gap-3">
         <div className="min-w-0 xl:max-w-[200px]">
           <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[#667d98]">
-            Narrative To Asset Execution
+            {BRAND_NAME} execution monitor
           </p>
           <p className="mt-0.5 truncate text-[16px] font-semibold tracking-[-0.03em] text-[#f2f6fd]">
             Memecoin Conversion Desk

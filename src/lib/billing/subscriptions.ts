@@ -30,6 +30,26 @@ export type AppSubscription = {
 const SUBSCRIPTION_COLUMNS =
   "id, user_id, stripe_customer_id, stripe_subscription_id, stripe_price_id, status, current_period_end, cancel_at_period_end, created_at, updated_at";
 
+function normalizeEmail(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && normalized.length > 0 ? normalized : null;
+}
+
+function maskEmail(email: string | null | undefined) {
+  const normalized = normalizeEmail(email);
+  if (!normalized) {
+    return null;
+  }
+
+  const [localPart, domain = ""] = normalized.split("@");
+  const safeLocalPart = localPart.length <= 3 ? `${localPart}***` : `${localPart.slice(0, 3)}***`;
+  return domain ? `${safeLocalPart}@${domain}` : safeLocalPart;
+}
+
+function logBillingEvent(event: string, details: Record<string, unknown>) {
+  console.info(`[billing] ${event}`, details);
+}
+
 function toIsoFromUnixTimestamp(value: number | null | undefined) {
   if (!value || !Number.isFinite(value)) {
     return null;
@@ -90,16 +110,17 @@ export async function getCurrentViewerSubscription(userId: string | null | undef
   const { data, error } = await supabase
     .from("subscriptions")
     .select(SUBSCRIPTION_COLUMNS)
-    .eq("user_id", userId)
-    .order("current_period_end", { ascending: false, nullsFirst: false })
-    .order("updated_at", { ascending: false })
-    .limit(1);
+    .eq("user_id", userId);
 
   if (error) {
+    console.warn("[billing] viewer subscription lookup failed", {
+      userId,
+      error: error.message,
+    });
     return null;
   }
 
-  return (data?.[0] as AppSubscription | undefined) ?? null;
+  return selectCanonicalSubscription((data as AppSubscription[] | null) ?? []);
 }
 
 export async function getSubscriptionForUser(userId: string) {
@@ -111,16 +132,17 @@ export async function getSubscriptionForUser(userId: string) {
   const { data, error } = await supabase
     .from("subscriptions")
     .select(SUBSCRIPTION_COLUMNS)
-    .eq("user_id", userId)
-    .order("current_period_end", { ascending: false, nullsFirst: false })
-    .order("updated_at", { ascending: false })
-    .limit(1);
+    .eq("user_id", userId);
 
   if (error) {
+    console.warn("[billing] subscription lookup failed", {
+      userId,
+      error: error.message,
+    });
     return null;
   }
 
-  return (data?.[0] as AppSubscription | undefined) ?? null;
+  return selectCanonicalSubscription((data as AppSubscription[] | null) ?? []);
 }
 
 async function getSubscriptionsForUser(userId: string) {
@@ -135,6 +157,12 @@ async function getSubscriptionsForUser(userId: string) {
     .eq("user_id", userId);
 
   if (error || !data) {
+    if (error) {
+      console.warn("[billing] subscription list lookup failed", {
+        userId,
+        error: error.message,
+      });
+    }
     return [];
   }
 
@@ -160,6 +188,12 @@ export async function syncStripeCustomerToProfile(
     },
     { onConflict: "id" },
   );
+
+  logBillingEvent("profile_customer_synced", {
+    userId,
+    stripeCustomerId,
+    email: maskEmail(email),
+  });
 }
 
 async function resolveUserIdByStripeCustomerId(stripeCustomerId: string) {
@@ -188,6 +222,32 @@ async function resolveUserIdByStripeCustomerId(stripeCustomerId: string) {
     .maybeSingle<{ user_id: string }>();
 
   return subscriptionMatch.data?.user_id ?? null;
+}
+
+async function resolveUserIdFromStripeCustomerMetadata(stripeCustomerId: string) {
+  try {
+    const stripe = getStripeServerClient();
+    const customer = await stripe.customers.retrieve(stripeCustomerId);
+
+    if ("deleted" in customer && customer.deleted) {
+      return null;
+    }
+
+    return readMetadataValue(customer.metadata, "supabaseUserId");
+  } catch (error) {
+    console.warn("[billing] failed to resolve Stripe customer metadata", {
+      stripeCustomerId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+async function resolveUserIdForStripeCustomerId(stripeCustomerId: string) {
+  return (
+    (await resolveUserIdByStripeCustomerId(stripeCustomerId)) ??
+    (await resolveUserIdFromStripeCustomerMetadata(stripeCustomerId))
+  );
 }
 
 export async function refreshProfileAccessState(userId: string, stripeCustomerId?: string | null) {
@@ -222,6 +282,15 @@ export async function refreshProfileAccessState(userId: string, stripeCustomerId
     },
     { onConflict: "id" },
   );
+
+  logBillingEvent("profile_access_refreshed", {
+    userId,
+    stripeCustomerId: resolvedCustomerId,
+    stripeSubscriptionId: canonical?.stripe_subscription_id ?? null,
+    subscriptionStatus: canonical?.status ?? null,
+    accessState,
+    onboardingState,
+  });
 
   return {
     accessState,
@@ -284,13 +353,20 @@ export async function syncSubscriptionFromStripe(
   const userId =
     hintedUserId ??
     readMetadataValue(subscription.metadata, "supabaseUserId") ??
-    (await resolveUserIdByStripeCustomerId(stripeCustomerId));
+    (await resolveUserIdForStripeCustomerId(stripeCustomerId));
 
   if (!userId) {
     throw new Error(
       `Unable to resolve Supabase user for Stripe subscription ${subscription.id}.`,
     );
   }
+
+  logBillingEvent("subscription_sync_started", {
+    userId,
+    stripeCustomerId,
+    stripeSubscriptionId: subscription.id,
+    stripeStatus: subscription.status,
+  });
 
   await syncStripeCustomerToProfile(userId, stripeCustomerId);
 
@@ -306,20 +382,90 @@ export async function syncSubscriptionFromStripe(
 
   await refreshProfileAccessState(userId, stripeCustomerId);
 
+  logBillingEvent("subscription_sync_completed", {
+    userId,
+    stripeCustomerId,
+    stripeSubscriptionId: subscription.id,
+    stripeStatus: subscription.status,
+    normalizedStatus: upserted?.status ?? null,
+  });
+
   return upserted;
 }
 
-export async function syncCheckoutSession(session: Stripe.Checkout.Session) {
+export async function syncStripeSubscriptionById(
+  stripeSubscriptionId: string,
+  hintedUserId?: string | null,
+) {
+  const stripe = getStripeServerClient();
+  const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId, {
+    expand: ["items.data.price"],
+  });
+
+  return syncSubscriptionFromStripe(subscription, hintedUserId);
+}
+
+export async function syncInvoiceFromStripe(invoice: Stripe.Invoice) {
+  const rawStripeSubscription =
+    invoice.parent?.type === "subscription_details"
+      ? invoice.parent.subscription_details?.subscription ?? null
+      : null;
+  const stripeSubscriptionId =
+    typeof rawStripeSubscription === "string" ? rawStripeSubscription : rawStripeSubscription?.id ?? null;
+  const stripeCustomerId =
+    typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id ?? null;
+
+  logBillingEvent("invoice_sync_received", {
+    stripeInvoiceId: invoice.id,
+    stripeCustomerId,
+    stripeSubscriptionId,
+    invoiceStatus: invoice.status ?? null,
+    billingReason: invoice.billing_reason ?? null,
+  });
+
+  if (!stripeSubscriptionId) {
+    const userId = stripeCustomerId ? await resolveUserIdForStripeCustomerId(stripeCustomerId) : null;
+    if (userId) {
+      await refreshProfileAccessState(userId, stripeCustomerId);
+    }
+
+    return null;
+  }
+
+  return syncStripeSubscriptionById(stripeSubscriptionId);
+}
+
+type SyncCheckoutSessionOptions = {
+  hintedUserId?: string | null;
+  source?: string;
+};
+
+export async function syncCheckoutSession(
+  session: Stripe.Checkout.Session,
+  options: SyncCheckoutSessionOptions = {},
+) {
   if (session.mode !== "subscription") {
     return null;
   }
 
   const userId =
+    options.hintedUserId ??
     session.client_reference_id ??
     readMetadataValue(session.metadata, "supabaseUserId");
   const stripeCustomerId =
     typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
   const email = session.customer_details?.email ?? session.customer_email ?? null;
+
+  logBillingEvent("checkout_session_sync_started", {
+    source: options.source ?? "unknown",
+    stripeCheckoutSessionId: session.id,
+    userId,
+    stripeCustomerId,
+    stripeSubscriptionId:
+      typeof session.subscription === "string" ? session.subscription : session.subscription?.id ?? null,
+    email: maskEmail(email),
+    paymentStatus: session.payment_status,
+  });
 
   if (userId && stripeCustomerId) {
     await syncStripeCustomerToProfile(userId, stripeCustomerId, email);
@@ -337,12 +483,128 @@ export async function syncCheckoutSession(session: Stripe.Checkout.Session) {
     return null;
   }
 
+  return syncStripeSubscriptionById(stripeSubscriptionId, userId);
+}
+
+async function findExistingStripeCustomerForUser(params: {
+  userId: string;
+  email?: string | null;
+}) {
+  const normalizedEmail = normalizeEmail(params.email);
+  if (!normalizedEmail) {
+    return null;
+  }
+
   const stripe = getStripeServerClient();
-  const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId, {
-    expand: ["items.data.price"],
+  const customers = await stripe.customers.list({
+    email: normalizedEmail,
+    limit: 20,
   });
 
-  return syncSubscriptionFromStripe(subscription, userId);
+  const matchedCustomer =
+    customers.data
+      .filter((customer) => readMetadataValue(customer.metadata, "supabaseUserId") === params.userId)
+      .sort((left, right) => right.created - left.created)[0] ?? null;
+
+  if (!matchedCustomer) {
+    return null;
+  }
+
+  logBillingEvent("stripe_customer_reused", {
+    userId: params.userId,
+    stripeCustomerId: matchedCustomer.id,
+    email: maskEmail(normalizedEmail),
+  });
+
+  return matchedCustomer.id;
+}
+
+type ConfirmCheckoutSessionOptions = {
+  authenticatedUserId?: string | null;
+  expectedEmail?: string | null;
+  source?: string;
+};
+
+export async function confirmCheckoutSessionById(
+  sessionId: string,
+  options: ConfirmCheckoutSessionOptions = {},
+) {
+  const stripe = getStripeServerClient();
+  const session = await stripe.checkout.sessions.retrieve(sessionId, {
+    expand: ["customer", "subscription"],
+  });
+
+  const stripeCustomer =
+    typeof session.customer === "string" ||
+    !session.customer ||
+    ("deleted" in session.customer && session.customer.deleted)
+      ? null
+      : session.customer;
+  const stripeCustomerId =
+    typeof session.customer === "string" ? session.customer : session.customer?.id ?? null;
+  const sessionEmail =
+    session.customer_details?.email ??
+    session.customer_email ??
+    stripeCustomer?.email ??
+    null;
+  const resolvedUserId =
+    session.client_reference_id ??
+    readMetadataValue(session.metadata, "supabaseUserId") ??
+    readMetadataValue(stripeCustomer?.metadata, "supabaseUserId") ??
+    (stripeCustomerId ? await resolveUserIdForStripeCustomerId(stripeCustomerId) : null);
+  const matchedByEmail =
+    !resolvedUserId &&
+    Boolean(options.authenticatedUserId) &&
+    Boolean(normalizeEmail(options.expectedEmail)) &&
+    normalizeEmail(options.expectedEmail) === normalizeEmail(sessionEmail);
+  const finalUserId = resolvedUserId ?? (matchedByEmail ? options.authenticatedUserId ?? null : null);
+
+  logBillingEvent("checkout_session_confirm_requested", {
+    source: options.source ?? "unknown",
+    stripeCheckoutSessionId: session.id,
+    authenticatedUserId: options.authenticatedUserId ?? null,
+    resolvedUserId,
+    finalUserId,
+    stripeCustomerId,
+    stripeSubscriptionId:
+      typeof session.subscription === "string" ? session.subscription : session.subscription?.id ?? null,
+    email: maskEmail(sessionEmail),
+  });
+
+  if (options.authenticatedUserId && finalUserId && finalUserId !== options.authenticatedUserId) {
+    throw new Error(
+      `Checkout session ${sessionId} belongs to a different authenticated user.`,
+    );
+  }
+
+  if (options.authenticatedUserId && !finalUserId) {
+    throw new Error(`Unable to confirm checkout session ${sessionId} for the authenticated user.`);
+  }
+
+  const syncedSubscription = await syncCheckoutSession(session, {
+    hintedUserId: finalUserId ?? options.authenticatedUserId ?? null,
+    source: options.source ?? "checkout_confirm",
+  });
+  const refreshedProfile =
+    finalUserId || options.authenticatedUserId
+      ? await refreshProfileAccessState(finalUserId ?? options.authenticatedUserId!)
+      : null;
+
+  const result = {
+    userId: finalUserId ?? options.authenticatedUserId ?? null,
+    stripeCheckoutSessionId: session.id,
+    stripeCustomerId,
+    stripeSubscriptionId:
+      syncedSubscription?.stripe_subscription_id ??
+      (typeof session.subscription === "string" ? session.subscription : session.subscription?.id ?? null),
+    accessState: refreshedProfile?.accessState ?? null,
+    subscriptionStatus:
+      refreshedProfile?.canonicalSubscription?.status ?? syncedSubscription?.status ?? null,
+  };
+
+  logBillingEvent("checkout_session_confirm_completed", result);
+
+  return result;
 }
 
 export async function getOrCreateStripeCustomerForUser(params: {
@@ -358,6 +620,12 @@ export async function getOrCreateStripeCustomerForUser(params: {
   const existingSubscription = await getSubscriptionForUser(userId);
   if (existingSubscription?.stripe_customer_id) {
     return existingSubscription.stripe_customer_id;
+  }
+
+  const matchedCustomerId = await findExistingStripeCustomerForUser({ userId, email });
+  if (matchedCustomerId) {
+    await syncStripeCustomerToProfile(userId, matchedCustomerId, email);
+    return matchedCustomerId;
   }
 
   const stripe = getStripeServerClient();

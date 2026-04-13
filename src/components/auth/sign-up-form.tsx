@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/policy-versions";
 import { getSupabaseBrowserClient, hasSupabaseBrowserConfig } from "@/lib/supabase/browser";
 
 function validateEmail(email: string) {
@@ -15,6 +16,7 @@ export function SignUpForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [acceptedLegalTerms, setAcceptedLegalTerms] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -44,10 +46,29 @@ export function SignUpForm() {
       return;
     }
 
+    if (!acceptedLegalTerms) {
+      setError("You must accept the Terms of Service and Privacy Policy to create an account.");
+      return;
+    }
+
     setLoading(true);
 
     try {
       const supabase = getSupabaseBrowserClient();
+      const acceptedPolicies = [
+        {
+          policy_type: "terms",
+          policy_version: TERMS_VERSION,
+          context: "signup",
+          user_agent: typeof navigator === "undefined" ? null : navigator.userAgent,
+        },
+        {
+          policy_type: "privacy",
+          policy_version: PRIVACY_VERSION,
+          context: "signup",
+          user_agent: typeof navigator === "undefined" ? null : navigator.userAgent,
+        },
+      ];
       const emailRedirectTo =
         typeof window === "undefined"
           ? undefined
@@ -57,6 +78,9 @@ export function SignUpForm() {
         password,
         options: {
           emailRedirectTo,
+          data: {
+            accepted_policies: acceptedPolicies,
+          },
         },
       });
 
@@ -138,6 +162,27 @@ export function SignUpForm() {
           Auth is not configured in the environment yet.
         </div>
       ) : null}
+
+      <label className="flex items-start gap-3 border border-white/[0.08] bg-white/[0.02] px-4 py-3 text-[13px] leading-6 text-[#9ab0c8]">
+        <input
+          type="checkbox"
+          checked={acceptedLegalTerms}
+          onChange={(event) => setAcceptedLegalTerms(event.target.checked)}
+          className="mt-1 h-4 w-4 shrink-0 border border-white/[0.16] bg-[#07101a]"
+        />
+        <span>
+          I agree to the{" "}
+          <Link href="/terms" className="text-cyan hover:text-[#b8f2ff]">
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link href="/privacy" className="text-cyan hover:text-[#b8f2ff]">
+            Privacy Policy
+          </Link>
+          . I understand the product is a paid financial information and research service, not personal
+          financial advice.
+        </span>
+      </label>
 
       <button
         type="submit"

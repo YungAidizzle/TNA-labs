@@ -1,577 +1,437 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
-import {
-  Activity,
-  ArrowRight,
-  BadgeCheck,
-  BellRing,
-  CandlestickChart,
-  ChartLine,
-  Compass,
-  Database,
-  Layers3,
-  Radar,
-  ShieldCheck,
-  Sparkles,
-  TimerReset,
-} from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { MarketingHeader } from "@/components/marketing/marketing-header";
+import { TerminalScreenshotFrame } from "@/components/marketing/terminal-screenshot-frame";
+import { TerminalWorkflowDiagram } from "@/components/marketing/terminal-workflow-diagram";
+import { BRAND_ACCESS_NAME, BRAND_DESCRIPTOR, BRAND_NAME } from "@/lib/brand";
+import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
+import { SHORT_MARKETING_DISCLAIMER } from "@/lib/legal/disclaimers";
 
 type LandingPageProps = {
   isAuthenticated: boolean;
   hasPaidAccess: boolean;
+  pricing: {
+    productName: string;
+    displayPrice: string;
+    billingInterval: string;
+  } | null;
 };
 
-const heroMetrics = [
-  { label: "Narratives monitored", value: "250" },
-  { label: "Linked memecoins", value: "42" },
-  { label: "Posts per minute", value: "11" },
-  { label: "Validation confidence", value: "97" },
+const HERO_SIGNALS = [
+  "Ranks emerging narratives",
+  "Links narratives to memecoins",
+  "Validates with chart context",
 ] as const;
 
-const features = [
+const HERO_NOTES = [
+  "Narrative-first workflow",
+  "Paid research access",
+  "No trade execution",
+] as const;
+
+const PLATFORM_DETAILS = [
   {
-    icon: Radar,
-    title: "Real-time narrative monitoring",
-    text: "Track the topics gaining attention before price action fully reflects the shift.",
+    title: "Narratives ranked by acceleration",
+    text: "The left panel ranks emerging narratives by attention, post volume, and platform spread so users can see internet momentum before price-led screeners flatten the story.",
   },
   {
-    icon: CandlestickChart,
-    title: "Correlated memecoin discovery",
-    text: "Map narratives to market-linked tokens instead of screening the market blind.",
+    title: "Memecoins linked to the thesis",
+    text: "The center board keeps linked memecoins in the same workflow with liquidity, momentum, and confidence context instead of forcing a second research tab.",
   },
   {
-    icon: ChartLine,
-    title: "Momentum signal surface",
-    text: "See acceleration, participation quality, and early coin rotation in one interface.",
+    title: "Validation beside the move",
+    text: "The right panel validates the selected coin with chart context, market-cap context, transaction flow, and recent price response in the same view.",
   },
   {
-    icon: ShieldCheck,
-    title: "Validation panel",
-    text: "Check liquidity, volume, transaction activity, and live market context on selection.",
-  },
-  {
-    icon: Layers3,
-    title: "Market-linked filtering",
-    text: "Reduce social noise into ranked setups tied to actual tradable assets.",
-  },
-  {
-    icon: TimerReset,
-    title: "Terminal-speed workflow",
-    text: "Dense, fast, and built for repeated scanning instead of slow dashboard theater.",
+    title: "Built for repeated monitoring",
+    text: "The terminal is designed for repeated narrative scanning, linked-asset review, and follow-up validation rather than decorative dashboard browsing.",
   },
 ] as const;
 
-const useCases = [
-  "Memecoin traders tracking attention before the crowd rotates",
-  "Narrative researchers mapping online themes to live assets",
-  "Crypto content operators validating whether a topic is actually tradable",
-  "Market observers who want attention flow, not another lagging screener",
+const DETAIL_PROOF_POINTS = [
+  {
+    title: "Narrative ranking",
+    text: "Attention velocity, post volume, and platform spread stay visible while you review the linked move.",
+    metrics: "Attention velocity · Post volume · Platform spread",
+  },
+  {
+    title: "Linked memecoins",
+    text: "The board keeps momentum, liquidity, and confidence in the same view instead of sending you into a second tab.",
+    metrics: "Momentum · Liquidity · Confidence",
+  },
+  {
+    title: "Validation context",
+    text: "Chart preview, transactions, market cap, and recent response help pressure-test the asset before acting.",
+    metrics: "Chart context · Transactions · Market cap",
+  },
 ] as const;
 
-const faqs = [
+const FAQS = [
   {
-    question: "What is this platform?",
+    question: "What does the platform track?",
     answer:
-      "It is a narrative-to-asset intelligence terminal that ranks internet attention, maps related memecoins, and surfaces market-linked validation signals.",
+      "It tracks internet narratives, ranks them by attention, and connects those narratives to linked memecoins and market validation data.",
   },
   {
     question: "Who is it for?",
     answer:
-      "It is built for serious crypto users: traders, researchers, content operators, and market observers who need structured signal around internet attention.",
+      "It is built for active crypto traders, narrative researchers, and operators who need to move from attention to asset quickly.",
   },
   {
-    question: "How is it different from a normal screener?",
+    question: "What makes it different from a typical screener?",
     answer:
-      "A normal screener starts with market data. This platform starts with attention flow, then connects that attention to tradable assets and validation context.",
+      "A normal screener starts with price and volume. This workflow starts with the narrative, then shows the assets and market context tied to it.",
   },
   {
-    question: "Does it provide financial advice?",
+    question: "Is this brokerage or execution software?",
     answer:
-      "No. It provides intelligence and workflow support. Users remain responsible for their own decisions and risk management.",
+      "No. It is research software. It does not custody funds, route orders, or provide personal financial advice.",
   },
   {
-    question: "How often is data updated?",
+    question: "How do I get access?",
     answer:
-      "The surface is designed for live monitoring with frequent refreshes so narrative ranking, linked assets, and validation context stay current.",
-  },
-  {
-    question: "What do I get access to?",
-    answer:
-      "Access includes the live narrative board, linked memecoin surface, validation workflows, and future expansion into broader intelligence modules.",
+      "Create an account, start a membership, and the paid routes unlock once subscription access is active on the account.",
   },
 ] as const;
 
-function SectionEyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.2em] text-[#6e8299]">
-      {children}
-    </p>
-  );
-}
-
-function SectionHeading({
+function SectionIntro({
+  eyebrow,
   title,
   text,
 }: {
+  eyebrow: string;
   title: string;
   text: string;
 }) {
   return (
-    <div className="max-w-[760px]">
-      <SectionEyebrow>Execution surface</SectionEyebrow>
-      <h2 className="text-[28px] font-semibold tracking-[-0.04em] text-[#edf5ff] sm:text-[36px]">
+    <div className="max-w-[720px]">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
+        {eyebrow}
+      </p>
+      <h2 className="mt-4 text-[34px] font-semibold leading-[1.02] tracking-[-0.05em] text-[#f2f7fd] sm:text-[42px]">
         {title}
       </h2>
-      <p className="mt-4 max-w-[680px] text-[15px] leading-7 text-[#91a7bf]">
+      <p className="mt-5 max-w-[680px] text-[16px] leading-8 text-[#97abc2]">
         {text}
       </p>
     </div>
   );
 }
 
-function PreviewShell({ children }: { children: React.ReactNode }) {
+function PrimaryCta({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <div className="surface-panel panel-glow-cyan relative overflow-hidden border border-white/[0.08] bg-[linear-gradient(180deg,rgba(10,16,25,0.98),rgba(6,10,16,0.98))]">
-      <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3 text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">
-        <span>Live execution surface</span>
-        <span className="inline-flex items-center gap-2 text-[#8da3bc]">
-          <span className="h-1.5 w-1.5 bg-emerald shadow-[0_0_12px_rgba(77,219,147,0.65)]" />
-          Terminal online
-        </span>
-      </div>
+    <Link
+      href={href}
+      className="inline-flex h-12 items-center gap-2 border border-cyan/24 bg-[linear-gradient(180deg,rgba(16,45,58,0.96),rgba(8,19,26,0.98))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#f1fdff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_18px_40px_rgba(0,0,0,0.28)] transition-colors hover:border-cyan/36"
+    >
       {children}
-    </div>
+      <ArrowRight className="h-4 w-4" />
+    </Link>
+  );
+}
+
+function SecondaryCta({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex h-12 items-center border border-white/[0.1] bg-white/[0.03] px-5 text-[12px] font-medium uppercase tracking-[0.16em] text-[#d8e2ee] transition-colors hover:border-white/[0.16] hover:bg-white/[0.05]"
+    >
+      {children}
+    </Link>
   );
 }
 
 export function LandingPage({
   isAuthenticated,
   hasPaidAccess,
+  pricing,
 }: LandingPageProps) {
-  const dashboardHref = hasPaidAccess ? "/dashboard" : isAuthenticated ? "/pricing" : "/sign-up";
+  const dashboardHref = hasPaidAccess
+    ? "/dashboard"
+    : isAuthenticated
+      ? "/pricing"
+      : "/sign-up";
+
+  const accessLabel = pricing?.productName ?? BRAND_ACCESS_NAME;
+  const priceLabel = pricing?.displayPrice ?? "Configured in Stripe";
+  const billingLabel = pricing?.billingInterval ?? "Recurring";
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <MarketingHeader
-        isAuthenticated={isAuthenticated}
-        hasPaidAccess={hasPaidAccess}
-      />
+    <div className="relative min-h-screen overflow-hidden bg-[#05080d] text-foreground">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(86,217,255,0.08),transparent_22%),radial-gradient(circle_at_80%_12%,rgba(121,151,255,0.08),transparent_18%),linear-gradient(180deg,rgba(255,255,255,0.015),transparent_18%)]" />
 
-      <main>
-        <section className="relative overflow-hidden border-b border-white/[0.07]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(86,217,255,0.09),transparent_26%),radial-gradient(circle_at_80%_20%,rgba(64,110,255,0.08),transparent_24%)]" />
-          <div className="mx-auto grid w-full max-w-[1280px] gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(440px,0.95fr)] lg:px-8 lg:py-24">
-            <div className="relative z-10 max-w-[640px]">
-              <SectionEyebrow>Narrative intelligence terminal</SectionEyebrow>
-              <h1 className="max-w-[620px] text-[42px] font-semibold leading-[0.96] tracking-[-0.06em] text-[#f5f9ff] sm:text-[54px] lg:text-[66px]">
-                Spot internet attention before it becomes market movement.
-              </h1>
-              <p className="mt-6 max-w-[560px] text-[16px] leading-7 text-[#9cb1c8] sm:text-[17px]">
-                Monitor live narratives, surface correlated memecoins, and validate market context in a terminal built for traders and researchers who need signal before rotation gets crowded.
-              </p>
+      <div className="relative">
+        <MarketingHeader
+          isAuthenticated={isAuthenticated}
+          hasPaidAccess={hasPaidAccess}
+        />
 
-              <div className="mt-8 flex flex-wrap gap-3">
-                <Link
-                  href={dashboardHref}
-                  className="inline-flex h-11 items-center gap-2 border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(86,217,255,0.05)] transition-colors hover:border-cyan/40"
-                >
-                  {hasPaidAccess ? "Open Terminal" : isAuthenticated ? "Unlock Access" : "Get Access"}
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-                <Link
-                  href="/#platform"
-                  className="inline-flex h-11 items-center border border-white/[0.1] bg-white/[0.02] px-5 text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e0ee] transition-colors hover:border-white/[0.16] hover:bg-white/[0.05]"
-                >
-                  View Platform
-                </Link>
+        <main>
+          <section className="border-b border-white/[0.06]">
+            <div className="mx-auto grid w-full max-w-[1440px] gap-12 px-4 pb-24 pt-12 sm:px-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(780px,1.3fr)] lg:gap-10 lg:px-8 lg:pb-32 lg:pt-24">
+              <div className="max-w-[560px] lg:pt-12">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
+                  {BRAND_NAME}
+                </p>
+                <h1 className="mt-6 text-[44px] font-semibold leading-[0.93] tracking-[-0.065em] text-[#f4f8fd] sm:text-[58px] lg:text-[78px]">
+                  Track narratives before the trade gets crowded.
+                </h1>
+                <p className="mt-7 max-w-[560px] text-[17px] leading-8 text-[#9cb1c7]">
+                  Rank emerging narratives, surface the memecoins attached to them, and validate market response from one workflow inside {BRAND_NAME}.
+                </p>
+
+                <div className="mt-9 flex flex-wrap gap-3">
+                  <PrimaryCta href={dashboardHref}>Open Live Terminal</PrimaryCta>
+                  <SecondaryCta href="/#product">View Platform</SecondaryCta>
+                </div>
+
+                <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-[12px] font-medium uppercase tracking-[0.14em] text-[#c9d6e4]">
+                  {HERO_SIGNALS.map((item) => (
+                    <span key={item} className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 bg-cyan" />
+                      {item}
+                    </span>
+                  ))}
+                </div>
+
+                <p className="mt-6 max-w-[520px] text-[13px] leading-6 text-[#7f93ab]">
+                  {SHORT_MARKETING_DISCLAIMER}
+                </p>
+
+                <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 border-t border-white/[0.08] pt-5 text-[12px] uppercase tracking-[0.14em] text-[#91a5bc]">
+                  {HERO_NOTES.map((item) => (
+                    <span key={item}>{item}</span>
+                  ))}
+                </div>
               </div>
 
-              <div className="mt-10 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {heroMetrics.map((item) => (
+              <div className="relative lg:pt-2">
+                <TerminalScreenshotFrame
+                  variant="hero"
+                  showCallouts
+                  priority
+                  className="mx-auto w-full max-w-[980px]"
+                />
+              </div>
+            </div>
+          </section>
+
+          <section id="proof" className="border-b border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.012),rgba(255,255,255,0))]">
+            <div className="mx-auto w-full max-w-[1320px] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+              <SectionIntro
+                eyebrow="Workflow"
+                title="From narrative acceleration to market validation."
+                text="The terminal follows a simple operating sequence: detect the narrative, surface linked memecoins, then validate price and market context before acting."
+              />
+
+              <TerminalWorkflowDiagram />
+            </div>
+          </section>
+
+          <section id="workflow" className="border-b border-white/[0.06]">
+            <div className="mx-auto w-full max-w-[1320px] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+              <SectionIntro
+                eyebrow="Inside The Terminal"
+                title="A research surface organized around the actual workflow."
+                text="Each panel has a single job: rank narratives, surface linked memecoins, and validate the selected market response without leaving the terminal."
+              />
+
+              <div className="mt-12 grid gap-10 lg:grid-cols-4 lg:gap-0">
+                {PLATFORM_DETAILS.map((item, index) => (
                   <div
-                    key={item.label}
-                    className="surface-panel metric-gloss border border-white/[0.08] px-4 py-4"
+                    key={item.title}
+                    className={[
+                      "border-t border-white/[0.08] pt-5 lg:px-6",
+                      index > 0 ? "lg:border-l lg:border-t-0 lg:pt-0" : "",
+                    ].join(" ")}
                   >
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-[#6f86a1]">
-                      {item.label}
+                    <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-[#6f849c]">
+                      {String(index + 1).padStart(2, "0")}
                     </p>
-                    <p className="mt-2 font-mono text-[22px] font-semibold tracking-[-0.03em] text-[#f4fbff]">
-                      {item.value}
+                    <p className="mt-4 text-[16px] font-semibold text-[#eef4fb]">{item.title}</p>
+                    <p className="mt-3 max-w-[280px] text-[14px] leading-7 text-[#8ea3ba]">
+                      {item.text}
                     </p>
                   </div>
                 ))}
               </div>
             </div>
+          </section>
 
-            <div className="relative z-10">
-              <PreviewShell>
-                <div className="grid gap-3 p-3 lg:grid-cols-[1.1fr_1.2fr_0.95fr]">
-                  <div className="border border-white/[0.07] bg-[#07101a]">
-                    <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2 text-[11px] text-[#7f94ad]">
-                      <span className="uppercase tracking-[0.14em]">Narratives</span>
-                      <span className="font-mono text-[#b5c4d7]">250/250</span>
-                    </div>
-                    <div className="space-y-0.5 p-2">
-                      {[
-                        ["Canada - fires, politics, energy", "1K"],
-                        ["AI-generated art and anime images", "679"],
-                        ["Melania", "292"],
-                        ["California issues and commentary", "176"],
-                        ["Youtube", "157"],
-                      ].map(([label, value], index) => (
-                        <div
-                          key={label}
-                          className={[
-                            "grid grid-cols-[26px_minmax(0,1fr)_48px] items-center gap-3 px-2 py-2 text-[12px]",
-                            index === 0
-                              ? "bg-[linear-gradient(90deg,rgba(12,53,69,0.75),rgba(8,16,25,0.24))] text-[#eff8ff]"
-                              : "text-[#afc0d3]",
-                          ].join(" ")}
-                        >
-                          <span className="font-mono text-[#78a8cc]">{index + 1}</span>
-                          <span className="truncate font-medium">{label}</span>
-                          <span className="text-right font-mono">{value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="border border-white/[0.07] bg-[#07101a]">
-                    <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2 text-[11px] text-[#7f94ad]">
-                      <span className="uppercase tracking-[0.14em]">Memecoins</span>
-                      <div className="flex gap-1 text-[10px]">
-                        <span className="border border-white/[0.07] px-2 py-1">Trend</span>
-                        <span className="border border-cyan/25 bg-cyan/10 px-2 py-1 text-cyan">Momentum</span>
-                      </div>
-                    </div>
-                    <div className="space-y-0.5 p-2">
-                      {[
-                        ["BNB Attestation", "+14.1%", "C97"],
-                        ["Anime Bitcoin", "+2.4%", "C68"],
-                        ["Shadow Combat League", "+28.4%", "C100"],
-                        ["Pixel Coin", "+9.6%", "C97"],
-                        ["Kamino", "+0.9%", "C88"],
-                      ].map(([label, change, score], index) => (
-                        <div
-                          key={label}
-                          className={[
-                            "grid grid-cols-[minmax(0,1fr)_64px_48px] items-center gap-3 px-2 py-2 text-[12px]",
-                            index === 0
-                              ? "bg-[linear-gradient(90deg,rgba(15,53,61,0.82),rgba(8,16,25,0.24))]"
-                              : "",
-                          ].join(" ")}
-                        >
-                          <span className="truncate font-medium text-[#e9f5ff]">{label}</span>
-                          <span className="text-right font-mono text-emerald">{change}</span>
-                          <span className="text-right font-mono text-[#f6b057]">{score}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="border border-white/[0.07] bg-[#07101a]">
-                    <div className="border-b border-white/[0.06] px-3 py-2 text-[11px] uppercase tracking-[0.14em] text-[#7f94ad]">
-                      Validation
-                    </div>
-                    <div className="space-y-4 p-3">
-                      <div>
-                        <p className="text-[11px] text-[#6d829a]">Selected asset</p>
-                        <p className="mt-1 text-[18px] font-semibold tracking-[-0.03em] text-[#f4f8ff]">
-                          BNB Attestation
-                        </p>
-                        <p className="mt-1 font-mono text-[11px] text-[#7d92ab]">BAS / BSC</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          ["Liquidity", "$985K"],
-                          ["24h volume", "$12M"],
-                          ["Market cap", "$14M"],
-                          ["Confidence", "97"],
-                        ].map(([label, value]) => (
-                          <div key={label} className="border border-white/[0.06] bg-white/[0.02] p-2">
-                            <p className="text-[10px] uppercase tracking-[0.12em] text-[#6d829a]">{label}</p>
-                            <p className="mt-1 font-mono text-[14px] text-[#eef6ff]">{value}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="h-[140px] border border-white/[0.06] bg-[linear-gradient(180deg,rgba(8,14,22,0.98),rgba(5,8,13,0.98))] px-3 py-2">
-                        <div className="flex h-full items-end gap-1">
-                          {[22, 24, 26, 28, 31, 44, 58, 92, 63, 55, 49, 56].map((height, index) => (
-                            <span
-                              key={`${height}-${index}`}
-                              className={[
-                                "w-full border-t",
-                                index >= 7 ? "bg-cyan/80 border-cyan/60" : "bg-white/[0.18] border-white/[0.18]",
-                              ].join(" ")}
-                              style={{ height: `${height}%` }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </PreviewShell>
-            </div>
-          </div>
-        </section>
-
-        <section id="platform" className="border-b border-white/[0.07]">
-          <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-10 px-4 py-20 sm:px-6 lg:px-8">
-            <SectionHeading
-              title="The internet moves before the market screens do."
-              text="Most traders discover a theme after it is already visible in rotation, price, and crowd behavior. This platform watches narrative formation earlier, links that attention to relevant assets, and keeps validation close to the signal instead of in a second tool."
-            />
-            <div className="grid gap-4 lg:grid-cols-3">
-              {[
-                {
-                  icon: Sparkles,
-                  title: "Problem",
-                  text: "Noise dominates social feeds. Themes form fast, attention fragments, and raw chatter rarely translates into a usable workflow on its own.",
-                },
-                {
-                  icon: Database,
-                  title: "System",
-                  text: "Narratives are ranked, mapped to correlated memecoins, and paired with market-linked context so users can move from theme to asset quickly.",
-                },
-                {
-                  icon: Activity,
-                  title: "Outcome",
-                  text: "You spend less time filtering chaos and more time working with a clean execution surface built around attention flow and validation.",
-                },
-              ].map((item) => (
-                <div key={item.title} className="surface-panel border border-white/[0.08] p-6">
-                  <item.icon className="h-5 w-5 text-cyan" />
-                  <h3 className="mt-5 text-[18px] font-semibold text-[#eef5ff]">{item.title}</h3>
-                  <p className="mt-3 text-[14px] leading-7 text-[#90a6be]">{item.text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="features" className="border-b border-white/[0.07]">
-          <div className="mx-auto w-full max-w-[1280px] px-4 py-20 sm:px-6 lg:px-8">
-            <SectionHeading
-              title="Built to compress narrative noise into tradable context."
-              text="The product is designed as a serious workflow surface: compact signal density, clear hierarchy, and enough market context to help users validate what deserves attention."
-            />
-            <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {features.map((feature) => (
-                <div key={feature.title} className="surface-panel border border-white/[0.08] p-5">
-                  <feature.icon className="h-5 w-5 text-cyan" />
-                  <h3 className="mt-4 text-[16px] font-semibold text-[#eef5ff]">{feature.title}</h3>
-                  <p className="mt-2 text-[13px] leading-6 text-[#8ea4bc]">{feature.text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="border-b border-white/[0.07]">
-          <div className="mx-auto w-full max-w-[1280px] px-4 py-20 sm:px-6 lg:px-8">
-            <SectionHeading
-              title="How it works"
-              text="The workflow is intentionally simple: detect the narrative, map the tradable assets, then use live validation to decide what deserves follow-through."
-            />
-            <div className="mt-10 grid gap-4 lg:grid-cols-3">
-              {[
-                ["01", "Detect narratives", "Monitor live attention clusters and identify which themes are actually gaining velocity."],
-                ["02", "Map market-linked assets", "Surface correlated memecoins and linked pairs around the selected narrative context."],
-                ["03", "Validate and act faster", "Check liquidity, volume, market cap, age, and relative move quality without leaving the terminal."],
-              ].map(([step, title, text]) => (
-                <div key={step} className="surface-panel border border-white/[0.08] p-6">
-                  <p className="font-mono text-[13px] text-cyan">{step}</p>
-                  <h3 className="mt-4 text-[18px] font-semibold text-[#eef5ff]">{title}</h3>
-                  <p className="mt-3 text-[14px] leading-7 text-[#91a6be]">{text}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="border-b border-white/[0.07]">
-          <div className="mx-auto grid w-full max-w-[1280px] gap-8 px-4 py-20 sm:px-6 lg:grid-cols-[0.95fr_1.05fr] lg:px-8">
-            <div>
-              <SectionEyebrow>Why it matters</SectionEyebrow>
-              <h2 className="text-[30px] font-semibold tracking-[-0.04em] text-[#eef5ff]">
-                Attention flow is a different edge than price-first monitoring.
-              </h2>
-              <p className="mt-4 text-[15px] leading-7 text-[#92a8c0]">
-                Traditional tools are useful once the move is already visible. This platform is designed for the stage before that, where narratives start forming, linked assets begin to appear, and market context can still be evaluated before the screeners fully catch up.
-              </p>
-            </div>
-            <div className="grid gap-3">
-              {[
-                "Track what the internet is organizing around, not just what has already pumped.",
-                "Move from narrative discovery to linked asset validation without context switching.",
-                "See serious data density in a workflow built for scanning, ranking, and repeated monitoring.",
-              ].map((item) => (
-                <div key={item} className="surface-panel flex items-start gap-3 border border-white/[0.08] p-4">
-                  <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald" />
-                  <p className="text-[14px] leading-7 text-[#dbe6f4]">{item}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="border-b border-white/[0.07]">
-          <div className="mx-auto w-full max-w-[1280px] px-4 py-20 sm:px-6 lg:px-8">
-            <SectionHeading
-              title="Use cases"
-              text="The platform is aimed at users who already understand that internet narratives matter, but need a more structured way to work with them."
-            />
-            <div className="mt-10 grid gap-3 md:grid-cols-2">
-              {useCases.map((item) => (
-                <div key={item} className="surface-panel flex items-start gap-3 border border-white/[0.08] p-5">
-                  <Compass className="mt-0.5 h-4 w-4 shrink-0 text-cyan" />
-                  <p className="text-[14px] leading-7 text-[#dfe9f6]">{item}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="border-b border-white/[0.07]">
-          <div className="mx-auto grid w-full max-w-[1280px] gap-8 px-4 py-20 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8">
-            <div>
-              <SectionEyebrow>Credibility</SectionEyebrow>
-              <h2 className="text-[30px] font-semibold tracking-[-0.04em] text-[#eef5ff]">
-                Built for live monitoring, speed, and structured context.
-              </h2>
-              <p className="mt-4 text-[15px] leading-7 text-[#92a8c0]">
-                The trust model here is product behavior, not invented logos or inflated claims. The interface is built around real-time monitoring, clear signal display, and market-linked validation instead of noise-heavy dashboards.
-              </p>
-            </div>
-            <div className="grid gap-3">
-              {[
-                { icon: Activity, label: "Built for real-time monitoring" },
-                { icon: BellRing, label: "Designed for speed and clarity" },
-                { icon: Radar, label: "Focused on attention flow, not noise" },
-                { icon: ShieldCheck, label: "Structured around live market context" },
-              ].map((item) => (
-                <div key={item.label} className="surface-panel flex items-center gap-3 border border-white/[0.08] px-4 py-4">
-                  <item.icon className="h-4 w-4 text-cyan" />
-                  <span className="text-[14px] font-medium text-[#e5edf8]">{item.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section id="pricing" className="border-b border-white/[0.07]">
-          <div className="mx-auto w-full max-w-[1280px] px-4 py-20 sm:px-6 lg:px-8">
-            <SectionHeading
-              title="Membership is live."
-              text="Paid access now gates the dashboard routes. Checkout runs through Stripe, and access unlocks only after webhook-synced subscription state lands back in Supabase."
-            />
-            <div className="mt-10 max-w-[520px]">
-              <div className="surface-panel border border-cyan/15 p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-[#6f86a1]">Premium plan</p>
-                    <h3 className="mt-2 text-[26px] font-semibold tracking-[-0.04em] text-[#f3f9ff]">
-                      Operator Access
-                    </h3>
-                  </div>
-                  <span className="border border-cyan/18 bg-cyan/10 px-3 py-1 text-[11px] uppercase tracking-[0.14em] text-cyan">
-                    Paid access
-                  </span>
-                </div>
-                <div className="mt-6 space-y-3 text-[14px] text-[#dce6f3]">
-                  <p>Live narrative terminal</p>
-                  <p>Correlated memecoin surface</p>
-                  <p>Validation and market-linked context</p>
-                  <p>Future module unlocks under one account structure</p>
-                </div>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <Link
-                    href={isAuthenticated ? "/pricing" : "/sign-up"}
-                    className="inline-flex h-11 items-center border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
-                  >
-                    {isAuthenticated ? "Unlock access" : "Start now"}
-                  </Link>
-                  <p className="flex items-center text-[12px] uppercase tracking-[0.14em] text-[#6f86a1]">
-                    Stripe subscription gating enabled
+          <section id="product" className="border-b border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.01),rgba(255,255,255,0))]">
+            <div className="mx-auto grid w-full max-w-[1320px] items-start gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,1.02fr)_minmax(320px,0.82fr)] lg:gap-12 lg:px-8 lg:py-24">
+              <div className="min-w-0">
+                <div className="max-w-[640px]">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
+                    Product Zoom-In
                   </p>
+                  <h2 className="mt-4 text-[34px] font-semibold leading-[1.02] tracking-[-0.05em] text-[#f2f7fd] sm:text-[42px]">
+                    Validate the move without leaving the terminal.
+                  </h2>
+                  <p className="mt-5 max-w-[620px] text-[16px] leading-8 text-[#97abc2]">
+                    Narrative ranking, linked memecoins, and market response stay in one workflow so users can move from signal to asset to validation without breaking context.
+                  </p>
+                </div>
+
+                <div className="mt-8 rounded-[30px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(10,14,21,0.58),rgba(6,9,14,0.26))] p-3 shadow-[0_24px_72px_rgba(0,0,0,0.32)] sm:p-4">
+                  <TerminalScreenshotFrame
+                    variant="detail"
+                    className="mx-auto w-full max-w-[720px]"
+                    imageClassName="object-[63%_center]"
+                  />
+                </div>
+              </div>
+
+              <div className="lg:pt-14">
+                <div className="space-y-4">
+                  {DETAIL_PROOF_POINTS.map((item, index) => (
+                    <div
+                      key={item.title}
+                      className="border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-5 py-5 shadow-[0_16px_38px_rgba(0,0,0,0.18)]"
+                    >
+                      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#6f849c]">
+                        {String(index + 1).padStart(2, "0")}
+                      </p>
+                      <h3 className="mt-3 text-[18px] font-semibold text-[#eef4fb]">
+                        {item.title}
+                      </h3>
+                      <p className="mt-2 text-[14px] leading-7 text-[#8ea4bc]">
+                        {item.text}
+                      </p>
+                      <p className="mt-4 text-[11px] uppercase tracking-[0.16em] text-[#b6c6d7]">
+                        {item.metrics}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section id="faq" className="border-b border-white/[0.07]">
-          <div className="mx-auto w-full max-w-[1280px] px-4 py-20 sm:px-6 lg:px-8">
-            <SectionHeading
-              title="FAQ"
-              text="The product is straightforward on purpose. These are the practical questions most users ask before requesting access."
-            />
-            <div className="mt-10 grid gap-3">
-              {faqs.map((item) => (
-                <details key={item.question} className="surface-panel border border-white/[0.08] p-5">
-                  <summary className="cursor-pointer list-none text-[15px] font-semibold text-[#eef5ff]">
-                    {item.question}
-                  </summary>
-                  <p className="mt-3 max-w-[820px] text-[14px] leading-7 text-[#91a7bf]">{item.answer}</p>
-                </details>
-              ))}
+          <section id="pricing" className="border-b border-white/[0.06]">
+            <div className="mx-auto grid w-full max-w-[1320px] gap-10 px-4 py-20 sm:px-6 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:px-8 lg:py-24">
+              <div>
+                <SectionIntro
+                  eyebrow="Pricing / Access"
+                  title="One plan. Clear access."
+                  text="The membership section should read like product access, not like a pricing template."
+                />
+              </div>
+
+              <div className="border border-white/[0.08] bg-[linear-gradient(180deg,rgba(9,13,20,0.98),rgba(5,8,12,0.99))] px-6 py-7 shadow-[0_24px_64px_rgba(0,0,0,0.35)] sm:px-8 sm:py-8">
+                <div className="flex flex-col gap-6 border-b border-white/[0.08] pb-6 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#70849d]">
+                      Membership
+                    </p>
+                    <h3 className="mt-3 text-[32px] font-semibold tracking-[-0.05em] text-[#f2f7fd]">
+                      {accessLabel}
+                    </h3>
+                    <p className="mt-3 max-w-[560px] text-[15px] leading-7 text-[#8fa4bc]">
+                      Full access to the narrative terminal, linked memecoin board, and validation workflow.
+                    </p>
+                  </div>
+
+                  <div className="min-w-[180px] lg:text-right">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#70849d]">
+                      Price
+                    </p>
+                    <p className="mt-3 text-[34px] font-semibold tracking-[-0.05em] text-[#f2f7fd]">
+                      {priceLabel}
+                    </p>
+                    <p className="mt-2 text-[13px] uppercase tracking-[0.14em] text-[#8ea4bc]">
+                      {billingLabel}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-8 py-6 lg:grid-cols-2">
+                  <div>
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#70849d]">
+                      Included
+                    </p>
+                    <div className="mt-4 space-y-3 text-[15px] leading-7 text-[#dde7f3]">
+                      <p>Live narrative ranking and monitoring.</p>
+                      <p>Linked memecoin discovery in the same workflow.</p>
+                      <p>Market validation context beside the signal.</p>
+                      <p>One account for current and future terminal modules.</p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#70849d]">
+                      Access Notes
+                    </p>
+                    <div className="mt-4 space-y-3 text-[15px] leading-7 text-[#8fa4bc]">
+                      <p>Research software only. No brokerage, custody, or trade execution.</p>
+                      <p>Paid routes unlock from the account access state once membership is active.</p>
+                      <p>The workflow is built for serious monitoring, not social hype or copy-trading theatrics.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-3 border-t border-white/[0.08] pt-6">
+                  <PrimaryCta href={dashboardHref}>Open Live Terminal</PrimaryCta>
+                  <SecondaryCta href="/pricing">View Pricing</SecondaryCta>
+                </div>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section className="border-b border-white/[0.07]">
-          <div className="mx-auto flex w-full max-w-[1280px] flex-col items-start gap-6 px-4 py-20 sm:px-6 lg:px-8">
-            <SectionEyebrow>Final call</SectionEyebrow>
-            <h2 className="max-w-[760px] text-[34px] font-semibold tracking-[-0.05em] text-[#f2f8ff]">
-              Serious narrative intelligence for users who want earlier context, cleaner signal, and a terminal that respects attention.
-            </h2>
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href={dashboardHref}
-                className="inline-flex h-11 items-center gap-2 border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
-              >
-                {hasPaidAccess ? "Open terminal" : isAuthenticated ? "Unlock access" : "Get access"}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                href="/sign-in"
-                className="inline-flex h-11 items-center border border-white/[0.1] bg-white/[0.02] px-5 text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e0ee]"
-              >
-                Sign in
-              </Link>
+          <section id="faq" className="border-b border-white/[0.06]">
+            <div className="mx-auto w-full max-w-[1320px] px-4 py-20 sm:px-6 lg:px-8 lg:py-24">
+              <SectionIntro
+                eyebrow="FAQ"
+                title="Short answers to practical questions."
+                text="Enough detail to remove friction, without turning the bottom of the page into filler."
+              />
+
+              <div className="mt-12 border-t border-white/[0.08]">
+                {FAQS.map((item) => (
+                  <details
+                    key={item.question}
+                    className="border-b border-white/[0.08] py-5"
+                  >
+                    <summary className="cursor-pointer list-none pr-8 text-[18px] font-semibold tracking-[-0.03em] text-[#eef4fb]">
+                      {item.question}
+                    </summary>
+                    <p className="mt-4 max-w-[860px] text-[15px] leading-7 text-[#8ea4bc]">
+                      {item.answer}
+                    </p>
+                  </details>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
-      </main>
+          </section>
+        </main>
 
-      <footer className="mx-auto flex w-full max-w-[1280px] flex-col gap-8 px-4 py-10 sm:px-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
-        <div>
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center border border-white/[0.08] bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.16),transparent_62%),rgba(6,11,17,0.92)] text-cyan">
-              <Activity className="h-4 w-4" />
-            </span>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-[#6e8299]">Narrative To Asset</p>
-              <p className="text-[15px] font-semibold text-[#eef5ff]">Execution Surface</p>
-            </div>
+        <footer className="mx-auto flex w-full max-w-[1320px] flex-col gap-6 px-4 py-10 sm:px-6 lg:flex-row lg:items-end lg:justify-between lg:px-8">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
+              {BRAND_NAME}
+            </p>
+            <p className="mt-3 text-[24px] font-semibold tracking-[-0.04em] text-[#eef4fb]">
+              {BRAND_DESCRIPTOR}
+            </p>
+            <p className="mt-3 max-w-[520px] text-[14px] leading-7 text-[#859ab2]">
+              Track internet narratives, review linked memecoins, and validate market context from one platform built for serious crypto monitoring.
+            </p>
           </div>
-          <p className="mt-4 max-w-[420px] text-[13px] leading-6 text-[#7f94ad]">
-            Narrative intelligence, correlated memecoin discovery, and validation context for serious market users.
-          </p>
-        </div>
 
-        <div className="flex flex-wrap gap-x-6 gap-y-3 text-[12px] font-medium uppercase tracking-[0.16em] text-[#98aec5]">
-          <Link href="/">Home</Link>
-          <Link href="/#features">Features</Link>
-          <Link href="/pricing">Pricing</Link>
-          <Link href="/#faq">FAQ</Link>
-          <Link href="/privacy">Privacy</Link>
-          <Link href="/terms">Terms</Link>
-          <a href="mailto:contact@example.com">Contact</a>
-          <Link href="/sign-in">Sign In</Link>
-        </div>
-      </footer>
+          <div className="flex flex-wrap gap-x-6 gap-y-3 text-[12px] font-medium uppercase tracking-[0.16em] text-[#9ab0c7]">
+            <Link href="/#proof" className="hover:text-[#eef4fb]">Features</Link>
+            <Link href="/pricing" className="hover:text-[#eef4fb]">Pricing</Link>
+            <Link href="/#faq" className="hover:text-[#eef4fb]">FAQ</Link>
+            <Link href="/#product" className="hover:text-[#eef4fb]">Platform</Link>
+            <Link href="/privacy" className="hover:text-[#eef4fb]">Privacy</Link>
+            <Link href="/terms" className="hover:text-[#eef4fb]">Terms</Link>
+            <Link href="/risk-disclosure" className="hover:text-[#eef4fb]">Risk Disclosure</Link>
+            <Link href="/refund-policy" className="hover:text-[#eef4fb]">Refund Policy</Link>
+            <a href={`mailto:${LEGAL_CONTACT.supportEmail}`} className="hover:text-[#eef4fb]">Support</a>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

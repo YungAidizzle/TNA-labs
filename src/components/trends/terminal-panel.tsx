@@ -5,6 +5,7 @@ type TerminalPanelProps = {
   title: string;
   subtitle?: string;
   action?: ReactNode;
+  disclaimer?: ReactNode;
   tone?: "neutral" | "cyan" | "emerald" | "amber";
   moduleId?: string;
   className?: string;
@@ -27,6 +28,7 @@ export function TerminalPanel({
   title,
   subtitle,
   action,
+  disclaimer,
   tone = "neutral",
   moduleId,
   className,
@@ -61,6 +63,11 @@ export function TerminalPanel({
         {action ? <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">{action}</div> : null}
       </header>
       <div className={cn("min-h-0 flex-1", bodyClassName)}>{children}</div>
+      {disclaimer ? (
+        <div className="border-t border-[#1b2735] bg-[#07101a] px-4 py-2 text-[11px] uppercase tracking-[0.14em] text-[#7a8fa8]">
+          {disclaimer}
+        </div>
+      ) : null}
     </section>
   );
 }

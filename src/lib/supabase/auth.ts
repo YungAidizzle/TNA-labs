@@ -23,6 +23,21 @@ export type AppProfile = {
   updated_at: string;
 };
 
+function maskEmail(email: string | null | undefined) {
+  const normalized = email?.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const [localPart, domain = ""] = normalized.split("@");
+  const safeLocalPart = localPart.length <= 3 ? `${localPart}***` : `${localPart.slice(0, 3)}***`;
+  return domain ? `${safeLocalPart}@${domain}` : safeLocalPart;
+}
+
+function logAccessDecision(event: string, details: Record<string, unknown>) {
+  console.info(`[access] ${event}`, details);
+}
+
 function getSupabaseAuthConfig() {
   const url = (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
   const anonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
@@ -94,6 +109,11 @@ export async function getCurrentProfile(user: User | null) {
     .maybeSingle<AppProfile>();
 
   if (error) {
+    console.warn("[access] profile lookup failed", {
+      userId: user.id,
+      email: maskEmail(user.email ?? null),
+      error: error.message,
+    });
     return null;
   }
 
@@ -123,8 +143,18 @@ export async function requireAuthenticatedUser() {
 export async function requirePaidUser() {
   const user = await requireAuthenticatedUser();
   const profile = await getCurrentProfile(user);
+  const hasPaidAccess = Boolean(profile && isPaidAccessState(profile.access_state));
 
-  if (!profile || !isPaidAccessState(profile.access_state)) {
+  logAccessDecision("dashboard_gate_evaluated", {
+    userId: user.id,
+    email: maskEmail(user.email ?? profile?.email ?? null),
+    stripeCustomerId: profile?.stripe_customer_id ?? null,
+    accessState: profile?.access_state ?? null,
+    onboardingState: profile?.onboarding_state ?? null,
+    allowed: hasPaidAccess,
+  });
+
+  if (!hasPaidAccess) {
     redirect("/pricing");
   }
 
@@ -168,7 +198,18 @@ export async function requirePaidApiUser() {
   }
 
   const profile = await getCurrentProfile(user);
-  if (!profile || !isPaidAccessState(profile.access_state)) {
+  const hasPaidAccess = Boolean(profile && isPaidAccessState(profile.access_state));
+
+  logAccessDecision("api_gate_evaluated", {
+    userId: user.id,
+    email: maskEmail(user.email ?? profile?.email ?? null),
+    stripeCustomerId: profile?.stripe_customer_id ?? null,
+    accessState: profile?.access_state ?? null,
+    onboardingState: profile?.onboarding_state ?? null,
+    allowed: hasPaidAccess,
+  });
+
+  if (!hasPaidAccess) {
     return NextResponse.json(
       {
         error: {

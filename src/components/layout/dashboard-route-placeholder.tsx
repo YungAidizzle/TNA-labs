@@ -104,7 +104,7 @@ export function DashboardRoutePlaceholder({
                   Current Access
                 </p>
                 <p className="mt-4 text-[13px] leading-[1.7] text-[#cad7e8]">
-                  Overview stays unlocked as the live execution surface. This module remains visible now so
+                  Overview stays unlocked as the live research surface. This module remains visible now so
                   the product roadmap is explicit inside the terminal instead of hidden behind future releases.
                 </p>
               </div>

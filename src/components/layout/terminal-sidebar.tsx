@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Activity, LockKeyhole, Search } from "lucide-react";
+import { BRAND_DESCRIPTOR, BRAND_NAME } from "@/lib/brand";
 import {
   AppNavigationItem,
   getSidebarNavigationGroups,
@@ -173,10 +174,10 @@ export function TerminalSidebar({
 
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#62778f]">
-              Narrative To Asset
+              {BRAND_NAME}
             </p>
             <p className="mt-1 truncate text-[18px] font-semibold tracking-[-0.03em] text-[#eef5ff]">
-              Execution Surface
+              {BRAND_DESCRIPTOR}
             </p>
             <div className="mt-2 flex items-center gap-2 text-[11px] text-[#7b8fa8]">
               <span className="h-1.5 w-1.5 shrink-0 bg-emerald shadow-[0_0_12px_rgba(77,219,147,0.65)]" />
@@ -225,7 +226,7 @@ export function TerminalSidebar({
         </button>
 
         <p className="px-3 pt-2 text-[10px] uppercase tracking-[0.16em] text-[#53677f]">
-          Institutional terminal workflow
+          Research-first terminal workflow
         </p>
       </div>
     </aside>

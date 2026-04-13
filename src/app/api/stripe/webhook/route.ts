@@ -6,6 +6,7 @@ import {
   getStripeWebhookSecret,
 } from "@/lib/stripe/server";
 import {
+  syncInvoiceFromStripe,
   syncCheckoutSession,
   syncSubscriptionFromStripe,
 } from "@/lib/billing/subscriptions";
@@ -49,14 +50,25 @@ export async function POST(request: Request) {
   }
 
   try {
+    console.info("[stripe-webhook] received", {
+      eventType: event.type,
+      eventId: event.id,
+    });
+
     switch (event.type) {
       case "checkout.session.completed":
-        await syncCheckoutSession(event.data.object as Stripe.Checkout.Session);
+        await syncCheckoutSession(event.data.object as Stripe.Checkout.Session, {
+          source: "stripe_webhook",
+        });
         break;
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
         await syncSubscriptionFromStripe(event.data.object as Stripe.Subscription);
+        break;
+      case "invoice.paid":
+      case "invoice.payment_failed":
+        await syncInvoiceFromStripe(event.data.object as Stripe.Invoice);
         break;
       default:
         break;

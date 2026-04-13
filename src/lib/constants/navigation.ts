@@ -46,7 +46,7 @@ export const NAV_ITEMS: AppNavigationItem[] = [
     label: "Overview",
     href: "/trends",
     icon: LayoutDashboard,
-    description: "Live narrative-to-memecoin execution surface",
+    description: "Live narrative and correlated-asset research surface",
     placeholderDescription:
       "The live overview remains the operational entry point for the platform, combining ranked narratives, linked memecoin context, and validation workflow in one terminal surface.",
     placeholderHighlights: [
@@ -66,7 +66,7 @@ export const NAV_ITEMS: AppNavigationItem[] = [
     icon: Bookmark,
     description: "Save narratives, memecoins, and future custom screens",
     placeholderDescription:
-      "Watchlist will let operators pin high-conviction narratives and memecoins into persistent monitoring lanes. Saved custom screens will join the same workflow as the product moves beyond a single live surface.",
+      "Watchlist will let operators pin priority narratives and memecoins into persistent monitoring lanes. Saved custom screens will join the same workflow as the product moves beyond a single live surface.",
     placeholderHighlights: [
       "Save narratives and memecoins into durable monitoring lists for follow-through.",
       "Custom screens and reusable operator views are planned as part of the same rollout.",
@@ -201,14 +201,14 @@ export const NAV_ITEMS: AppNavigationItem[] = [
     label: "Settings",
     href: "/settings",
     icon: Settings2,
-    description: "Product, workflow, and user configuration",
+    description: "Account, billing, and legal acknowledgement settings",
     placeholderDescription:
       "Settings will consolidate product, workspace, and user configuration as more modules unlock and operator preferences become persistent.",
     placeholderHighlights: [
       "Saved defaults, rollout controls, and account configuration will live here.",
       "This will become the control surface for terminal behavior as the platform expands.",
     ],
-    status: "coming-soon",
+    status: "available",
     group: "system",
     matchPath: "/settings",
     moduleId: "SY-02",
@@ -222,6 +222,7 @@ const SIDEBAR_NAV_ITEM_IDS = new Set<string>([
   "narratives",
   "memecoins",
   "api-data-export",
+  "settings",
 ]);
 
 export const GROUPED_NAV_ITEMS = NAV_GROUPS.map((group) => ({

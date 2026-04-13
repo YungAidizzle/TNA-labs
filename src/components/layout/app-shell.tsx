@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Search } from "lucide-react";
 import { ReactNode, useEffect, useEffectEvent, useMemo, useState } from "react";
@@ -11,6 +12,9 @@ import {
 } from "@/lib/constants/navigation";
 import { PageTransition } from "@/components/layout/page-transition";
 import { TerminalSidebar } from "@/components/layout/terminal-sidebar";
+import { BRAND_NAME } from "@/lib/brand";
+import { LEGAL_CONTACT } from "@/lib/legal/contact-details";
+import { EXPANDED_PRODUCT_DISCLAIMER, SHORT_PRODUCT_DISCLAIMER } from "@/lib/legal/disclaimers";
 import { cn } from "@/lib/utils/cn";
 import { useAppStore } from "@/store/app-store";
 
@@ -88,7 +92,7 @@ export function AppShell({ children }: AppShellProps) {
               </div>
               <div className="min-w-0">
                 <p className="truncate text-[12px] font-medium text-[#70859f]">
-                  Narrative To Asset
+                  {BRAND_NAME}
                 </p>
                 <p className="truncate text-[18px] font-semibold text-[#e9f0fb]">
                   {activeRouteLabel}
@@ -119,6 +123,32 @@ export function AppShell({ children }: AppShellProps) {
             {children}
           </PageTransition>
         </main>
+
+        <footer className="border-t border-white/[0.08] bg-[linear-gradient(180deg,rgba(7,11,16,0.98),rgba(4,7,11,0.99))] px-4 py-3 text-[12px] text-[#91a6bf]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <p>{SHORT_PRODUCT_DISCLAIMER}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 uppercase tracking-[0.14em] text-[#99aec5]">
+              <Link href="/risk-disclosure" className="hover:text-[#eef5ff]">Risk Disclosure</Link>
+              <Link href="/terms" className="hover:text-[#eef5ff]">Terms</Link>
+              <Link href="/privacy" className="hover:text-[#eef5ff]">Privacy</Link>
+              <Link href="/settings" className="hover:text-[#eef5ff]">Settings</Link>
+              <a href={`mailto:${LEGAL_CONTACT.supportEmail}`} className="hover:text-[#eef5ff]">
+                Support
+              </a>
+            </div>
+          </div>
+
+          <details className="mt-3 text-[12px] leading-6 text-[#7388a2]">
+            <summary className="cursor-pointer uppercase tracking-[0.14em] text-[#8fa4bd]">
+              Compliance summary
+            </summary>
+            <div className="mt-2 space-y-1">
+              {EXPANDED_PRODUCT_DISCLAIMER.map((item) => (
+                <p key={item}>{item}</p>
+              ))}
+            </div>
+          </details>
+        </footer>
       </div>
 
       {commandPaletteMounted ? <LazyCommandPalette /> : null}

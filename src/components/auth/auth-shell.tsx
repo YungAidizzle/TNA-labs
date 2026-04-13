@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Activity, ArrowLeft, BadgeCheck, ShieldCheck, Zap } from "lucide-react";
+import { BRAND_DESCRIPTOR, BRAND_NAME } from "@/lib/brand";
 
 type AuthShellProps = {
   eyebrow: string;
@@ -11,7 +12,7 @@ type AuthShellProps = {
 const sideItems = [
   "Live narrative ranking with market-linked context",
   "Correlated memecoin discovery inside the same workflow",
-  "Terminal-grade interface built for repeat scanning",
+  "Research-first interface built for repeat scanning",
 ] as const;
 
 export function AuthShell({
@@ -37,10 +38,10 @@ export function AuthShell({
             </span>
             <span>
               <span className="block text-[10px] font-medium uppercase tracking-[0.2em] text-[#6e8299]">
-                Narrative To Asset
+                {BRAND_NAME}
               </span>
               <span className="block text-[15px] font-semibold text-[#eef5ff]">
-                Execution Surface
+                {BRAND_DESCRIPTOR}
               </span>
             </span>
           </Link>
@@ -52,10 +53,10 @@ export function AuthShell({
               Access surface
             </p>
             <h1 className="mt-5 max-w-[520px] text-[38px] font-semibold leading-[1.02] tracking-[-0.05em] text-[#f2f8ff]">
-              The public entry flow now matches the terminal it leads into.
+              The account flow now matches the platform it leads into.
             </h1>
             <p className="mt-5 max-w-[520px] text-[15px] leading-7 text-[#94a9c1]">
-              Account creation is the first step. Billing and premium activation are staged next, but the structure is already ready for a clean subscription rollout.
+              Account creation is the first step. Legal assent, billing disclosure, and premium activation are wired so the service is harder to misread as advice or execution.
             </p>
 
             <div className="mt-8 grid gap-3">
@@ -69,9 +70,9 @@ export function AuthShell({
 
             <div className="mt-auto grid gap-3 pt-8 sm:grid-cols-3">
               {[
-                { icon: Zap, label: "Fast surface" },
+                { icon: Zap, label: "Fast research flow" },
                 { icon: ShieldCheck, label: "Clean access control" },
-                { icon: BadgeCheck, label: "Future billing ready" },
+                { icon: BadgeCheck, label: "Billing and legal ready" },
               ].map((item) => (
                 <div key={item.label} className="border border-white/[0.07] bg-[#07101a] p-4">
                   <item.icon className="h-4 w-4 text-cyan" />

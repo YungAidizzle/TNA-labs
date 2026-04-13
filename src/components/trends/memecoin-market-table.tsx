@@ -193,8 +193,8 @@ function shortMomentumSignalLabel(signal: string | null | undefined) {
   if (normalized === "early continuation") {
     return "Continue";
   }
-  if (normalized === "buy pressure") {
-    return "Buy flow";
+  if (normalized === "order flow") {
+    return "Order";
   }
   if (normalized === "acceleration") {
     return "Accel";

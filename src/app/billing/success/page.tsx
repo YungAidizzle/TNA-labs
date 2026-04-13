@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { Activity, ArrowRight, CheckCircle2, RefreshCcw } from "lucide-react";
-import { getCurrentAuthContext } from "@/lib/supabase/auth";
+import { confirmCheckoutSessionById } from "@/lib/billing/subscriptions";
 import { isPaidAccessState } from "@/lib/billing/shared";
+import { getCurrentAuthContext, getCurrentProfile } from "@/lib/supabase/auth";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type BillingSuccessPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -16,7 +20,29 @@ export default async function BillingSuccessPage({
 }: BillingSuccessPageProps) {
   const params = searchParams ? await searchParams : {};
   const sessionId = readQueryValue(params.session_id);
-  const { user, profile } = await getCurrentAuthContext();
+  const authContext = await getCurrentAuthContext();
+  const user = authContext.user;
+  let profile = authContext.profile;
+  let confirmationError: string | null = null;
+
+  if (user && sessionId) {
+    try {
+      await confirmCheckoutSessionById(sessionId, {
+        authenticatedUserId: user.id,
+        expectedEmail: user.email ?? profile?.email ?? null,
+        source: "billing_success_page",
+      });
+      profile = await getCurrentProfile(user);
+    } catch (error) {
+      confirmationError = error instanceof Error ? error.message : "Checkout confirmation failed.";
+      console.error("[billing-success] checkout reconciliation failed", {
+        sessionId,
+        userId: user.id,
+        error: confirmationError,
+      });
+    }
+  }
+
   const hasPaidAccess = isPaidAccessState(profile?.access_state);
 
   return (
@@ -39,14 +65,20 @@ export default async function BillingSuccessPage({
           </div>
 
           <h1 className="mt-4 text-[34px] font-semibold tracking-[-0.05em] text-[#f3f8ff]">
-            {hasPaidAccess ? "Access is active." : "Payment returned. Waiting for subscription sync."}
+            {hasPaidAccess ? "Access is active." : "Payment returned. Access is still reconciling."}
           </h1>
 
           <p className="mt-4 max-w-[720px] text-[15px] leading-7 text-[#92a7bf]">
             {hasPaidAccess
               ? "Your subscription state is synced and the dashboard routes are unlocked."
-              : "Access is granted only after the Stripe webhook updates Supabase. If this page returns before the webhook finishes, refresh after a few seconds and try again."}
+              : "This page now attempts an immediate Stripe reconciliation using the Checkout session. If the webhook is still catching up, refresh once and inspect the billing logs."}
           </p>
+
+          {confirmationError ? (
+            <div className="mt-6 border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
+              {confirmationError}
+            </div>
+          ) : null}
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             <div className="border border-white/[0.07] bg-[#07101a] p-4">
@@ -74,7 +106,7 @@ export default async function BillingSuccessPage({
               </Link>
             ) : (
               <Link
-                href="/billing/success"
+                href={sessionId ? `/billing/success?session_id=${encodeURIComponent(sessionId)}` : "/billing/success"}
                 className="inline-flex h-11 items-center gap-2 border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-5 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
               >
                 Refresh status

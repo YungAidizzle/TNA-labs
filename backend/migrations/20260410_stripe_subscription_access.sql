@@ -119,6 +119,36 @@ after insert on auth.users
 for each row
 execute function public.handle_auth_user_created();
 
+insert into public.profiles (
+  id,
+  email,
+  full_name,
+  avatar_url,
+  access_state,
+  onboarding_state,
+  created_at,
+  updated_at
+)
+select
+  users.id,
+  users.email,
+  nullif(trim(users.raw_user_meta_data ->> 'full_name'), ''),
+  nullif(trim(users.raw_user_meta_data ->> 'avatar_url'), ''),
+  'pending_setup',
+  case
+    when users.email_confirmed_at is null then 'email_verification_pending'
+    else 'account_created'
+  end,
+  coalesce(users.created_at, timezone('utc', now())),
+  timezone('utc', now())
+from auth.users as users
+on conflict (id) do update
+set
+  email = excluded.email,
+  full_name = coalesce(excluded.full_name, public.profiles.full_name),
+  avatar_url = coalesce(excluded.avatar_url, public.profiles.avatar_url),
+  updated_at = timezone('utc', now());
+
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles (id) on delete cascade,
@@ -206,3 +236,49 @@ on public.subscriptions
 for select
 to authenticated
 using (auth.uid() = user_id);
+
+with ranked_subscriptions as (
+  select
+    subscriptions.user_id,
+    subscriptions.stripe_customer_id,
+    subscriptions.stripe_subscription_id,
+    subscriptions.status,
+    row_number() over (
+      partition by subscriptions.user_id
+      order by
+        case subscriptions.status
+          when 'active' then 0
+          when 'trialing' then 1
+          when 'past_due' then 2
+          when 'inactive' then 3
+          else 4
+        end,
+        subscriptions.current_period_end desc nulls last,
+        subscriptions.updated_at desc
+    ) as subscription_rank
+  from public.subscriptions as subscriptions
+)
+update public.profiles as profiles
+set
+  stripe_customer_id = coalesce(ranked_subscriptions.stripe_customer_id, profiles.stripe_customer_id),
+  access_state = case ranked_subscriptions.status
+    when 'trialing' then 'trialing'
+    when 'active' then 'active'
+    when 'past_due' then 'past_due'
+    when 'canceled' then 'canceled'
+    else 'inactive'
+  end,
+  onboarding_state = case ranked_subscriptions.status
+    when 'trialing' then 'complete'
+    when 'active' then 'complete'
+    else
+      case
+        when coalesce(ranked_subscriptions.stripe_customer_id, profiles.stripe_customer_id) is not null then 'billing_ready'
+        when profiles.access_state = 'pending_setup' then 'account_created'
+        else 'access_pending'
+      end
+  end,
+  updated_at = timezone('utc', now())
+from ranked_subscriptions
+where ranked_subscriptions.subscription_rank = 1
+  and ranked_subscriptions.user_id = profiles.id;

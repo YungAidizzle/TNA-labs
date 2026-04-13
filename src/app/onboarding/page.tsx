@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Activity, ArrowRight, Clock3 } from "lucide-react";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { BRAND_NAME } from "@/lib/brand";
 import { getCurrentAuthContext } from "@/lib/supabase/auth";
 import { isPaidAccessState } from "@/lib/billing/shared";
 
@@ -34,7 +35,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
             <Activity className="h-4 w-4" />
           </span>
           <div>
-            <p className="text-[10px] uppercase tracking-[0.2em] text-[#6e8299]">Narrative To Asset</p>
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#6e8299]">{BRAND_NAME}</p>
             <p className="text-[15px] font-semibold text-[#eef5ff]">Access setup</p>
           </div>
         </div>
@@ -55,7 +56,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
               ? "Your account record is created. Email confirmation is required before sign-in if that setting is enabled in Supabase."
               : hasPaidAccess
                 ? "Your subscription state is synced and the paid dashboard routes are available."
-                : "The account is ready. Subscription checkout unlocks the dashboard once the Stripe webhook syncs access state back into Supabase."}
+                : "The account is ready. Subscription checkout unlocks the dashboard once Stripe reconciliation updates access state back into Supabase."}
           </p>
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -78,7 +79,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
           <div className="mt-8 border border-cyan/12 bg-cyan/[0.08] p-4 text-[14px] leading-7 text-[#dbe7f4]">
             <div className="flex items-center gap-3">
               <Clock3 className="h-4 w-4 text-cyan" />
-              <span>Access unlocks from webhook-synced subscription state, not just from account creation or returning from Checkout.</span>
+              <span>Access unlocks from Stripe-synced subscription state, with Checkout confirmation covering delayed webhooks.</span>
             </div>
           </div>
 
