@@ -9,6 +9,7 @@ import {
   storeSuccessfulAiTrendSnapshot,
 } from "@/lib/ai-trends/repository";
 import { assertAiTrendCanonicalTitle } from "@/lib/ai-trends/title-validation";
+import { rerankAiTrendsForNarrativeRelevance } from "@/lib/ai-trends/narrative-relevance";
 import type {
   GeneratedAiTrendCandidate,
   GeneratedAiTrendSnapshotPayload,
@@ -158,10 +159,16 @@ function normalizeModelPayload(content: string, expectedTrendCount: number): Gen
   }
 
   const normalized = parsed.trends.map((row, index) => normalizeTrendCandidate(row as RawModelTrend, index));
-  normalized.sort((left, right) => left.rank - right.rank);
+  const reranked = rerankAiTrendsForNarrativeRelevance(normalized);
+  if (reranked.rejectedReason) {
+    throw new Error(
+      `Generated board failed internet-native relevance quality gate: ${reranked.rejectedReason}. ` +
+        `Distribution was high=${reranked.distribution.highCount}, medium=${reranked.distribution.mediumCount}, low=${reranked.distribution.lowCount}.`,
+    );
+  }
 
   const seenKeys = new Set<string>();
-  const trends = normalized.map((trend, index) => {
+  const trends = reranked.trends.map((trend, index) => {
     const key = seenKeys.has(trend.trendKey) ? `${trend.trendKey}-${index + 1}` : trend.trendKey;
     seenKeys.add(key);
     return {
@@ -183,6 +190,9 @@ function normalizeModelPayload(content: string, expectedTrendCount: number): Gen
     trends,
     notesJson: {
       generation_summary: asNonEmptyString(parsed.generated_context?.summary),
+      narrative_relevance_distribution: reranked.distribution,
+      narrative_relevance_average_score: reranked.averageScore,
+      ranking_focus: "internet_native_narrative_propagation",
     },
   };
 }
@@ -190,20 +200,36 @@ function normalizeModelPayload(content: string, expectedTrendCount: number): Gen
 function buildGenerationPrompt(trendCount: number) {
   const nowIso = new Date().toISOString();
   return [
-    "Generate the current top internet narrative trends for a shared dashboard leaderboard.",
+    "Generate the current top internet-native narrative trends for a shared dashboard leaderboard.",
     `Return exactly ${trendCount} trends ranked from 1 to ${trendCount}.`,
-    "Use current web-grounded information and prioritize topics that are important now, widely discussed now, or narratively significant now.",
+    "Use current web-grounded information and optimize for narratives that are most likely to propagate through highly online attention ecosystems today.",
     "This is one shared global board for all users. Do not personalize for a user segment.",
+    "Prioritize narratives that people would meme, repeat, argue about, turn into slogans, attach identity to, or create tokens around.",
+    "Strongly favor narratives with named entities, symbolic events, controversy, virality potential, cultural hooks, platform shifts, or retail-speculation spillover.",
+    "A trend only belongs high on this board if highly online communities would keep talking about it repeatedly today.",
+    "Primary ranking factor: memetic potential and narrative propagation likelihood. Secondary ranking factor: general importance.",
+    "Every selected trend must be anchored to a specific current narrative object: a named person, company, product, clip, hashtag, slogan, lawsuit, launch, leak, ban, platform shift, controversy, or flashpoint event.",
     "Avoid duplicates, near-duplicates, and minor variants of the same story.",
+    "Exclude or push to the bottom routine process news, vague institutional developments, generic enterprise trends, abstract sector movements, B2B internal changes, and long-term structural themes with no current cultural spike.",
+    "Do not pad the board with evergreen internet behavior patterns, broad creator-economy themes, generic youth-culture shifts, or abstract meme categories unless they are tied to a specific current flashpoint.",
+    "Downrank vague actors such as companies, governments, institutions, enterprises, regulators, banks, vendors, and providers when the narrative lacks a specific named person, company, product, slogan, event, or object.",
+    "If a macro, political, or geopolitical story is included, it must have clear public-attention spillover, symbolic force, or meme potential right now.",
+    "Prefer concrete current objects over broad discussion umbrellas.",
+    "The final board should feel like what the internet is talking about, not a generic world-news digest.",
+    "Aim for roughly 35 to 45 high-relevance internet-native narratives, 35 to 45 medium-relevance spillover narratives, and no more than 20 low-relevance fallback stories.",
+    "Do not treat every named-entity story as a top-tier memetic narrative. Use the middle ranks for real spillover stories that are important online but not direct meme objects.",
     "The title field is the canonical stored dashboard title and must already be the final compact narrative label.",
     "Do not generate a long title first. Do not return a long title plus a shorter variant. The title field itself must be short.",
     "Titles should usually be 3 to 6 words and must never exceed 8 words.",
     "Titles must sound like clean narrative labels, not newspaper headlines or full sentences.",
     "Keep the exact subject of the trend in the title, including the specific person, company, event, slogan, meme, policy, or object.",
     "Do not use ellipses, quotation marks, colons, semicolons, or headline-style framing in titles.",
-    "Good title style examples: EU AI Act Crackdown, Anthropic Mythos Leak, OpenAI Media Push, Fed Inflation Jitters, Iran Escalation Risk, Bitcoin ETF Surge.",
+    "Good title style examples: Anthropic Mythos Leak, OpenAI Media Push, TikTok Ban Flashpoint, Trump MAGA Push, Iran Escalation Risk, Bitcoin ETF Surge.",
+    "Bad title examples to avoid: Viral Food Trend, Creator Drama, Meme Culture Shift, Platform Update Buzz, Internet Debate Topic.",
     "Each summary must be concise and factual.",
-    "importance_note should explain why the topic matters right now in one short sentence.",
+    "importance_note should explain why highly online communities would keep talking about this right now in one short sentence.",
+    "confidence_score should reflect confidence that the trend is real, current, and well-supported.",
+    "ai_rank_score should reflect internet-native narrative propagation likelihood, memetic force, and speculative-attention spillover potential.",
     "category should be a concise label such as AI, Tech, Crypto, Markets, Politics, Business, World, Culture, Entertainment, Sports, or Internet.",
     "source_scope should describe the breadth briefly, such as global, regional, niche, mainstream, or mixed.",
     "source_count should be the approximate number of distinct web sources materially supporting the topic.",

@@ -45,6 +45,9 @@ export type GeneratedAiTrendCandidate = {
   category: string | null;
   sourceScope: string | null;
   sourceCount: number | null;
+  narrativeRelevance?: "high" | "medium" | "low" | null;
+  narrativeScore?: number | null;
+  rankingSignals?: string[] | null;
 };
 
 export type GeneratedAiTrendSnapshotPayload = {

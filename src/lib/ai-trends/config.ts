@@ -6,7 +6,7 @@ const DEFAULT_MODEL_NAME =
   process.env.AI_TREND_MODEL?.trim() ||
   process.env.OPENAI_TREND_MODEL?.trim() ||
   "gpt-5-mini";
-const DEFAULT_PROMPT_VERSION = "shared-ai-trends-v2-compact-canonical-titles";
+const DEFAULT_PROMPT_VERSION = "shared-ai-trends-v3-internet-native-relevance";
 
 function readBooleanEnv(name: string, fallback: boolean) {
   const raw = process.env[name];
