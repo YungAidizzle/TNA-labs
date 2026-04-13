@@ -92,6 +92,16 @@ function clampScore(value: number, fallback: number) {
   return Math.min(100, Math.max(0, value));
 }
 
+function normalizeModelScore(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+
+  const scaled = numeric > 0 && numeric < 1 ? numeric * 100 : numeric;
+  return clampScore(scaled, fallback);
+}
+
 function slugifyTrendKey(value: string) {
   const normalized = value
     .trim()
@@ -119,8 +129,8 @@ function normalizeTrendCandidate(raw: RawModelTrend, index: number): GeneratedTr
   }
 
   const rank = Number(raw.rank ?? index + 1);
-  const confidenceScore = clampScore(Number(raw.confidence_score ?? 0), 0);
-  const aiRankScore = clampScore(Number(raw.ai_rank_score ?? confidenceScore), confidenceScore);
+  const confidenceScore = normalizeModelScore(raw.confidence_score ?? 0, 0);
+  const aiRankScore = normalizeModelScore(raw.ai_rank_score ?? confidenceScore, confidenceScore);
 
   return {
     rank: Number.isFinite(rank) ? Math.max(1, Math.round(rank)) : index + 1,
