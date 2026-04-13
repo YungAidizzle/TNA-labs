@@ -1,7 +1,10 @@
 {
   "$schema": "https://schema.railpack.com",
-  "provider": "python",
+  "provider": "node",
+  "build": {
+    "buildCommand": "pnpm build"
+  },
   "deploy": {
-    "startCommand": "python -m backend.main"
+    "startCommand": "pnpm start"
   }
 }

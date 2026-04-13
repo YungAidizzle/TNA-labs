@@ -1,6 +1,6 @@
 # Attention Ranking Terminal
 
-Bluesky-first local/dev dashboard for ranking internet narratives and meme culture from a real persisted rolling 7-day dataset. The app now behaves like a local intelligence engine: it can chronologically backfill the last 7 days by subreddit bucket, keep that window fresh with live maintenance runs, tail the Bluesky firehose through Jetstream with a durable cursor, and keep the dashboard populated from stored records even when the latest fetch is partial or fails.
+Shared hourly GPT trend board for ranking current internet narratives with one stored snapshot for every user. The product no longer depends on Bluesky firehose ingestion or post-count-driven trend ranking for the primary dashboard path.
 
 ## Stack
 
@@ -8,8 +8,8 @@ Bluesky-first local/dev dashboard for ranking internet narratives and meme cultu
 - Tailwind CSS v4 + custom theme tokens
 - TanStack Query for client data loading
 - Apache ECharts for analytical charts
-- Supabase (Postgres) for persisted trend/topic analytics
-- Python ingestion pipeline with local JSON persistence
+- Supabase (Postgres) for shared trend snapshot storage
+- OpenAI Responses API for hourly trend generation
 
 ## Run
 
@@ -20,18 +20,16 @@ pnpm dev:live
 
 Open `http://localhost:3000`.
 
-`pnpm dev:live` now starts the authoritative `backend.main` worker, so trend naming is generated upstream and persisted independently of page loads.
+`pnpm dev:live` now starts the Next.js app plus optional Reddit rotation only. Shared trend generation runs through the hourly cron route.
 
-Use `pnpm dev` if you only want the Next.js app without the background worker.
-Use `pnpm worker:bluesky:once` to run one ingestion/title/enrichment pass and wait for secondary naming jobs to drain before exit.
-Use `pnpm worker:trend-names:backfill` to force a top-250 naming backfill without waiting for a page request.
+Use `pnpm dev` if you only want the Next.js app.
+Use `pnpm worker:gpt-trends:once` to force a shared GPT trend snapshot immediately.
 
 Cost controls:
 
-- Request-path AI naming is not a supported production path. Keep `ALLOW_REQUEST_PATH_VISIBLE_TOPIC_ENRICHMENT=false`.
-- The title worker is the cheap, always-on naming path. It now targets the top 250 active trends by default and persists `ai_display_name` upstream before the dashboard reads it.
-- Full narrative enrichment is expensive and is disabled by default in `.env.example`. Only enable `BLUESKY_TREND_ENRICHMENT_ENABLED=true` if you explicitly need richer summaries, not just leaderboard names.
-- If you are chasing spend, reduce call frequency first. Do not tighten refresh loops before reducing `BLUESKY_TREND_TITLE_INTERVAL_SECONDS`, `BLUESKY_TREND_TITLE_MAX_TOPICS_PER_PASS`, and hash-change refresh cadence.
+- Trend generation runs once per hour by default.
+- The dashboard reads the latest stored snapshot only and does not trigger generation per request.
+- Keep `GPT_TREND_STORE_RAW_RESPONSE=false` unless you explicitly need model debugging payloads.
 
 Operational diagnostics:
 
@@ -203,16 +201,12 @@ Trend confidence is freshness-aware and historical-coverage-aware: deep multi-th
 ```bash
 pnpm dev
 pnpm dev:live
-pnpm worker:bluesky
-pnpm worker:bluesky:once
-pnpm worker:bluesky:verify-db
+pnpm worker:gpt-trends:once
 pnpm fetch:reddit
 pnpm fetch:reddit:live
 pnpm fetch:reddit:live:once
 pnpm fetch:reddit:backfill
 pnpm fetch:reddit:backfill:once
-pnpm fetch:bluesky:firehose
-pnpm fetch:bluesky:firehose:live
 pnpm lint
 pnpm typecheck
 pnpm test
@@ -222,32 +216,26 @@ pnpm build
 
 ## Architecture Notes
 
-- `src/lib/dashboard/service.ts` now routes trend reads by feature flag:
-  - `USE_SUPABASE_TRENDS=true`: reads trends/topics from Supabase (`v_topic_trends_1m`, fallback `topic_buckets_1m`)
-  - `USE_SUPABASE_TRENDS=false`: uses the legacy local runtime snapshot path
-- `src/lib/dashboard/supabase-trends.ts` maps Supabase topic bucket data into dashboard-ready `TrendDashboardVM` objects.
-- `src/lib/supabase/server.ts` provides a server-only Supabase client and trend-source flag helpers.
-- `src/lib/dashboard/runtime-store.ts` remains a legacy fallback path while Supabase is being verified.
+- `src/lib/gpt-trends/generator.ts` calls the OpenAI Responses API with web search enabled and normalizes exactly 100 trends.
+- `src/lib/gpt-trends/repository.ts` stores hourly shared snapshots and reads the latest successful snapshot with a cheap two-query path.
+- `src/features/trends/trends-page.tsx` renders the stored shared snapshot directly on the server.
 - `src/lib/reddit/local-store.ts` reads `data/reddit_engine/dashboard_snapshot.json`.
 - `src/lib/adapters/analytics.ts` builds rolling trend objects from persisted 7-day posts/comments and applies freshness-aware confidence.
 - `src/lib/dashboard/zero-state.ts` is the single source of truth for empty dashboard defaults.
 - `backend/reddit_fetcher.py` fetches chronological backfill posts, live posts, and bounded comments.
 - `backend/reddit_ingestion.py` orchestrates backfill/live runs, persistence, pruning, and snapshot writes.
 - `backend/reddit_persistence.py` stores posts/comments/runs/source health/schedule state.
-- `backend/bluesky_firehose.py` tails the Bluesky firehose via Jetstream, derives rolling post and interaction records, and persists firehose cursor state.
-- `backend/main.py` is the authoritative persistent worker for ingestion, title generation, enrichment, and memecoin correlation.
-- `backend/bluesky_refresh.py` remains as a legacy fallback path if firehose sync fails.
 - `backend/youtube_refresh.py` expands YouTube beyond curated channels with keyword, breakout, related-video, and channel-expansion discovery plus comment and snapshot persistence.
 - `backend/reddit_scheduler.py` manages separate stable bucket rotation for live and backfill modes.
 - `backend/reddit_snapshot.py` builds the rolling 7-day dashboard snapshot and ingestion health summary.
 - `backend/reddit_window.py` defines rolling-window cutoff and pruning logic.
 - `scripts/fetch_reddit_live.py` is the manual live maintenance entrypoint.
 - `scripts/fetch_reddit_backfill.py` is the manual historical backfill entrypoint.
-- `scripts/fetch_bluesky_firehose.py` is the legacy manual Bluesky firehose sync entrypoint.
+- `scripts/run-gpt-trends.mjs` is the manual shared trend snapshot trigger for local/dev use.
 
 ## Notes
 
-- Bluesky is now the primary source, with Reddit, Google Trends, RSS/news, HN/Lobsters, Telegram, and optional YouTube ingestion wired into the same narrative pipeline.
+- GPT with web-grounded retrieval is now the primary source for the shared trend leaderboard.
 - Storage is local JSON for development simplicity and inspectability.
 - The persistence boundary is isolated enough to swap later for SQLite or server-side storage.
 - Comment expansion is intentionally bounded and configurable; it revisits the strongest known posts in live mode and the strongest discovered posts in backfill mode.
