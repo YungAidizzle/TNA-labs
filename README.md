@@ -30,10 +30,12 @@ Cost controls:
 - Trend generation runs once per hour by default.
 - The dashboard reads the latest stored snapshot only and does not trigger generation per request.
 - Keep `GPT_TREND_STORE_RAW_RESPONSE=false` unless you explicitly need model debugging payloads.
+- Vercel Hobby cannot run the hourly cron in `vercel.json`; use an external scheduler to call the GPT cron route hourly instead.
 
 Operational diagnostics:
 
 - Runbook: `docs/topic-ai-ops.md`
+- GPT trend refresh ops: `docs/gpt-trends-ops.md`
 - SQL pack: `scripts/sql/topic_ai_ops_diagnostics.sql`
 - The dashboard API now emits writer/count/token headers so unknown writers, legacy prompt versions, and duplicate reruns are visible from live responses.
 
