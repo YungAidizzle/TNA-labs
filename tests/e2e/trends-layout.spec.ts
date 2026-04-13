@@ -344,19 +344,46 @@ async function mockDashboardRoute(
   const previewSymbol = options?.previewSymbol ?? "NASDAQ:AAPL";
   const responseDelayMs = options?.responseDelayMs ?? 0;
   const requestedViews: string[] = [];
+  const payload = buildDashboardPayload();
 
   await page.route("**/api/dashboard/trends?**", async (route) => {
-    requestedViews.push(new URL(route.request().url()).searchParams.get("view") ?? "");
+    const view = new URL(route.request().url()).searchParams.get("view") ?? "summary";
+    requestedViews.push(view);
     if (responseDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, responseDelayMs));
     }
+
+    const responseBody =
+      view === "status"
+        ? {
+            items: [
+              { label: "Active narratives", value: "18", tone: "neutral" },
+              { label: "New narratives", value: "2", tone: "amber" },
+              { label: "Posts/min", value: "13", tone: "neutral" },
+              { label: "Linked memecoins", value: "3", tone: "green" },
+              { label: "New coins <24h", value: "1", tone: "amber" },
+              { label: "Last refresh", value: "now", tone: "neutral" },
+            ],
+            dataStatus: (payload as DashboardFixture).dataStatus ?? null,
+          }
+        : view === "memecoins"
+          ? {
+              correlatedMemecoins: (payload as DashboardFixture).correlatedMemecoins ?? null,
+              dataStatus: (payload as DashboardFixture).dataStatus ?? null,
+            }
+          : {
+              query: (payload as DashboardFixture).query,
+              leaderboard: (payload as DashboardFixture).leaderboard,
+              dataStatus: (payload as DashboardFixture).dataStatus ?? null,
+            };
+
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       headers: {
         "X-Dashboard-Api-Response-At": "2026-04-01T10:09:10.121Z",
       },
-      body: JSON.stringify(buildDashboardPayload()),
+      body: JSON.stringify(responseBody),
     });
   });
 
@@ -617,7 +644,7 @@ for (const viewport of DESKTOP_VIEWPORTS) {
     expect(structure?.columnCount).toBeGreaterThanOrEqual(3);
     expect(structure?.sameRow).toBe(true);
     expect(structure?.centerWidest).toBe(true);
-  expect(requestedViews.every((view) => view === "summary")).toBe(true);
+    expect(new Set(requestedViews)).toEqual(new Set(["status", "summary", "memecoins"]));
   });
 }
 

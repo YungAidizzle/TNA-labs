@@ -14,6 +14,7 @@ export const TREND_DASHBOARD_WORKSPACE_CLASS_NAME =
   "grid min-h-0 min-w-0 gap-2 xl:flex-1 xl:grid-cols-[minmax(280px,0.92fr)_minmax(360px,1.22fr)_minmax(300px,0.96fr)] xl:overflow-hidden 2xl:grid-cols-[minmax(300px,0.95fr)_minmax(420px,1.28fr)_minmax(320px,0.98fr)]";
 
 const noop = () => {};
+const CONNECTING_LABEL = "Live data connecting...";
 
 function NarrativePanelActionSkeleton() {
   return (
@@ -53,58 +54,81 @@ function ValidationPanelActionSkeleton() {
   );
 }
 
+export function TrendStatusStripSkeleton() {
+  return <OverviewStatusStrip loading />;
+}
+
+export function TrendNarrativesPanelSkeleton() {
+  return (
+    <div id="signals" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
+      <TerminalPanel
+        title="Narratives"
+        subtitle="Attention-ranked source table"
+        tone="cyan"
+        className="h-full min-h-0 min-w-0"
+        bodyClassName="overflow-hidden"
+        action={<NarrativePanelActionSkeleton />}
+        disclaimer={CONNECTING_LABEL}
+      >
+        <NarrativeTrendsTable rows={[]} selectedId={null} onSelect={noop} loading />
+      </TerminalPanel>
+    </div>
+  );
+}
+
+export function TrendMemecoinsPanelSkeleton() {
+  return (
+    <div id="memecoins" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
+      <TerminalPanel
+        title="Memecoins"
+        subtitle="Market-linked execution table"
+        tone="neutral"
+        className="h-full min-h-0 min-w-0"
+        bodyClassName="overflow-hidden"
+        action={<MemecoinPanelActionSkeleton />}
+        disclaimer={CONNECTING_LABEL}
+      >
+        <MemecoinMarketTable
+          rows={[]}
+          selectedCoinId={null}
+          selectedTrendLabel={null}
+          mode="momentum"
+          onModeChange={noop}
+          onSelectCoin={noop}
+          loading
+        />
+      </TerminalPanel>
+    </div>
+  );
+}
+
+export function TrendValidationPanelSkeleton() {
+  return (
+    <div id="validation" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
+      <TerminalPanel
+        title="Validation"
+        subtitle="Selected coin market context"
+        tone="emerald"
+        className="h-full min-h-0 min-w-0"
+        bodyClassName="overflow-hidden"
+        action={<ValidationPanelActionSkeleton />}
+        disclaimer={CONNECTING_LABEL}
+      >
+        <SelectedCoinPanel selectedCoin={null} loading />
+      </TerminalPanel>
+    </div>
+  );
+}
+
 export function TrendDashboardLoadingShell() {
   return (
     <div data-testid="trend-dashboard-loading-shell" className={TREND_DASHBOARD_LAYOUT_CLASS_NAME}>
-      <OverviewStatusStrip loading />
+      <TrendStatusStripSkeleton />
 
       <section data-testid="trend-main-workspace" className={TREND_DASHBOARD_WORKSPACE_CLASS_NAME}>
-        <div id="signals" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
-          <TerminalPanel
-            title="Narratives"
-            subtitle="Attention-ranked source table"
-            tone="cyan"
-            className="h-full min-h-0 min-w-0"
-            bodyClassName="overflow-hidden"
-            action={<NarrativePanelActionSkeleton />}
-          >
-            <NarrativeTrendsTable rows={[]} selectedId={null} onSelect={noop} loading />
-          </TerminalPanel>
-        </div>
-
-        <div id="memecoins" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
-          <TerminalPanel
-            title="Memecoins"
-            subtitle="Market-linked execution table"
-            tone="neutral"
-            className="h-full min-h-0 min-w-0"
-            bodyClassName="overflow-hidden"
-            action={<MemecoinPanelActionSkeleton />}
-          >
-            <MemecoinMarketTable
-              rows={[]}
-              selectedCoinId={null}
-              selectedTrendLabel={null}
-              mode="momentum"
-              onModeChange={noop}
-              onSelectCoin={noop}
-              loading
-            />
-          </TerminalPanel>
-        </div>
-
-        <div id="validation" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
-          <TerminalPanel
-            title="Validation"
-            subtitle="Selected coin market context"
-            tone="emerald"
-            className="h-full min-h-0 min-w-0"
-            bodyClassName="overflow-hidden"
-            action={<ValidationPanelActionSkeleton />}
-          >
-            <SelectedCoinPanel selectedCoin={null} loading />
-          </TerminalPanel>
-        </div>
+        <TrendNarrativesPanelSkeleton />
+        <TrendMemecoinsPanelSkeleton />
+        <TrendValidationPanelSkeleton />
       </section>
     </div>
   );
