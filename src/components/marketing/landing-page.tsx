@@ -185,7 +185,7 @@ export function LandingPage({
                   </h1>
 
                   <p className="mt-6 max-w-[33rem] text-[17px] leading-8 text-[#c0d0e1] sm:text-[18px]">
-                    Attentra shows which narratives are accelerating, which memecoins
+                    Attentra shows which social media trends are accelerating, which memecoins
                     map to them, and whether momentum is real before the trade gets
                     crowded.
                   </p>

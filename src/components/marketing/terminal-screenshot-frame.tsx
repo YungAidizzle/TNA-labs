@@ -1,4 +1,5 @@
 import Image from "next/image";
+import masterScreenshot from "../../../public/marketing/dashboard-terminal-hero-hq.png";
 import { cn } from "@/lib/utils/cn";
 
 type TerminalScreenshotFrameProps = {
@@ -8,10 +9,6 @@ type TerminalScreenshotFrameProps = {
   imageClassName?: string;
   priority?: boolean;
 };
-
-const MASTER_SCREENSHOT_SRC = "/marketing/dashboard-terminal-hero-hq.png";
-const MASTER_SCREENSHOT_WIDTH = 1876;
-const MASTER_SCREENSHOT_HEIGHT = 928;
 
 const HERO_CALLOUTS = [
   {
@@ -133,10 +130,10 @@ export function TerminalScreenshotFrame({
               )}
             >
               <Image
-                src={MASTER_SCREENSHOT_SRC}
+                src={masterScreenshot}
                 alt="Actual dashboard screenshot showing ranked narratives, momentum-ranked memecoins, and the validation workflow."
-                width={MASTER_SCREENSHOT_WIDTH}
-                height={MASTER_SCREENSHOT_HEIGHT}
+                width={masterScreenshot.width}
+                height={masterScreenshot.height}
                 priority={priority}
                 quality={100}
                 className={cn(
