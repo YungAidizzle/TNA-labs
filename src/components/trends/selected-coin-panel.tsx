@@ -23,6 +23,7 @@ type SelectedCoinPanelProps = {
   selectedCoin: MemecoinTerminalRow | null;
   loading?: boolean;
   allowMarketPreview?: boolean;
+  previewOverride?: TradingViewPreviewResponse | null;
 };
 
 function formatTokenPrice(value: number | null | undefined) {
@@ -250,6 +251,7 @@ export function SelectedCoinPanel({
   selectedCoin,
   loading = false,
   allowMarketPreview = true,
+  previewOverride = null,
 }: SelectedCoinPanelProps) {
   const [copiedCoinId, setCopiedCoinId] = useState<string | null>(null);
   const [chartPreviewState, setChartPreviewState] = useState<ChartPreviewState>({
@@ -299,11 +301,19 @@ export function SelectedCoinPanel({
 
       return dashboardClient.getMemecoinPreview(previewRow, { signal });
     },
-    enabled: Boolean(allowMarketPreview && previewRow && rowIsLive && resolvedDexscreenerUrl),
+    enabled: Boolean(
+      !previewOverride &&
+      allowMarketPreview &&
+      previewRow &&
+      rowIsLive &&
+      resolvedDexscreenerUrl,
+    ),
     staleTime: 5 * 60_000,
   });
+  const preview = previewOverride ?? previewQuery.data ?? null;
+  const previewLoading = !previewOverride && previewQuery.isPending;
   const previewSessionKey = row
-    ? `${row.id}:${previewQuery.data?.tradingviewSymbol ?? "none"}`
+    ? `${row.id}:${preview?.status === "tradingview" ? preview.tradingviewSymbol : "none"}`
     : "empty";
   const copied = copiedCoinId === row?.id;
   const widgetMounted =
@@ -462,7 +472,6 @@ export function SelectedCoinPanel({
   const { activeLink, confidenceScore } = selectedCoin;
   const websiteUrl = firstWebsiteUrl(row);
   const social = firstSocial(row);
-  const preview = previewQuery.data ?? null;
   const previewFailureDetail =
     preview?.failureDetail ??
     (previewQuery.error ? String((previewQuery.error as Error)?.message ?? "") : null);
@@ -478,7 +487,7 @@ export function SelectedCoinPanel({
   const showChart = previewRenderMode === "tradingview";
   const showDexPreview = previewRenderMode === "dexscreener";
   const showChartLoadingOverlay =
-    Boolean(previewQuery.isPending) || Boolean(showChart && !widgetMounted && !widgetFailureCode);
+    previewLoading || Boolean(showChart && !widgetMounted && !widgetFailureCode);
 
   const handleChartStatusChange = (status: TradingViewChartPreviewStatus) => {
     if (status.state === "mounting") {
@@ -590,7 +599,7 @@ export function SelectedCoinPanel({
           <div className="min-w-0 flex-1">
             <p className="text-[12px] font-medium text-[#6d819a]">Chart Preview</p>
             <p className="text-[13px] text-[#a7b7ca]">
-              {previewSubtitle(previewRenderMode, previewQuery.isPending, allowMarketPreview)}
+              {previewSubtitle(previewRenderMode, previewLoading, allowMarketPreview)}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-start justify-end gap-2 self-start">
