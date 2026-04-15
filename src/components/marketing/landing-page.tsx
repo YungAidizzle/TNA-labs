@@ -173,7 +173,7 @@ export function LandingPage({
         <main>
           <section className="border-b border-white/[0.06]">
             <div className="mx-auto w-full max-w-[1440px] px-4 pb-24 pt-12 sm:px-6 lg:px-8 lg:pb-32 lg:pt-20">
-              <div className="grid items-center gap-14 xl:grid-cols-[minmax(0,560px)_minmax(0,1fr)] xl:gap-16 2xl:grid-cols-[minmax(0,600px)_minmax(0,1fr)] 2xl:gap-20">
+              <div className="grid gap-14 xl:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] xl:items-start xl:gap-12 2xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)] 2xl:gap-14">
                 <div className="min-w-0 max-w-[580px] xl:pb-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
                     {BRAND_NAME}
@@ -218,12 +218,12 @@ export function LandingPage({
                   </div>
                 </div>
 
-                <div className="min-w-0 xl:justify-self-end">
+                <div className="min-w-0 xl:self-start xl:pt-10">
                   <TerminalScreenshotFrame
                     variant="hero"
                     showCallouts
                     priority
-                    className="mx-auto w-full max-w-[920px] xl:max-w-[860px] 2xl:max-w-[920px]"
+                    className="mx-auto w-full max-w-[920px] xl:mx-0 xl:max-w-[840px] 2xl:max-w-[900px]"
                   />
                 </div>
               </div>
