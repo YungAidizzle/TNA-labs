@@ -242,6 +242,12 @@ function setScenario(scenario: QueryScenario) {
       };
     }
 
+    if (text.includes("FROM public.topic_rolling_24h")) {
+      return {
+        rows: scenario.totalsRows,
+      };
+    }
+
     if (text.includes("/* stable_cluster_window_totals */")) {
       return {
         rows: scenario.clusterTotalsRows ?? scenario.totalsRows,

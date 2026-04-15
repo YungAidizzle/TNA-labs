@@ -1490,6 +1490,34 @@ async function fetchTopicRowsFromPostgresSource(
 }
 
 async function fetchTopicRows(windowStartIso: string, windowEndIso: string) {
+  if (hasDatabaseUrl()) {
+    try {
+      const rows = await fetchTopicRowsFromPostgresSource(
+        TOPIC_SOURCE_TABLE,
+        windowStartIso,
+        windowEndIso,
+      );
+      return {
+        rows,
+        source: TOPIC_SOURCE_TABLE,
+      };
+    } catch (error) {
+      if (!isPostgresMissingRelation(error)) {
+        throw error;
+      }
+    }
+
+    const rows = await fetchTopicRowsFromPostgresSource(
+      TOPIC_SOURCE_VIEW,
+      windowStartIso,
+      windowEndIso,
+    );
+    return {
+      rows,
+      source: TOPIC_SOURCE_VIEW,
+    };
+  }
+
   if (hasSupabaseServerCredentials()) {
     try {
       const rows = await fetchTopicRowsFromSupabaseSource(
@@ -1509,34 +1537,6 @@ async function fetchTopicRows(windowStartIso: string, windowEndIso: string) {
     }
 
     const rows = await fetchTopicRowsFromSupabaseSource(
-      TOPIC_SOURCE_VIEW,
-      windowStartIso,
-      windowEndIso,
-    );
-    return {
-      rows,
-      source: TOPIC_SOURCE_VIEW,
-    };
-  }
-
-  if (hasDatabaseUrl()) {
-    try {
-      const rows = await fetchTopicRowsFromPostgresSource(
-        TOPIC_SOURCE_TABLE,
-        windowStartIso,
-        windowEndIso,
-      );
-      return {
-        rows,
-        source: TOPIC_SOURCE_TABLE,
-      };
-    } catch (error) {
-      if (!isPostgresMissingRelation(error)) {
-        throw error;
-      }
-    }
-
-    const rows = await fetchTopicRowsFromPostgresSource(
       TOPIC_SOURCE_VIEW,
       windowStartIso,
       windowEndIso,
@@ -1594,10 +1594,29 @@ async function fetchStableRollingTotalsFromPostgresSource(source: string) {
 }
 
 async function fetchStableRollingTotals() {
-  const sources = [STABLE_TOPIC_ROLLING_TOTALS_TABLE, STABLE_TOPIC_ROLLING_TOTALS_VIEW];
+  if (hasDatabaseUrl()) {
+    let lastError: unknown = null;
+    for (const source of [STABLE_TOPIC_ROLLING_TOTALS_TABLE, STABLE_TOPIC_ROLLING_TOTALS_VIEW]) {
+      try {
+        return {
+          rows: await fetchStableRollingTotalsFromPostgresSource(source),
+          source,
+        };
+      } catch (error) {
+        if (!isPostgresMissingStructure(error)) {
+          throw error;
+        }
+        lastError = error;
+      }
+    }
+    if (lastError) {
+      throw lastError;
+    }
+  }
+
   if (hasSupabaseServerCredentials()) {
     let lastError: PostgrestError | null = null;
-    for (const source of sources) {
+    for (const source of [STABLE_TOPIC_ROLLING_TOTALS_TABLE, STABLE_TOPIC_ROLLING_TOTALS_VIEW]) {
       try {
         return {
           rows: await fetchStableRollingTotalsFromSupabaseSource(source),
@@ -1609,26 +1628,6 @@ async function fetchStableRollingTotals() {
           throw error;
         }
         lastError = pgError;
-      }
-    }
-    if (lastError) {
-      throw lastError;
-    }
-  }
-
-  if (hasDatabaseUrl()) {
-    let lastError: unknown = null;
-    for (const source of sources) {
-      try {
-        return {
-          rows: await fetchStableRollingTotalsFromPostgresSource(source),
-          source,
-        };
-      } catch (error) {
-        if (!isPostgresMissingStructure(error)) {
-          throw error;
-        }
-        lastError = error;
       }
     }
     if (lastError) {
@@ -1966,6 +1965,32 @@ async function fetchStableDaySeries(
   topicKeys: string[],
 ) {
   const sources = [STABLE_TOPIC_DAY_SERIES_TABLE, STABLE_TOPIC_DAY_SERIES_VIEW];
+  if (hasDatabaseUrl()) {
+    let lastError: unknown = null;
+    for (const source of sources) {
+      try {
+        return {
+          rows: await fetchStableDaySeriesFromPostgresSource(
+            source,
+            dayIso,
+            windowStartIso,
+            windowEndIso,
+            topicKeys,
+          ),
+          source,
+        };
+      } catch (error) {
+        if (!isPostgresMissingStructure(error)) {
+          throw error;
+        }
+        lastError = error;
+      }
+    }
+    if (lastError) {
+      throw lastError;
+    }
+  }
+
   if (hasSupabaseServerCredentials()) {
     let lastError: PostgrestError | null = null;
     for (const source of sources) {
@@ -1986,32 +2011,6 @@ async function fetchStableDaySeries(
           throw error;
         }
         lastError = pgError;
-      }
-    }
-    if (lastError) {
-      throw lastError;
-    }
-  }
-
-  if (hasDatabaseUrl()) {
-    let lastError: unknown = null;
-    for (const source of sources) {
-      try {
-        return {
-          rows: await fetchStableDaySeriesFromPostgresSource(
-            source,
-            dayIso,
-            windowStartIso,
-            windowEndIso,
-            topicKeys,
-          ),
-          source,
-        };
-      } catch (error) {
-        if (!isPostgresMissingStructure(error)) {
-          throw error;
-        }
-        lastError = error;
       }
     }
     if (lastError) {
@@ -2675,6 +2674,18 @@ async function fetchTopicEnrichmentByTopicKeys(
 
   const parsedRows: TopicEnrichmentRow[] = [];
 
+  if (hasDatabaseUrl()) {
+    try {
+      const rows = await fetchTopicEnrichmentRowsFromPostgres(normalizedTopicKeys, minWindowEndIso);
+      parsedRows.push(...rows.map((row) => parseTopicEnrichmentRow(row)).filter((row): row is TopicEnrichmentRow => Boolean(row)));
+      return selectLatestTopicEnrichment(parsedRows);
+    } catch (error) {
+      if (!isPostgresMissingStructure(error)) {
+        throw error;
+      }
+    }
+  }
+
   if (hasSupabaseServerCredentials()) {
     try {
       const rows = await fetchTopicEnrichmentRowsFromSupabase(normalizedTopicKeys, minWindowEndIso);
@@ -2688,20 +2699,7 @@ async function fetchTopicEnrichmentByTopicKeys(
     }
   }
 
-  if (!hasDatabaseUrl()) {
-    return new Map<string, TopicEnrichmentRow>();
-  }
-
-  try {
-    const rows = await fetchTopicEnrichmentRowsFromPostgres(normalizedTopicKeys, minWindowEndIso);
-    parsedRows.push(...rows.map((row) => parseTopicEnrichmentRow(row)).filter((row): row is TopicEnrichmentRow => Boolean(row)));
-    return selectLatestTopicEnrichment(parsedRows);
-  } catch (error) {
-    if (!isPostgresMissingStructure(error)) {
-      throw error;
-    }
-    return new Map<string, TopicEnrichmentRow>();
-  }
+  return new Map<string, TopicEnrichmentRow>();
 }
 
 function parseStableDayTotalRow(row: SupabaseTopicRow): StableTopicDayTotalRow | null {
@@ -4306,15 +4304,19 @@ function buildBlueskyOverview(
 
 async function getSupabaseTrendDashboardStateLegacy(
   query: TrendDashboardQuery,
-  _options: SupabaseTrendDashboardStateOptions = {},
+  options: SupabaseTrendDashboardStateOptions = {},
 ): Promise<TrendDashboardVM> {
   const window = buildWindowBuckets(query.range);
+  const freshnessProbePromise =
+    options.includeFreshnessProbe === false
+      ? Promise.resolve(null)
+      : fetchSupabaseFreshnessProbe();
   const [{ rows, source }, freshnessProbe] = await Promise.all([
     fetchTopicRows(
       window.windowStart.toISOString(),
       window.windowEnd.toISOString(),
     ),
-    fetchSupabaseFreshnessProbe(),
+    freshnessProbePromise,
   ]);
 
   const parsedRows = rows
@@ -4693,6 +4695,7 @@ function matchesStableScope(row: StableTopicDayTotalRow, scope: TrendDashboardQu
 
 type SupabaseTrendDashboardStateOptions = {
   readProfile?: SupabaseTrendReadProfile;
+  includeFreshnessProbe?: boolean;
 };
 
 async function getSupabaseTrendDashboardStateStable(
@@ -4703,12 +4706,20 @@ async function getSupabaseTrendDashboardStateStable(
   const window = buildWindowBuckets(query.range);
   const dayIsos = buildWindowDayIsos(window.windowStart, window.windowEnd);
   const requestedStableTopicKey = normalizeRequestedStableTopicKey(query.selectedKey);
+  const freshnessProbePromise =
+    options.includeFreshnessProbe === false
+      ? Promise.resolve(null)
+      : fetchSupabaseFreshnessProbe();
+  const windowTotalsPromise =
+    query.range === "24h"
+      ? fetchStableRollingTotals()
+      : fetchStableWindowTotals(
+          window.windowStart.toISOString(),
+          window.windowEnd.toISOString(),
+        );
   const [freshnessProbe, windowTotalsResult] = await Promise.all([
-    fetchSupabaseFreshnessProbe(),
-    fetchStableWindowTotals(
-      window.windowStart.toISOString(),
-      window.windowEnd.toISOString(),
-    ),
+    freshnessProbePromise,
+    windowTotalsPromise,
   ]);
   const rawTotalsRows = windowTotalsResult.rows;
   const totalsSource = windowTotalsResult.source;
@@ -4762,10 +4773,37 @@ async function getSupabaseTrendDashboardStateStable(
     }
   }
 
+  const matchesRequestedStableTopic = (row: StableTopicDayTotalAggregateRow) => {
+    if (requestedStableTopicKey && row.topicKey === requestedStableTopicKey) {
+      return true;
+    }
+    if (requestedStableTopicKey && row.rawTopicKeys.includes(requestedStableTopicKey)) {
+      return true;
+    }
+    if (query.selectedId && buildTrendId(row.topicKey) === query.selectedId) {
+      return true;
+    }
+    if (query.selectedId && row.rawTopicKeys.some((rawKey) => buildTrendId(rawKey) === query.selectedId)) {
+      return true;
+    }
+    return false;
+  };
+
   let totalsRows = sortStableTopicAggregateRowsByVolume([...aggregatedTotalsByStableKey.values()])
     .slice(0, STABLE_CANDIDATE_FETCH_LIMIT);
+  const enrichmentTopicLimit =
+    readProfile === "detail"
+      ? STABLE_DETAIL_SERIES_TOPIC_LIMIT
+      : MAX_LEADERBOARD_ROWS;
+  const enrichmentTopicKeys = new Set(
+    totalsRows.slice(0, enrichmentTopicLimit).map((row) => row.topicKey),
+  );
+  const requestedTopicRow = totalsRows.find((row) => matchesRequestedStableTopic(row)) ?? null;
+  if (requestedTopicRow) {
+    enrichmentTopicKeys.add(requestedTopicRow.topicKey);
+  }
   let enrichmentByTopicKey = await fetchTopicEnrichmentByTopicKeys(
-    totalsRows.map((row) => row.topicKey),
+    [...enrichmentTopicKeys],
     window.windowEnd.toISOString(),
   );
   const mergedClusterResult = mergeStableTopicClusters(
@@ -4812,21 +4850,7 @@ async function getSupabaseTrendDashboardStateStable(
     };
   }
 
-  const selectedStableTopic = totalsRows.find((row) => {
-    if (requestedStableTopicKey && row.topicKey === requestedStableTopicKey) {
-      return true;
-    }
-    if (requestedStableTopicKey && row.rawTopicKeys.includes(requestedStableTopicKey)) {
-      return true;
-    }
-    if (query.selectedId && buildTrendId(row.topicKey) === query.selectedId) {
-      return true;
-    }
-    if (query.selectedId && row.rawTopicKeys.some((rawKey) => buildTrendId(rawKey) === query.selectedId)) {
-      return true;
-    }
-    return false;
-  }) ?? null;
+  const selectedStableTopic = totalsRows.find((row) => matchesRequestedStableTopic(row)) ?? null;
   const seededSeriesTopicLimit = readProfile === "detail"
     ? STABLE_DETAIL_SERIES_TOPIC_LIMIT
     : STABLE_SUMMARY_SERIES_TOPIC_LIMIT;

@@ -66,7 +66,20 @@ type CachedBoard = {
   value: CorrelatedMemecoinBoard | null;
 };
 
-let cachedBoard: CachedBoard | null = null;
+type CorrelatedMemecoinBoardValidationMode = "read_time" | "stored";
+
+type FetchLatestCorrelatedMemecoinBoardOptions = {
+  validationMode?: CorrelatedMemecoinBoardValidationMode;
+};
+
+const DEFAULT_VALIDATION_MODE: CorrelatedMemecoinBoardValidationMode = "read_time";
+
+const cachedBoards = new Map<CorrelatedMemecoinBoardValidationMode, CachedBoard>();
+
+type BoardSchemaCompatibility = {
+  assetLiveValidationColumnsAvailable: boolean;
+  assetColumns?: string[] | null;
+};
 
 type SuccessfulRunRow = {
   run_id: number;
@@ -386,16 +399,20 @@ function compareAggregatedRows(
   return left.originalRank - right.originalRank;
 }
 
-async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
-  if (!hasDatabaseUrl()) {
-    return null;
-  }
+function hasMissingStructureError(error: unknown) {
+  const message = String((error as Error)?.message ?? error ?? "");
+  return (
+    (message.includes("relation") && message.includes("does not exist")) ||
+    (message.includes("column") && message.includes("does not exist"))
+  );
+}
 
-  const pool = getServerPostgresPool();
-  try {
-    const capabilities = await getMemecoinDbCapabilities();
-    const liveValidationSelect = capabilities.assetLiveValidationColumnsAvailable
-      ? `
+function buildLiveValidationQueryParts(
+  capabilities: Pick<BoardSchemaCompatibility, "assetLiveValidationColumnsAvailable">,
+) {
+  if (capabilities.assetLiveValidationColumnsAvailable) {
+    return {
+      liveValidationSelect: `
           a.is_live,
           a.last_validated_at,
           a.validation_status,
@@ -403,8 +420,13 @@ async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
           a.last_seen_liquidity_usd,
           a.last_seen_volume_h24,
           a.last_seen_txns_h24,
-      `
-      : `
+      `,
+      liveValidationWhere: `AND COALESCE(a.validation_status, 'pending') <> 'invalid'`,
+    };
+  }
+
+  return {
+    liveValidationSelect: `
           NULL::boolean AS is_live,
           NULL::timestamptz AS last_validated_at,
           NULL::text AS validation_status,
@@ -412,11 +434,126 @@ async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
           NULL::double precision AS last_seen_liquidity_usd,
           NULL::double precision AS last_seen_volume_h24,
           NULL::integer AS last_seen_txns_h24,
-      `;
-    const liveValidationWhere = capabilities.assetLiveValidationColumnsAvailable
-      ? `AND COALESCE(a.validation_status, 'pending') <> 'invalid'`
-      : "";
+      `,
+    liveValidationWhere: "",
+  };
+}
 
+async function queryAggregationCandidateRows(
+  pool: ReturnType<typeof getServerPostgresPool>,
+  runIds: Array<number | string>,
+  capabilities: Pick<BoardSchemaCompatibility, "assetLiveValidationColumnsAvailable">,
+) {
+  const { liveValidationSelect, liveValidationWhere } = buildLiveValidationQueryParts(capabilities);
+  return pool.query<AggregationCandidateRow>(
+    `
+      SELECT
+        r.run_id,
+        run.completed_at AS run_completed_at,
+        a.updated_at AS asset_updated_at,
+        r.rank,
+        r.correlation_score,
+        r.correlation_label,
+        r.strongest_topic_key,
+        r.strongest_topic_label,
+        r.strongest_trend_category,
+        r.strongest_narrative_summary,
+        r.market_score,
+        COALESCE(r.dexscreener_url, s.pair_url, a.dexscreener_url) AS dexscreener_url,
+        a.chain_id,
+        a.token_address,
+        a.pair_address AS asset_pair_address,
+        a.symbol,
+        a.name,
+        a.icon_url,
+        a.header_url,
+        a.description,
+        ${liveValidationSelect}
+        a.websites_json,
+        a.socials_json,
+        s.pair_address,
+        s.quote_symbol,
+        s.quote_token_name,
+        s.price_usd,
+        s.liquidity_usd,
+        s.volume_h24_usd,
+        s.volume_h6_usd,
+        s.volume_h1_usd,
+        s.price_change_h24_pct,
+        s.price_change_h6_pct,
+        s.price_change_h1_pct,
+        s.buys_h24,
+        s.sells_h24,
+        s.txns_h24,
+        s.txns_h6,
+        s.txns_h1,
+        s.fdv_usd,
+        s.market_cap_usd,
+        s.pair_created_at,
+        a.tradingview_symbol,
+        a.tradingview_exchange,
+        a.tradingview_embed_symbol,
+        a.tv_resolution_status,
+        a.tv_last_checked_at,
+        a.tv_failure_reason,
+        a.has_verified_tradingview_preview,
+        a.tv_search_evidence_json,
+        a.metadata_json AS asset_metadata_json,
+        s.metadata_json AS market_metadata_json,
+        COALESCE(
+          (
+            SELECT jsonb_agg(
+              jsonb_build_object(
+                'topicKey', l.topic_key,
+                'topicLabel', l.topic_label,
+                'trendCategory', l.trend_category,
+                'narrativeSummary', l.narrative_summary,
+                'lexicalScore', l.lexical_score,
+                'mentionScore', l.mention_score,
+                'timingScore', l.timing_score,
+                'cultureFitScore', l.culture_fit_score,
+                'linkScore', l.link_score,
+                'supportPostCount', l.support_post_count,
+                'supportInteractionScore', l.support_interaction_score,
+                'isPrimary', l.is_primary,
+                'whyLinked', l.why_linked,
+                'matchReasons', l.match_reasons_json,
+                'rawMatchSignals', l.raw_match_signals_json
+              )
+              ORDER BY l.is_primary DESC, l.link_score DESC, l.link_id DESC
+            )
+            FROM public.memecoin_correlation_links l
+            WHERE l.run_id = r.run_id
+              AND l.asset_id = r.asset_id
+          ),
+          '[]'::jsonb
+        ) AS links_json
+      FROM public.memecoin_correlation_results r
+      INNER JOIN public.memecoin_correlation_runs run
+        ON run.run_id = r.run_id
+      INNER JOIN public.memecoin_assets a
+        ON a.asset_id = r.asset_id
+      LEFT JOIN public.memecoin_market_snapshots s
+        ON s.snapshot_id = r.market_snapshot_id
+      WHERE r.run_id = ANY($1::bigint[])
+        ${liveValidationWhere}
+      ORDER BY run.completed_at DESC, r.rank ASC, r.result_id DESC
+    `,
+    [runIds],
+  );
+}
+
+async function queryLatestBoard(
+  options: FetchLatestCorrelatedMemecoinBoardOptions = {},
+): Promise<CorrelatedMemecoinBoard | null> {
+  if (!hasDatabaseUrl()) {
+    return null;
+  }
+
+  const validationMode = options.validationMode ?? DEFAULT_VALIDATION_MODE;
+  const shouldRevalidateLiveMarkets = validationMode === "read_time";
+  const pool = getServerPostgresPool();
+  try {
     const successfulRunsResult = await pool.query<SuccessfulRunRow>(
       `
         SELECT run_id, completed_at, notes_json
@@ -434,103 +571,37 @@ async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
       return null;
     }
     const runIds = successfulRunsResult.rows.map((row) => row.run_id);
+    let capabilities: BoardSchemaCompatibility;
+    let rowsResult: Awaited<ReturnType<typeof queryAggregationCandidateRows>>;
+    if (shouldRevalidateLiveMarkets) {
+      const liveValidationCapabilities = await getMemecoinDbCapabilities();
+      capabilities = {
+        assetLiveValidationColumnsAvailable:
+          liveValidationCapabilities.assetLiveValidationColumnsAvailable,
+        assetColumns: liveValidationCapabilities.assetColumns,
+      };
+      rowsResult = await queryAggregationCandidateRows(pool, runIds, capabilities);
+    } else {
+      const optimisticCapabilities: BoardSchemaCompatibility = {
+        assetLiveValidationColumnsAvailable: true,
+        assetColumns: null,
+      };
 
-    const rowsResult = await pool.query<AggregationCandidateRow>(
-      `
-        SELECT
-          r.run_id,
-          run.completed_at AS run_completed_at,
-          a.updated_at AS asset_updated_at,
-          r.rank,
-          r.correlation_score,
-          r.correlation_label,
-          r.strongest_topic_key,
-          r.strongest_topic_label,
-          r.strongest_trend_category,
-          r.strongest_narrative_summary,
-          r.market_score,
-          COALESCE(r.dexscreener_url, s.pair_url, a.dexscreener_url) AS dexscreener_url,
-          a.chain_id,
-          a.token_address,
-          a.pair_address AS asset_pair_address,
-          a.symbol,
-          a.name,
-          a.icon_url,
-          a.header_url,
-          a.description,
-          ${liveValidationSelect}
-          a.websites_json,
-          a.socials_json,
-          s.pair_address,
-          s.quote_symbol,
-          s.quote_token_name,
-          s.price_usd,
-          s.liquidity_usd,
-          s.volume_h24_usd,
-          s.volume_h6_usd,
-          s.volume_h1_usd,
-          s.price_change_h24_pct,
-          s.price_change_h6_pct,
-          s.price_change_h1_pct,
-          s.buys_h24,
-          s.sells_h24,
-          s.txns_h24,
-          s.txns_h6,
-          s.txns_h1,
-          s.fdv_usd,
-          s.market_cap_usd,
-          s.pair_created_at,
-          a.tradingview_symbol,
-          a.tradingview_exchange,
-          a.tradingview_embed_symbol,
-          a.tv_resolution_status,
-          a.tv_last_checked_at,
-          a.tv_failure_reason,
-          a.has_verified_tradingview_preview,
-          a.tv_search_evidence_json,
-          a.metadata_json AS asset_metadata_json,
-          s.metadata_json AS market_metadata_json,
-          COALESCE(
-            (
-              SELECT jsonb_agg(
-                jsonb_build_object(
-                  'topicKey', l.topic_key,
-                  'topicLabel', l.topic_label,
-                  'trendCategory', l.trend_category,
-                  'narrativeSummary', l.narrative_summary,
-                  'lexicalScore', l.lexical_score,
-                  'mentionScore', l.mention_score,
-                  'timingScore', l.timing_score,
-                  'cultureFitScore', l.culture_fit_score,
-                  'linkScore', l.link_score,
-                  'supportPostCount', l.support_post_count,
-                  'supportInteractionScore', l.support_interaction_score,
-                  'isPrimary', l.is_primary,
-                  'whyLinked', l.why_linked,
-                  'matchReasons', l.match_reasons_json,
-                  'rawMatchSignals', l.raw_match_signals_json
-                )
-                ORDER BY l.is_primary DESC, l.link_score DESC, l.link_id DESC
-              )
-              FROM public.memecoin_correlation_links l
-              WHERE l.run_id = r.run_id
-                AND l.asset_id = r.asset_id
-            ),
-            '[]'::jsonb
-          ) AS links_json
-        FROM public.memecoin_correlation_results r
-        INNER JOIN public.memecoin_correlation_runs run
-          ON run.run_id = r.run_id
-        INNER JOIN public.memecoin_assets a
-          ON a.asset_id = r.asset_id
-        LEFT JOIN public.memecoin_market_snapshots s
-          ON s.snapshot_id = r.market_snapshot_id
-        WHERE r.run_id = ANY($1::bigint[])
-          ${liveValidationWhere}
-        ORDER BY run.completed_at DESC, r.rank ASC, r.result_id DESC
-      `,
-      [runIds],
-    );
+      try {
+        rowsResult = await queryAggregationCandidateRows(pool, runIds, optimisticCapabilities);
+        capabilities = optimisticCapabilities;
+      } catch (error) {
+        if (!hasMissingStructureError(error)) {
+          throw error;
+        }
+
+        capabilities = {
+          assetLiveValidationColumnsAvailable: false,
+          assetColumns: null,
+        };
+        rowsResult = await queryAggregationCandidateRows(pool, runIds, capabilities);
+      }
+    }
 
     const latestRunNotes = asRecord(latestRun.notes_json);
     const thresholdDiagnostics = buildThresholdDiagnostics(latestRunNotes);
@@ -676,8 +747,21 @@ async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
         ...row,
         rank: index + 1,
       }));
-    const { liveRows: revalidatedBoardRows, rejected, stats: readValidationStats } =
-      await revalidateCorrelatedMemecoinRows(boardRows);
+    const readValidationResult = shouldRevalidateLiveMarkets
+      ? await revalidateCorrelatedMemecoinRows(boardRows)
+      : {
+          liveRows: boardRows,
+          rejected: [] as Array<{ row: CorrelatedMemecoinRow; reason: string | null }>,
+          stats: {
+            attempted: 0,
+            liveRows: boardRows.length,
+            rejected: 0,
+            rejectReasonCounts: {},
+            decisionSourceCounts: { stored_snapshot: boardRows.length },
+            fallbackReasonCounts: {},
+          },
+        };
+    const { liveRows: revalidatedBoardRows, rejected, stats: readValidationStats } = readValidationResult;
     const liveBoardRows = (revalidatedBoardRows as AggregatedBoardRow[])
       .sort(compareAggregatedRows)
       .map((row, index) => ({
@@ -717,7 +801,7 @@ async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
       rowsReturnedByQuery: rowsReturnedByDbQuery,
       rowsWithRequiredFields,
       rowsAfterDedupe,
-      rowsSubmittedForReadValidation: boardRows.length,
+      rowsSubmittedForReadValidation: shouldRevalidateLiveMarkets ? boardRows.length : 0,
     };
     const diagnostics = {
       runsUsed: runIds.length,
@@ -767,13 +851,14 @@ async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
       rows_returned_by_query: rowsReturnedByDbQuery,
       rows_with_required_fields: rowsWithRequiredFields,
       rows_after_dedupe: rowsAfterDedupe,
-      rows_submitted_for_read_validation: boardRows.length,
+      rows_submitted_for_read_validation: shouldRevalidateLiveMarkets ? boardRows.length : 0,
       configured_max_rows: MAX_BOARD_ROWS,
       final_rows: rows.length,
       live_validation_rejected: rejected.length,
       live_validation_decision_source_counts: readValidationStats.decisionSourceCounts,
       live_validation_fallback_reason_counts: readValidationStats.fallbackReasonCounts,
       live_validation_reject_counts: readValidationStats.rejectReasonCounts,
+      validation_mode: validationMode,
       producer_stage_counts: producerStageCounts,
       db_stage_counts: dbStageCounts,
       threshold_mismatch_keys: thresholdDiagnostics.mismatchKeys,
@@ -799,13 +884,16 @@ async function queryLatestBoard(): Promise<CorrelatedMemecoinBoard | null> {
   }
 }
 
-export async function fetchLatestCorrelatedMemecoinBoard() {
+export async function fetchLatestCorrelatedMemecoinBoard(
+  options: FetchLatestCorrelatedMemecoinBoardOptions = {},
+) {
+  const validationMode = options.validationMode ?? DEFAULT_VALIDATION_MODE;
   if (CACHE_TTL_MS <= 0) {
-    return queryLatestBoard();
+    return queryLatestBoard({ validationMode });
   }
 
   const now = Date.now();
-  const currentCache = cachedBoard;
+  const currentCache = cachedBoards.get(validationMode) ?? null;
   const previousValue = currentCache?.value ?? null;
   if (previousValue && currentCache && currentCache.expiresAt > now) {
     return currentCache.value;
@@ -814,34 +902,34 @@ export async function fetchLatestCorrelatedMemecoinBoard() {
     return currentCache.promise;
   }
 
-  const promise = queryLatestBoard()
+  const promise = queryLatestBoard({ validationMode })
     .then((value) => {
-      cachedBoard = {
+      cachedBoards.set(validationMode, {
         value,
         expiresAt: Date.now() + CACHE_TTL_MS,
         promise: null,
-      };
+      });
       return value;
     })
     .catch((error) => {
       if (previousValue) {
-        cachedBoard = {
+        cachedBoards.set(validationMode, {
           value: previousValue,
           expiresAt: Date.now() + CACHE_TTL_MS,
           promise: null,
-        };
+        });
         return previousValue;
       }
 
-      cachedBoard = null;
+      cachedBoards.delete(validationMode);
       throw error;
     });
 
-  cachedBoard = {
-    value: cachedBoard?.value ?? null,
-    expiresAt: cachedBoard?.expiresAt ?? 0,
+  cachedBoards.set(validationMode, {
+    value: currentCache?.value ?? null,
+    expiresAt: currentCache?.expiresAt ?? 0,
     promise,
-  };
+  });
 
   return promise;
 }

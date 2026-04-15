@@ -837,4 +837,173 @@ describe("correlated memecoin board loader", () => {
       "liveMaxStalenessHours",
     ]);
   });
+
+  it("uses stored validation mode without read-time validation or schema capability probes", async () => {
+    postgresMocks.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            run_id: 57,
+            completed_at: "2026-04-05T11:59:00.000Z",
+            notes_json: {},
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            run_id: 57,
+            run_completed_at: "2026-04-05T11:59:00.000Z",
+            asset_updated_at: "2026-04-05T11:59:00.000Z",
+            rank: 1,
+            correlation_score: 81.4,
+            correlation_label: "High",
+            strongest_topic_key: "frog",
+            strongest_topic_label: "Frog",
+            strongest_trend_category: "meme",
+            strongest_narrative_summary: "Frog chatter",
+            market_score: 69,
+            dexscreener_url: "https://dexscreener.com/solana/frogpair",
+            chain_id: "solana",
+            token_address: "frog-token",
+            asset_pair_address: "frogpair",
+            symbol: "FROG",
+            name: "Frog Coin",
+            is_live: true,
+            last_validated_at: "2026-04-05T11:50:00.000Z",
+            validation_status: "live",
+            validation_reason: null,
+            last_seen_liquidity_usd: 120000,
+            last_seen_volume_h24: 500000,
+            last_seen_txns_h24: 920,
+            icon_url: null,
+            header_url: null,
+            description: null,
+            websites_json: [],
+            socials_json: [],
+            pair_address: "frogpair",
+            quote_symbol: "SOL",
+            quote_token_name: "Solana",
+            price_usd: 0.001,
+            liquidity_usd: 120000,
+            volume_h24_usd: 500000,
+            volume_h6_usd: 120000,
+            volume_h1_usd: 22000,
+            price_change_h24_pct: 12,
+            price_change_h6_pct: 5,
+            price_change_h1_pct: 1.5,
+            buys_h24: 500,
+            sells_h24: 420,
+            txns_h24: 920,
+            txns_h6: 210,
+            txns_h1: 48,
+            fdv_usd: 3500000,
+            market_cap_usd: 3300000,
+            pair_created_at: "2026-04-04T12:00:00.000Z",
+            tradingview_symbol: null,
+            tradingview_exchange: null,
+            tradingview_embed_symbol: null,
+            tv_resolution_status: null,
+            tv_last_checked_at: null,
+            tv_failure_reason: null,
+            has_verified_tradingview_preview: null,
+            tv_search_evidence_json: {},
+            asset_metadata_json: {},
+            market_metadata_json: {},
+            links_json: [],
+          },
+        ],
+      });
+
+    const { fetchLatestCorrelatedMemecoinBoard } = await import("@/lib/dashboard/correlated-memecoins");
+    const board = await fetchLatestCorrelatedMemecoinBoard({ validationMode: "stored" });
+
+    expect(board?.rows).toHaveLength(1);
+    expect(dbCapabilityMocks.getMemecoinDbCapabilities).not.toHaveBeenCalled();
+    expect(liveValidationMocks.revalidateCorrelatedMemecoinRows).not.toHaveBeenCalled();
+    expect(board?.diagnostics?.dbStageCounts?.rowsSubmittedForReadValidation).toBe(0);
+    expect(board?.diagnostics?.liveValidationDecisionSourceCounts).toEqual({ stored_snapshot: 1 });
+  });
+
+  it("falls back to compatibility mode in stored validation mode when live validation columns are missing", async () => {
+    postgresMocks.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            run_id: 58,
+            completed_at: "2026-04-05T11:59:00.000Z",
+            notes_json: {},
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error('column "is_live" does not exist'))
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            run_id: 58,
+            run_completed_at: "2026-04-05T11:59:00.000Z",
+            asset_updated_at: "2026-04-05T11:59:00.000Z",
+            rank: 1,
+            correlation_score: 81.4,
+            correlation_label: "High",
+            strongest_topic_key: "frog",
+            strongest_topic_label: "Frog",
+            strongest_trend_category: "meme",
+            strongest_narrative_summary: "Frog chatter",
+            market_score: 69,
+            dexscreener_url: "https://dexscreener.com/solana/frogpair",
+            chain_id: "solana",
+            token_address: "frog-token",
+            asset_pair_address: "frogpair",
+            symbol: "FROG",
+            name: "Frog Coin",
+            icon_url: null,
+            header_url: null,
+            description: null,
+            websites_json: [],
+            socials_json: [],
+            pair_address: "frogpair",
+            quote_symbol: "SOL",
+            quote_token_name: "Solana",
+            price_usd: 0.001,
+            liquidity_usd: 120000,
+            volume_h24_usd: 500000,
+            volume_h6_usd: 120000,
+            volume_h1_usd: 22000,
+            price_change_h24_pct: 12,
+            price_change_h6_pct: 5,
+            price_change_h1_pct: 1.5,
+            buys_h24: 500,
+            sells_h24: 420,
+            txns_h24: 920,
+            txns_h6: 210,
+            txns_h1: 48,
+            fdv_usd: 3500000,
+            market_cap_usd: 3300000,
+            pair_created_at: "2026-04-04T12:00:00.000Z",
+            tradingview_symbol: null,
+            tradingview_exchange: null,
+            tradingview_embed_symbol: null,
+            tv_resolution_status: null,
+            tv_last_checked_at: null,
+            tv_failure_reason: null,
+            has_verified_tradingview_preview: null,
+            tv_search_evidence_json: {},
+            asset_metadata_json: {},
+            market_metadata_json: {},
+            links_json: [],
+          },
+        ],
+      });
+
+    const { fetchLatestCorrelatedMemecoinBoard } = await import("@/lib/dashboard/correlated-memecoins");
+    const board = await fetchLatestCorrelatedMemecoinBoard({ validationMode: "stored" });
+
+    expect(board?.rows).toHaveLength(1);
+    expect(dbCapabilityMocks.getMemecoinDbCapabilities).not.toHaveBeenCalled();
+    expect(liveValidationMocks.revalidateCorrelatedMemecoinRows).not.toHaveBeenCalled();
+    expect(board?.diagnostics?.schemaCompatibility?.assetLiveValidationColumnsAvailable).toBe(false);
+    expect(String(postgresMocks.query.mock.calls[1]?.[0] ?? "")).toContain("a.is_live");
+    expect(String(postgresMocks.query.mock.calls[2]?.[0] ?? "")).toContain("NULL::boolean AS is_live");
+  });
 });

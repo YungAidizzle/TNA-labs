@@ -1,5 +1,5 @@
 import Image from "next/image";
-import masterScreenshot from "../../../public/marketing/dashboard-terminal-hero-hq.png";
+import masterScreenshot from "../../../public/marketing/dashboard-terminal-hero-current.png";
 import { cn } from "@/lib/utils/cn";
 
 type TerminalScreenshotFrameProps = {

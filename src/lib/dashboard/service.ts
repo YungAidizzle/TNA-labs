@@ -595,6 +595,7 @@ function applyBlueskyReplayFreshness(
 type DashboardStateOptions = {
   forceRebuild?: boolean;
   readProfile?: "summary" | "detail";
+  includeFreshnessProbe?: boolean;
 };
 
 export async function getTrendDashboardState(
@@ -607,6 +608,7 @@ export async function getTrendDashboardState(
     try {
       const baseState = await getSupabaseTrendDashboardState(query, {
         readProfile: options.readProfile,
+        includeFreshnessProbe: options.includeFreshnessProbe,
       });
       const aiState = await getSharedAiTrendDashboardState(query, baseState);
       return aiState ?? baseState;
@@ -639,6 +641,7 @@ export async function getTrendDashboardState(
     try {
       const baseState = await getSupabaseTrendDashboardState(query, {
         readProfile: options.readProfile,
+        includeFreshnessProbe: options.includeFreshnessProbe,
       });
       const aiState = await getSharedAiTrendDashboardState(query, baseState);
       return aiState ?? baseState;

@@ -6,7 +6,10 @@ import type {
   TrendDashboardSummaryResponse,
 } from "@/lib/dashboard/api";
 import { parseTrendDashboardRequestQuery } from "@/lib/dashboard/api";
-import { getSharedTrendDashboardSummaryState } from "@/lib/dashboard/cached-state";
+import {
+  getSharedTrendDashboardMemecoinState,
+  getSharedTrendDashboardSummaryState,
+} from "@/lib/dashboard/cached-state";
 import { buildTrendDashboardStatusStripItems } from "@/lib/dashboard/status-strip";
 import { requirePaidApiUser } from "@/lib/supabase/auth";
 
@@ -34,27 +37,29 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const view = resolveView(searchParams.get("view"));
   const query = parseTrendDashboardRequestQuery(searchParams);
-  const summaryState = await getSharedTrendDashboardSummaryState(query);
 
   if (view === "status") {
+    const memecoinState = await getSharedTrendDashboardMemecoinState(query);
     const payload: TrendDashboardStatusResponse = {
-      items: buildTrendDashboardStatusStripItems(summaryState),
-      dataStatus: summaryState.dataStatus ?? null,
+      items: buildTrendDashboardStatusStripItems(memecoinState),
+      dataStatus: memecoinState.dataStatus ?? null,
     };
 
     return NextResponse.json(payload, { headers: RESPONSE_HEADERS });
   }
 
   if (view === "memecoins") {
+    const memecoinState = await getSharedTrendDashboardMemecoinState(query);
     const payload: TrendDashboardMemecoinsResponse = {
-      marketMemecoins: summaryState.marketMemecoins ?? null,
-      correlatedMemecoins: summaryState.correlatedMemecoins ?? null,
-      dataStatus: summaryState.dataStatus ?? null,
+      marketMemecoins: memecoinState.marketMemecoins ?? null,
+      correlatedMemecoins: memecoinState.correlatedMemecoins ?? null,
+      dataStatus: memecoinState.dataStatus ?? null,
     };
 
     return NextResponse.json(payload, { headers: RESPONSE_HEADERS });
   }
 
+  const summaryState = await getSharedTrendDashboardSummaryState(query);
   const payload: TrendDashboardSummaryResponse = {
     query: summaryState.query,
     leaderboard: summaryState.leaderboard,
