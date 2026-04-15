@@ -162,21 +162,41 @@ function tableClassName(mode: MemecoinMarketTableProps["mode"]) {
 
 function modeContextLabel(mode: MemecoinMarketTableProps["mode"]) {
   if (mode === "trend") {
-    return "Current filter";
+    return "Selected narrative";
   }
   if (mode === "momentum") {
-    return "Narrative context";
+    return "Ranking basis";
   }
 
-  return "Related highlight";
+  return "Active narratives";
 }
 
-function emptyStateMessage(mode: MemecoinMarketTableProps["mode"]) {
+function modeContextValue(
+  mode: MemecoinMarketTableProps["mode"],
+  selectedTrendLabel: string | null,
+) {
+  if (mode === "all") {
+    return "All active narratives";
+  }
+  if (mode === "momentum") {
+    return "All memecoins by momentum";
+  }
+
+  return selectedTrendLabel ?? "No narrative selected";
+}
+
+function emptyStateMessage(
+  mode: MemecoinMarketTableProps["mode"],
+  selectedTrendLabel: string | null,
+) {
   if (mode === "momentum") {
     return "No momentum setups are qualifying from the current memecoin board.";
   }
   if (mode === "all") {
     return "No linked memecoins are available in the current board.";
+  }
+  if (!selectedTrendLabel) {
+    return "Select a trend to load correlated memecoins.";
   }
 
   return "No linked memecoins surfaced for this narrative.";
@@ -381,7 +401,7 @@ export function MemecoinMarketTable({
               {modeContextLabel(mode)}
             </p>
             <p className="truncate text-[13px] text-[#d6e0ed]">
-              {selectedTrendLabel ?? "No narrative selected"}
+              {modeContextValue(mode, selectedTrendLabel)}
             </p>
           </div>
         </div>
@@ -389,7 +409,7 @@ export function MemecoinMarketTable({
 
       {rows.length === 0 ? (
         <div className="flex h-full items-center justify-center px-4 text-sm text-[#7f91a9]">
-          {emptyStateMessage(mode)}
+          {emptyStateMessage(mode, selectedTrendLabel)}
         </div>
       ) : (
         <div

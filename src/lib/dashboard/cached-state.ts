@@ -19,21 +19,22 @@ function serializeQuery(query: TrendDashboardQuery) {
 async function decorateTrendDashboardMemecoins(
   state: TrendDashboardVM,
 ): Promise<TrendDashboardVM> {
-  let correlatedMemecoins = null;
+  let marketMemecoins = null;
 
   try {
-    correlatedMemecoins = await fetchLatestCorrelatedMemecoinBoard();
+    marketMemecoins = await fetchLatestCorrelatedMemecoinBoard();
   } catch (error) {
     console.error("[dashboard-cached-state] failed to load correlated memecoin board", error);
   }
 
   const strictCorrelatedMemecoins = buildStrictTrendsPageCorrelatedBoard(
     state,
-    correlatedMemecoins ?? null,
+    marketMemecoins ?? null,
   );
 
   const stateWithBoard: TrendDashboardVM = {
     ...state,
+    marketMemecoins: marketMemecoins ?? null,
     correlatedMemecoins: strictCorrelatedMemecoins ?? null,
   };
 

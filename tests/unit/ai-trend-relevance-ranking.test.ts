@@ -53,6 +53,34 @@ describe("AI trend narrative relevance ranking", () => {
     expect(assessment.score).toBeLessThan(50);
   });
 
+  it("demotes geopolitics that lacks internet-native culture signals", () => {
+    const assessment = assessAiTrendNarrativeRelevance(
+      makeTrend({
+        title: "Iran Escalation Risk",
+        summary: "Governments react to escalation risk and ceasefire pressure across mainstream coverage.",
+        category: "World",
+        sourceScope: "global",
+      }),
+    );
+
+    expect(assessment.band).toBe("low");
+    expect(assessment.score).toBeLessThan(45);
+  });
+
+  it("keeps political stories when they are clearly meme-driven online", () => {
+    const assessment = assessAiTrendNarrativeRelevance(
+      makeTrend({
+        title: "Trump Meme Clip Cycle",
+        summary: "Trump rally clips are being remixed across TikTok, X, Reddit, and YouTube all day.",
+        category: "Politics",
+        sourceScope: "global",
+      }),
+    );
+
+    expect(assessment.band).not.toBe("low");
+    expect(assessment.score).toBeGreaterThanOrEqual(45);
+  });
+
   it("reranks internet-native narratives above generic enterprise filler", () => {
     const result = rerankAiTrendsForNarrativeRelevance([
       makeTrend({

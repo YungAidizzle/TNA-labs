@@ -52,6 +52,7 @@ describe("cached dashboard state", () => {
     };
     const decoratedState = {
       ...baseState,
+      marketMemecoins: board,
       correlatedMemecoins: board,
     };
 
@@ -82,6 +83,7 @@ describe("cached dashboard state", () => {
     expect(linkMocks.attachTrendMemecoinLinks).toHaveBeenCalledWith(
       {
         ...baseState,
+        marketMemecoins: board,
         correlatedMemecoins: board,
       },
       board,

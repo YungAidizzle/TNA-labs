@@ -9,12 +9,7 @@ import type { MemecoinTerminalRow } from "@/components/trends/memecoin-market-ta
 import { OverviewStatusStrip } from "@/components/trends/overview-status-strip";
 import { dashboardClient } from "@/lib/dashboard/client";
 import { resolveSelectedLiveMemecoinId } from "@/lib/dashboard/memecoin-selection";
-import {
-  getMemecoinConfidenceScore,
-  getNarrativeCoinOpportunities,
-  getNarrativeLinkForCoin,
-  getNarrativeTopicKey,
-} from "@/lib/dashboard/memecoin-opportunities";
+import { buildTrendsPageMemecoinDatasets } from "@/lib/dashboard/trends-page-memecoin-selectors";
 import { getTrendDisplayNameOrPlaceholder } from "@/lib/dashboard/trend-name-state";
 import { resolveSelectedTrendId } from "@/lib/dashboard/trend-selection-state";
 import { DateRangePreset, TrendScope } from "@/types/domain";
@@ -89,54 +84,6 @@ function formatQueryError(error: unknown, fallback: string) {
   }
 
   return fallback;
-}
-
-function sortAllMemecoinRows(left: MemecoinTerminalRow, right: MemecoinTerminalRow) {
-  if (left.related !== right.related) {
-    return left.related ? -1 : 1;
-  }
-
-  if (right.confidenceScore !== left.confidenceScore) {
-    return right.confidenceScore - left.confidenceScore;
-  }
-
-  const volumeDelta = Number(right.row.volume24hUsd ?? 0) - Number(left.row.volume24hUsd ?? 0);
-  if (volumeDelta !== 0) {
-    return volumeDelta;
-  }
-
-  const liquidityDelta = Number(right.row.liquidityUsd ?? 0) - Number(left.row.liquidityUsd ?? 0);
-  if (liquidityDelta !== 0) {
-    return liquidityDelta;
-  }
-
-  return left.row.rank - right.row.rank;
-}
-
-function sortMomentumMemecoinRows(left: MemecoinTerminalRow, right: MemecoinTerminalRow) {
-  const momentumRankDelta =
-    Number(left.row.momentumRank ?? Number.MAX_SAFE_INTEGER) -
-    Number(right.row.momentumRank ?? Number.MAX_SAFE_INTEGER);
-  if (momentumRankDelta !== 0) {
-    return momentumRankDelta;
-  }
-
-  const momentumScoreDelta = Number(right.row.momentumScore ?? 0) - Number(left.row.momentumScore ?? 0);
-  if (momentumScoreDelta !== 0) {
-    return momentumScoreDelta;
-  }
-
-  const recentVolumeDelta = Number(right.row.volume1hUsd ?? 0) - Number(left.row.volume1hUsd ?? 0);
-  if (recentVolumeDelta !== 0) {
-    return recentVolumeDelta;
-  }
-
-  const recentTxnDelta = Number(right.row.txns1h ?? 0) - Number(left.row.txns1h ?? 0);
-  if (recentTxnDelta !== 0) {
-    return recentTxnDelta;
-  }
-
-  return sortAllMemecoinRows(left, right);
 }
 
 type TrendDashboardPageProps = {
@@ -298,70 +245,39 @@ export function TrendDashboardPage({
 
   const selectedNarrative =
     allRows.find((trend) => trend.id === resolvedSelectedId) ?? allRows[0] ?? null;
-  const selectedNarrativeTopicKey = selectedNarrative ? getNarrativeTopicKey(selectedNarrative) : null;
 
   const correlatedMemecoinRows = useMemo(
     () => memecoinsQuery.data?.correlatedMemecoins?.rows ?? [],
     [memecoinsQuery.data?.correlatedMemecoins?.rows],
   );
-
-  const narrativeOpportunities = useMemo(
-    () => getNarrativeCoinOpportunities(selectedNarrative, correlatedMemecoinRows),
-    [correlatedMemecoinRows, selectedNarrative],
+  const marketMemecoinRows = useMemo(
+    () =>
+      memecoinsQuery.data?.marketMemecoins?.rows ??
+      memecoinsQuery.data?.correlatedMemecoins?.rows ??
+      [],
+    [
+      memecoinsQuery.data?.correlatedMemecoins?.rows,
+      memecoinsQuery.data?.marketMemecoins?.rows,
+    ],
   );
 
-  const filteredMemecoinRows = useMemo<MemecoinTerminalRow[]>(
+  const memecoinDatasets = useMemo(
     () =>
-      narrativeOpportunities.map((item) => ({
-        row: item.row,
-        activeLink: item.activeLink,
-        confidenceScore: item.confidenceScore,
-        related: true,
-      })),
-    [narrativeOpportunities],
-  );
-
-  const marketUniverseRows = useMemo<MemecoinTerminalRow[]>(
-    () =>
-      correlatedMemecoinRows.map((row) => {
-        const selectedNarrativeLink = selectedNarrativeTopicKey
-          ? getNarrativeLinkForCoin(row, selectedNarrativeTopicKey)
-          : null;
-        const strongestLink =
-          getNarrativeLinkForCoin(row, row.strongestTrendKey) ??
-          row.links?.find((link) => link.isPrimary) ??
-          row.links?.[0] ??
-          null;
-        const activeLink = selectedNarrativeLink ?? strongestLink;
-
-        return {
-          row,
-          activeLink,
-          confidenceScore: getMemecoinConfidenceScore(
-            row,
-            activeLink?.topicKey ?? row.strongestTrendKey,
-          ),
-          related: Boolean(selectedNarrativeLink),
-        };
+      buildTrendsPageMemecoinDatasets({
+        selectedTrend: selectedNarrative,
+        trends: allRows,
+        correlatedRows: correlatedMemecoinRows,
+        marketRows: marketMemecoinRows,
       }),
-    [correlatedMemecoinRows, selectedNarrativeTopicKey],
-  );
-
-  const allMemecoinRows = useMemo<MemecoinTerminalRow[]>(
-    () => [...marketUniverseRows].sort(sortAllMemecoinRows),
-    [marketUniverseRows],
-  );
-  const momentumMemecoinRows = useMemo<MemecoinTerminalRow[]>(
-    () => [...marketUniverseRows].sort(sortMomentumMemecoinRows),
-    [marketUniverseRows],
+    [allRows, correlatedMemecoinRows, marketMemecoinRows, selectedNarrative],
   );
 
   const displayedMemecoinRows =
     coinTableMode === "trend"
-      ? filteredMemecoinRows
+      ? (memecoinDatasets.trendRows as MemecoinTerminalRow[])
       : coinTableMode === "momentum"
-        ? momentumMemecoinRows
-        : allMemecoinRows;
+        ? (memecoinDatasets.momentumRows as MemecoinTerminalRow[])
+        : (memecoinDatasets.allRows as MemecoinTerminalRow[]);
 
   const selectedCoinId = resolveSelectedLiveMemecoinId(displayedMemecoinRows, manualSelectedCoinId);
   const selectedCoin =

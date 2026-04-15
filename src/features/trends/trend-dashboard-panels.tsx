@@ -7,6 +7,7 @@ import { MemecoinMarketTable, type MemecoinTerminalRow } from "@/components/tren
 import { SelectedCoinPanel } from "@/components/trends/selected-coin-panel";
 import { TerminalPanel } from "@/components/trends/terminal-panel";
 import { cn } from "@/lib/utils/cn";
+import type { TradingViewPreviewResponse } from "@/lib/dashboard/tradingview-preview";
 import type { RankedTrend } from "@/types/view-models";
 
 type TrendNarrativesPanelProps = {
@@ -43,6 +44,7 @@ type TrendValidationPanelProps = {
   errorMessage?: string | null;
   staleMessage?: string | null;
   onRetry?: () => void;
+  previewOverride?: TradingViewPreviewResponse | null;
 };
 
 function PanelMessage({
@@ -153,7 +155,6 @@ export function TrendMemecoinsPanel({
   connecting = false,
   errorMessage = null,
   staleMessage = null,
-  onRetry,
 }: TrendMemecoinsPanelProps) {
   const hasRows = rows.length > 0;
 
@@ -178,36 +179,24 @@ export function TrendMemecoinsPanel({
           </div>
         )}
         disclaimer={
-          errorMessage && hasRows
-            ? staleMessage ?? "Showing last synced market rows while refresh reconnects."
+          errorMessage
+            ? hasRows
+              ? staleMessage ?? "Showing last synced market rows while refresh reconnects."
+              : errorMessage
             : connecting
               ? staleMessage ?? "Refreshing market rows..."
               : staleMessage ?? undefined
         }
       >
-        {errorMessage && !hasRows && !loading ? (
-          <PanelMessage
-            title="Memecoins unavailable"
-            detail={errorMessage}
-            actionLabel={onRetry ? "Retry" : undefined}
-            onAction={onRetry}
-          />
-        ) : !loading && !errorMessage && !hasRows ? (
-          <PanelMessage
-            title="No linked markets available"
-            detail="No market rows are available for the current narrative and filter combination."
-          />
-        ) : (
-          <MemecoinMarketTable
-            rows={rows}
-            selectedCoinId={selectedCoinId}
-            selectedTrendLabel={selectedTrendLabel}
-            mode={mode}
-            onModeChange={onModeChange}
-            onSelectCoin={onSelectCoin}
-            loading={loading}
-          />
-        )}
+        <MemecoinMarketTable
+          rows={rows}
+          selectedCoinId={selectedCoinId}
+          selectedTrendLabel={selectedTrendLabel}
+          mode={mode}
+          onModeChange={onModeChange}
+          onSelectCoin={onSelectCoin}
+          loading={loading}
+        />
       </TerminalPanel>
     </div>
   );
@@ -220,6 +209,7 @@ export function TrendValidationPanel({
   errorMessage = null,
   staleMessage = null,
   onRetry,
+  previewOverride = null,
 }: TrendValidationPanelProps) {
   return (
     <div id="validation" className="min-h-[320px] min-w-0 xl:min-h-0 xl:overflow-hidden">
@@ -257,7 +247,11 @@ export function TrendValidationPanel({
             onAction={onRetry}
           />
         ) : (
-          <SelectedCoinPanel selectedCoin={selectedCoin} loading={loading} />
+          <SelectedCoinPanel
+            selectedCoin={selectedCoin}
+            loading={loading}
+            previewOverride={previewOverride}
+          />
         )}
       </TerminalPanel>
     </div>

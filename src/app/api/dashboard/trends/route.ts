@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
 
   if (view === "memecoins") {
     const payload: TrendDashboardMemecoinsResponse = {
+      marketMemecoins: summaryState.marketMemecoins ?? null,
       correlatedMemecoins: summaryState.correlatedMemecoins ?? null,
       dataStatus: summaryState.dataStatus ?? null,
     };

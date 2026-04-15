@@ -796,6 +796,7 @@ export type TrendDashboardVM = {
   dataStatus?: DashboardDataStatus | null;
   blueskyOverview?: BlueskyFirehoseOverview | null;
   trendCoverage?: TrendCoverageDebug | null;
+  marketMemecoins?: CorrelatedMemecoinBoard | null;
   correlatedMemecoins?: CorrelatedMemecoinBoard | null;
   leaderboards: Record<TrendLeaderboardMode, RankedTrend[]>;
   leaderboard: RankedTrend[];

@@ -19,6 +19,7 @@ type DashboardFixture = Record<string, unknown> & {
   detail?: unknown;
   overviewSeries?: unknown[];
   trendCoverage?: unknown;
+  marketMemecoins?: unknown;
   correlatedMemecoins?: unknown;
 };
 
@@ -288,6 +289,52 @@ function buildDashboardPayload() {
       },
     ],
   };
+  fixture.marketMemecoins = {
+    ...(fixture.correlatedMemecoins as Record<string, unknown>),
+    rows: [
+      ...((fixture.correlatedMemecoins as { rows?: unknown[] }).rows ?? []),
+      {
+        id: "solana:speed-token:speed-pair",
+        rank: 4,
+        chainId: "solana",
+        chainLabel: "Solana",
+        tokenAddress: "speed-token",
+        pairAddress: "speed-pair",
+        name: "Speed Dog",
+        symbol: "SPEED",
+        quoteSymbol: "USDC",
+        strongestTrendKey: "unlinked-speed",
+        strongestTrendLabel: "Unlinked Speed",
+        strongestTrendCategory: "meme",
+        strongestTrendSummary: "Momentum-only market row",
+        correlationScore: 41,
+        correlationLabel: "Low",
+        marketScore: 82,
+        liquidityUsd: 310000,
+        volume24hUsd: 1800000,
+        volume6hUsd: 620000,
+        volume1hUsd: 220000,
+        priceUsd: 0.0021,
+        priceChange1hPct: 6.1,
+        priceChange6hPct: 19.4,
+        priceChange24hPct: 29.8,
+        pairAgeHours: 36,
+        fdvUsd: 6100000,
+        marketCapUsd: 5900000,
+        txns24h: 6120,
+        txns6h: 1700,
+        txns1h: 420,
+        momentumScore: 88,
+        momentumRank: 1,
+        memecoinFitScore: 63,
+        seedTerms: ["speed"],
+        matchedTrendKeys: [],
+        links: [],
+        dexscreenerUrl: "https://dexscreener.com/solana/speed-pair",
+        updatedAt: "2026-04-01T10:07:00.000Z",
+      },
+    ],
+  };
 
   return fixture;
 }
@@ -368,6 +415,7 @@ async function mockDashboardRoute(
           }
         : view === "memecoins"
           ? {
+              marketMemecoins: (payload as DashboardFixture).marketMemecoins ?? null,
               correlatedMemecoins: (payload as DashboardFixture).correlatedMemecoins ?? null,
               dataStatus: (payload as DashboardFixture).dataStatus ?? null,
             }
@@ -704,8 +752,13 @@ test("clicking a narrative filters the memecoin table without opening a separate
   await page.goto("/trends", { waitUntil: "networkidle" });
 
   const marketTable = page.getByTestId("memecoin-market-table");
+  await expect(marketTable).toContainText("Speed Dog");
   await expect(marketTable).toContainText("Frog CTO");
   await expect(marketTable).toContainText("Anime Velocity");
+  await expect(marketTable).toContainText("Trump Coin");
+
+  await marketTable.getByRole("button", { name: "Trend" }).click();
+  await expect(marketTable).not.toContainText("Speed Dog");
   await expect(marketTable).not.toContainText("Trump Coin");
 
   await page.getByTestId("narrative-row").filter({ hasText: "MAGA Election Momentum Narrative" }).click();
@@ -713,6 +766,24 @@ test("clicking a narrative filters the memecoin table without opening a separate
   await expect(marketTable).toContainText("Trump Coin");
   await expect(marketTable).not.toContainText("Frog CTO");
   await expect(page.getByTestId("selected-coin-panel")).toContainText("Trump Coin");
+});
+
+test("momentum tab stays independent from trend selection", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await mockDashboardRoute(page);
+
+  await page.goto("/trends", { waitUntil: "networkidle" });
+
+  const marketTable = page.getByTestId("memecoin-market-table");
+  await expect(marketTable).toContainText("Speed Dog");
+  await expect(marketTable).toContainText("Frog CTO");
+  await expect(marketTable).toContainText("Trump Coin");
+
+  await page.getByTestId("narrative-row").filter({ hasText: "MAGA Election Momentum Narrative" }).click();
+
+  await expect(marketTable).toContainText("Speed Dog");
+  await expect(marketTable).toContainText("Frog CTO");
+  await expect(marketTable).toContainText("Trump Coin");
 });
 
 test("clicking a coin updates the right-side validation pane and falls back to Dexscreener when tradingview is unavailable", async ({

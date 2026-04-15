@@ -55,29 +55,10 @@ const SPECIFIC_ENTITY_PHRASES = [
   "solana",
   "doge",
   "memecoin",
-  "etf",
-  "fed",
-  "federal reserve",
-  "jerome powell",
-  "powell",
-  "trump",
-  "maga",
-  "tiktok",
-  "youtube",
-  "twitch",
   "spotify",
   "netflix",
-  "x ",
-  "twitter",
-  "reddit",
-  "telegram",
   "taylor",
   "swift",
-  "iran",
-  "israel",
-  "ukraine",
-  "russia",
-  "china",
 ];
 
 const INTERNET_NATIVE_PHRASES = [
@@ -104,6 +85,43 @@ const INTERNET_NATIVE_PHRASES = [
   "content moderation",
 ];
 
+const INTERNET_PLATFORM_PHRASES = [
+  "twitter",
+  "x ",
+  "x.com",
+  "reddit",
+  "subreddit",
+  "tiktok",
+  "youtube",
+  "shorts",
+  "twitch",
+  "telegram",
+  "discord",
+];
+
+const MEME_CULTURE_PHRASES = [
+  "meme",
+  "memes",
+  "memecoin",
+  "memecoins",
+  "viral",
+  "virality",
+  "clip",
+  "clips",
+  "remix",
+  "remixes",
+  "template",
+  "templates",
+  "fancam",
+  "fan edit",
+  "fan edits",
+  "shitpost",
+  "shitposts",
+  "catchphrase",
+  "reaction image",
+  "reaction images",
+];
+
 const CRYPTO_NATIVE_PHRASES = [
   "crypto",
   "token",
@@ -128,15 +146,55 @@ const SYMBOLIC_EVENT_PHRASES = [
   "lawsuit",
   "boycott",
   "strike",
-  "ceasefire",
-  "tariff",
   "flashpoint",
-  "escalation",
-  "attack",
   "hack",
   "acquisition",
-  "policy blueprint",
   "slogan",
+];
+
+const HARD_NEWS_PHRASES = [
+  "geopolitics",
+  "geopolitical",
+  "ceasefire",
+  "tariff",
+  "tariffs",
+  "escalation",
+  "attack",
+  "attacks",
+  "war",
+  "wars",
+  "missile",
+  "missiles",
+  "sanction",
+  "sanctions",
+  "inflation",
+  "interest rate",
+  "interest rates",
+  "rate cut",
+  "rate cuts",
+  "rate hike",
+  "rate hikes",
+  "fed",
+  "federal reserve",
+  "jerome powell",
+  "powell",
+  "macro",
+  "economy",
+  "economic",
+  "policy",
+  "policies",
+  "election",
+  "elections",
+  "congress",
+  "senate",
+  "parliament",
+  "government",
+  "governments",
+  "iran",
+  "israel",
+  "ukraine",
+  "russia",
+  "china",
 ];
 
 const GENERIC_ACTOR_PHRASES = [
@@ -280,20 +338,22 @@ const GENERIC_TITLE_TOKENS = new Set([
 const CATEGORY_WEIGHTS: Record<string, number> = {
   ai: 5,
   business: -6,
-  culture: 2,
+  culture: 6,
   crypto: 10,
   entertainment: 3,
-  finance: -5,
+  finance: -8,
   health: -8,
-  internet: 5,
+  internet: 8,
   legal: -7,
-  markets: 2,
-  politics: 2,
+  markets: -4,
+  politics: -8,
   science: -10,
   sports: 0,
   tech: 1,
-  world: 1,
+  world: -10,
 };
+
+const OFFLINE_NEWS_CATEGORIES = new Set(["business", "finance", "markets", "politics", "world"]);
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -355,9 +415,22 @@ function buildAssessment(candidate: GeneratedAiTrendCandidate): InternalAiTrendN
   }
 
   const internetMatches = countPhraseMatches(combined, INTERNET_NATIVE_PHRASES);
+  const platformMatches = countPhraseMatches(combined, INTERNET_PLATFORM_PHRASES);
+  const memeCultureMatches = countPhraseMatches(combined, MEME_CULTURE_PHRASES);
+  const hasPlatformSignal = platformMatches > 0;
+  const hasMemeCultureSignal = memeCultureMatches > 0;
+  const hasInternetNativeContext = internetMatches > 0 || hasPlatformSignal || hasMemeCultureSignal;
   if (internetMatches > 0) {
     score += 6 + Math.min(3, internetMatches * 2);
     reasons.push("internet_native_hook");
+  }
+  if (platformMatches > 0) {
+    score += 8 + Math.min(4, platformMatches * 2);
+    reasons.push("platform_distribution_hook");
+  }
+  if (memeCultureMatches > 0) {
+    score += 10 + Math.min(4, memeCultureMatches * 2);
+    reasons.push("meme_culture_hook");
   }
 
   const cryptoMatches = countPhraseMatches(combined, CRYPTO_NATIVE_PHRASES);
@@ -375,6 +448,16 @@ function buildAssessment(candidate: GeneratedAiTrendCandidate): InternalAiTrendN
   }
 
   score += titleSpecificityBonus(title);
+
+  const hardNewsMatches = countPhraseMatches(combined, HARD_NEWS_PHRASES);
+  if (hardNewsMatches > 0 && !hasInternetNativeContext && !hasCryptoSignal) {
+    score -= 16 + Math.min(8, hardNewsMatches * 2);
+    reasons.push("hard_news_penalty");
+  }
+  if (OFFLINE_NEWS_CATEGORIES.has(category) && !hasInternetNativeContext && !hasCryptoSignal) {
+    score -= 12;
+    reasons.push("offline_news_category_penalty");
+  }
 
   const genericActorMatches = countPhraseMatches(combined, GENERIC_ACTOR_PHRASES);
   if (genericActorMatches > 0 && !hasSpecificEntitySignal(combined)) {
@@ -406,6 +489,11 @@ function buildAssessment(candidate: GeneratedAiTrendCandidate): InternalAiTrendN
     reasons.push("generic_internet_filler_penalty");
   }
 
+  if (!hasInternetNativeContext && !hasCryptoSignal) {
+    score -= 14;
+    reasons.push("missing_internet_native_distribution_penalty");
+  }
+
   if (!hasEntitySignal && !hasCryptoSignal && !hasSymbolicSignal) {
     score -= 12;
     reasons.push("no_concrete_narrative_object_penalty");
@@ -416,7 +504,7 @@ function buildAssessment(candidate: GeneratedAiTrendCandidate): InternalAiTrendN
     reasons.push("weak_current_evidence_penalty");
   }
 
-  if ((candidate.sourceScope ?? "").toLowerCase() === "niche" && internetMatches > 0) {
+  if ((candidate.sourceScope ?? "").toLowerCase() === "niche" && hasInternetNativeContext) {
     score += 4;
     reasons.push("niche_attention_bonus");
   }
@@ -424,11 +512,14 @@ function buildAssessment(candidate: GeneratedAiTrendCandidate): InternalAiTrendN
   const finalScore = clamp(score, 0, 100);
   const highEligible =
     hasCryptoSignal ||
-    (hasEntitySignal && (internetMatches > 0 || hasSymbolicSignal)) ||
-    (hasSymbolicSignal && internetMatches > 0);
-  const mediumEligible = highEligible || hasEntitySignal || internetMatches > 0 || hasSymbolicSignal;
+    (hasInternetNativeContext && (hasEntitySignal || hasSymbolicSignal || hasMemeCultureSignal));
+  const mediumEligible =
+    highEligible ||
+    hasCryptoSignal ||
+    hasInternetNativeContext ||
+    (hasMemeCultureSignal && (hasEntitySignal || hasSymbolicSignal));
   const band: AiTrendNarrativeRelevanceBand =
-    finalScore >= 58 && highEligible ? "high" : finalScore >= 38 && mediumEligible ? "medium" : "low";
+    finalScore >= 62 && highEligible ? "high" : finalScore >= 40 && mediumEligible ? "medium" : "low";
 
   return {
     band,

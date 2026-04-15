@@ -1,7 +1,11 @@
 import "server-only";
 
+import { rerankAiTrendsForNarrativeRelevance } from "@/lib/ai-trends/narrative-relevance";
 import { getLatestSuccessfulAiTrendSnapshotView } from "@/lib/ai-trends/repository";
-import type { SharedAiTrendSnapshotItem } from "@/lib/ai-trends/types";
+import type {
+  GeneratedAiTrendCandidate,
+  SharedAiTrendSnapshotItem,
+} from "@/lib/ai-trends/types";
 import { applyTrendDashboardSelection } from "@/lib/dashboard/selection";
 import { createZeroRankedTrend, createZeroTimeSeries } from "@/lib/dashboard/zero-state";
 import type {
@@ -52,6 +56,21 @@ function getFreshnessState(freshnessMinutes: number | null) {
   return "stale" as const;
 }
 
+type SharedAiNarrativeSourceItem = Pick<
+  SharedAiTrendSnapshotItem,
+  | "rank"
+  | "trendKey"
+  | "title"
+  | "summary"
+  | "confidenceScore"
+  | "aiRankScore"
+  | "importanceNote"
+  | "category"
+  | "sourceScope"
+  | "sourceCount"
+  | "generatedAt"
+>;
+
 function getLifecycleStage(rank: number) {
   if (rank <= 20) {
     return "Established" as const;
@@ -62,7 +81,7 @@ function getLifecycleStage(rank: number) {
   return "Emerging" as const;
 }
 
-function estimateActivityCount(item: SharedAiTrendSnapshotItem) {
+function estimateActivityCount(item: SharedAiNarrativeSourceItem) {
   const sourceCount = Math.max(1, item.sourceCount ?? 1);
   return Math.max(
     sourceCount,
@@ -72,7 +91,7 @@ function estimateActivityCount(item: SharedAiTrendSnapshotItem) {
 
 function buildAttentionHistory(
   query: TrendDashboardQuery,
-  item: SharedAiTrendSnapshotItem,
+  item: SharedAiNarrativeSourceItem,
   generatedAt: string,
 ) {
   const total = estimateActivityCount(item);
@@ -90,7 +109,7 @@ function buildAttentionHistory(
 }
 
 function buildAiRankedTrend(
-  item: SharedAiTrendSnapshotItem,
+  item: SharedAiNarrativeSourceItem,
   query: TrendDashboardQuery,
   freshnessMinutes: number | null,
 ): RankedTrend {
@@ -188,6 +207,44 @@ function buildAiRankedTrend(
   };
 }
 
+function rerankSharedAiSnapshotItems(
+  items: SharedAiTrendSnapshotItem[],
+): {
+  items: SharedAiNarrativeSourceItem[];
+  rejectedReason: string | null;
+} {
+  const generatedItems: GeneratedAiTrendCandidate[] = items.map((item) => ({
+    rank: item.rank,
+    trendKey: item.trendKey,
+    title: item.title,
+    summary: item.summary,
+    confidenceScore: item.confidenceScore,
+    aiRankScore: item.aiRankScore,
+    importanceNote: item.importanceNote,
+    category: item.category,
+    sourceScope: item.sourceScope,
+    sourceCount: item.sourceCount,
+  }));
+  const reranked = rerankAiTrendsForNarrativeRelevance(generatedItems);
+
+  return {
+    rejectedReason: reranked.rejectedReason,
+    items: reranked.trends.map((trend, index) => ({
+      rank: index + 1,
+      trendKey: trend.trendKey,
+      title: trend.title,
+      summary: trend.summary,
+      confidenceScore: trend.confidenceScore,
+      aiRankScore: trend.aiRankScore,
+      importanceNote: trend.importanceNote,
+      category: trend.category,
+      sourceScope: trend.sourceScope,
+      sourceCount: trend.sourceCount,
+      generatedAt: items[0]?.generatedAt ?? new Date().toISOString(),
+    })),
+  };
+}
+
 function mergeDataStatus(
   baseStatus: DashboardDataStatus | null | undefined,
   generatedAt: string,
@@ -233,7 +290,18 @@ export async function getSharedAiTrendDashboardState(
     return null;
   }
 
-  const established = view.trends.map((item) => buildAiRankedTrend(item, query, view.freshnessMinutes));
+  const rerankedSnapshot = rerankSharedAiSnapshotItems(view.trends);
+  if (rerankedSnapshot.rejectedReason) {
+    console.warn("[ai-trend-source] shared AI snapshot rejected by narrative relevance gate", {
+      snapshotId: view.snapshot.id,
+      reason: rerankedSnapshot.rejectedReason,
+    });
+    return null;
+  }
+
+  const established = rerankedSnapshot.items.map((item) =>
+    buildAiRankedTrend(item, query, view.freshnessMinutes),
+  );
   const emerging = established.slice(0, 40).map((row) => ({
     ...row,
     leaderboardMode: "emerging" as const,

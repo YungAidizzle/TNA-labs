@@ -30,6 +30,7 @@ export type TrendDashboardSummaryResponse = {
 };
 
 export type TrendDashboardMemecoinsResponse = {
+  marketMemecoins: CorrelatedMemecoinBoard | null;
   correlatedMemecoins: CorrelatedMemecoinBoard | null;
   dataStatus: DashboardDataStatus | null;
 };
