@@ -4,8 +4,6 @@ import {
   formatBillingIntervalLabel,
   getConfiguredBillingPlanSummary,
 } from "@/lib/billing/plan";
-import { getCurrentAuthContext } from "@/lib/supabase/auth";
-import { isPaidAccessState } from "@/lib/billing/shared";
 import { buildPageMetadata } from "@/lib/metadata";
 
 export const metadata: Metadata = buildPageMetadata({
@@ -16,15 +14,12 @@ export const metadata: Metadata = buildPageMetadata({
 });
 
 export default async function Home() {
-  const [{ user, profile }, plan] = await Promise.all([
-    getCurrentAuthContext(),
-    getConfiguredBillingPlanSummary(),
-  ]);
+  const plan = await getConfiguredBillingPlanSummary();
 
   return (
     <LandingPage
-      isAuthenticated={Boolean(user)}
-      hasPaidAccess={isPaidAccessState(profile?.access_state)}
+      isAuthenticated={false}
+      hasPaidAccess={false}
       pricing={
         plan
           ? {

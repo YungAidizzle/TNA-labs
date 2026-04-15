@@ -1,8 +1,23 @@
-const PROTECTED_PATH_PREFIXES = [
+export const PROTECTED_PATH_PREFIXES = [
   "/dashboard",
+  "/alerts",
+  "/api-data-export",
+  "/dataset-api",
+  "/historical-replay",
+  "/influencer-intelligence",
+  "/influencers",
+  "/live-trends",
+  "/memecoins",
+  "/memes",
+  "/momentum",
+  "/narrative-explorer",
+  "/narratives",
   "/overview",
-  "/trends",
+  "/platform-monitor",
+  "/sentiment-map",
   "/settings",
+  "/trends",
+  "/watchlist",
 ] as const;
 
 export function isProtectedPathname(pathname: string) {
