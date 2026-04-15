@@ -173,12 +173,12 @@ export function LandingPage({
         <main>
           <section className="border-b border-white/[0.06]">
             <div className="mx-auto w-full max-w-[1440px] px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-20 lg:pt-16">
-              <div className="grid items-center gap-12 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] xl:gap-10 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] 2xl:gap-12">
-                <div className="min-w-0 max-w-[620px]">
+              <div className="grid items-start gap-12 xl:grid-cols-[minmax(0,640px)_minmax(0,1fr)] xl:gap-14 2xl:grid-cols-[minmax(0,660px)_minmax(0,1fr)] 2xl:gap-16">
+                <div className="min-w-0 max-w-[620px] xl:max-w-[640px]">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#87a6c3]">
                     ATTENTRA
                   </p>
-                  <h1 className="mt-5 text-[40px] font-semibold leading-[0.92] tracking-[-0.075em] text-[#f4f8fd] max-[360px]:text-[36px] sm:text-[58px] lg:text-[68px] xl:text-[78px]">
+                  <h1 className="mt-5 text-[40px] font-semibold leading-[0.92] tracking-[-0.075em] text-[#f4f8fd] max-[360px]:text-[36px] sm:text-[58px] lg:text-[64px] xl:text-[70px] 2xl:text-[72px]">
                     <span className="block whitespace-nowrap">You miss memecoin runs</span>
                     <span className="block whitespace-nowrap">because you see them</span>
                     <span className="block whitespace-nowrap">too late.</span>
@@ -205,12 +205,12 @@ export function LandingPage({
                   </div>
                 </div>
 
-                <div className="min-w-0 xl:self-center">
+                <div className="min-w-0 xl:self-start xl:pt-3">
                   <TerminalScreenshotFrame
                     variant="hero"
                     showCallouts
                     priority
-                    className="mx-auto w-full max-w-[920px] xl:mx-0 xl:max-w-[900px] 2xl:max-w-[940px]"
+                    className="mx-auto w-full max-w-[920px] xl:max-w-[860px]"
                   />
                 </div>
               </div>

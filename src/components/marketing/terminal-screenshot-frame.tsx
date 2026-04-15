@@ -13,18 +13,27 @@ const MASTER_SCREENSHOT_SRC = "/marketing/dashboard-terminal-hero-hq.png";
 const MASTER_SCREENSHOT_WIDTH = 1876;
 const MASTER_SCREENSHOT_HEIGHT = 928;
 
-const HERO_REGIONS = [
+const HERO_CALLOUTS = [
   {
-    label: "Narrative list",
-    boxClassName: "left-[14.2%] top-[6.8%] h-[72%] w-[28.6%]",
+    label: "Narrative List",
+    alignmentClassName: "justify-start",
+    markerClassName: "left-[18px]",
+    toneClassName: "border-cyan/18 bg-[rgba(8,18,28,0.9)] text-[#e4f8ff]",
+    accentClassName: "bg-cyan",
   },
   {
-    label: "Memecoin table",
-    boxClassName: "left-[44.8%] top-[6.8%] h-[72%] w-[31.4%]",
+    label: "Memecoin Table",
+    alignmentClassName: "justify-center",
+    markerClassName: "left-1/2 -translate-x-1/2",
+    toneClassName: "border-cyan/18 bg-[rgba(8,18,28,0.9)] text-[#e4f8ff]",
+    accentClassName: "bg-cyan",
   },
   {
-    label: "Validation panel",
-    boxClassName: "left-[78.3%] top-[6.8%] h-[72%] w-[17.5%]",
+    label: "Validation Panel",
+    alignmentClassName: "justify-end",
+    markerClassName: "right-[18px]",
+    toneClassName: "border-emerald/18 bg-[rgba(8,18,28,0.9)] text-[#ddf5e7]",
+    accentClassName: "bg-emerald",
   },
 ] as const;
 
@@ -38,8 +47,8 @@ export function TerminalScreenshotFrame({
   const isHero = variant === "hero";
 
   return (
-    <div className={cn("relative", isHero ? "xl:[perspective:2800px]" : "", className)}>
-      <div className="pointer-events-none absolute inset-0 rounded-[34px] bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.16),transparent_34%),radial-gradient(circle_at_85%_18%,rgba(88,217,160,0.12),transparent_22%)] blur-2xl" />
+    <div className={cn("relative", className)}>
+      <div className="pointer-events-none absolute inset-0 rounded-[34px] bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.12),transparent_34%),radial-gradient(circle_at_85%_18%,rgba(88,217,160,0.08),transparent_22%)] blur-xl" />
       <div
         className={cn(
           "pointer-events-none absolute inset-x-[7%] bottom-[-8%] h-[28%] rounded-full bg-[rgba(0,0,0,0.45)] blur-3xl",
@@ -47,14 +56,45 @@ export function TerminalScreenshotFrame({
         )}
       />
 
-      <div
-        className={cn(
-          "relative",
-          isHero
-            ? "xl:[transform-style:preserve-3d] xl:[transform-origin:48%_54%] xl:[transform:rotateY(-2.4deg)_rotateX(0.45deg)]"
-            : "",
-        )}
-      >
+      <div className="relative">
+        {isHero && showCallouts ? (
+          <div className="mb-3 hidden grid-cols-[0.96fr_1fr_0.78fr] gap-3 px-3 xl:grid">
+            {HERO_CALLOUTS.map((callout) => (
+              <div
+                key={callout.label}
+                className={cn(
+                  "relative flex min-w-0 pb-4",
+                  callout.alignmentClassName,
+                )}
+              >
+                <div
+                  className={cn(
+                    "inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] shadow-[0_12px_28px_rgba(0,0,0,0.18)]",
+                    callout.toneClassName,
+                  )}
+                >
+                  <span className={cn("h-1.5 w-1.5 shrink-0", callout.accentClassName)} />
+                  <span className="truncate">{callout.label}</span>
+                </div>
+
+                <span
+                  className={cn(
+                    "pointer-events-none absolute bottom-0 h-4 w-px bg-white/[0.18]",
+                    callout.markerClassName,
+                  )}
+                />
+                <span
+                  className={cn(
+                    "pointer-events-none absolute -bottom-0.5 h-1.5 w-1.5 rounded-full",
+                    callout.accentClassName,
+                    callout.markerClassName,
+                  )}
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <div
           className={cn(
             "relative rounded-[30px] border border-white/[0.1] bg-[linear-gradient(180deg,rgba(10,16,24,0.98),rgba(5,8,13,0.995))] p-3 shadow-[0_38px_110px_rgba(0,0,0,0.46)]",
@@ -98,34 +138,17 @@ export function TerminalScreenshotFrame({
                 width={MASTER_SCREENSHOT_WIDTH}
                 height={MASTER_SCREENSHOT_HEIGHT}
                 priority={priority}
-                unoptimized
+                quality={100}
                 className={cn(
-                  isHero ? "h-auto w-full" : "h-full w-full object-cover object-[68%_center]",
+                  isHero ? "block h-auto w-full" : "block h-full w-full object-cover object-[68%_center]",
                   imageClassName,
                 )}
-                sizes={isHero ? "(min-width: 1280px) 900px, (min-width: 1024px) 62vw, 100vw" : "(min-width: 1280px) 620px, (min-width: 1024px) 48vw, 100vw"}
+                sizes={
+                  isHero
+                    ? "(min-width: 1536px) 760px, (min-width: 1280px) 700px, (min-width: 1024px) 52vw, 100vw"
+                    : "(min-width: 1280px) 620px, (min-width: 1024px) 48vw, 100vw"
+                }
               />
-
-              {isHero && showCallouts ? (
-                <div className="pointer-events-none absolute inset-0 hidden lg:block">
-                  {HERO_REGIONS.map((region, index) => (
-                    <div
-                      key={region.label}
-                      className={cn(
-                        "absolute rounded-[18px] border backdrop-blur-[1px]",
-                        index === HERO_REGIONS.length - 1
-                          ? "border-emerald/40 bg-[radial-gradient(circle_at_top,rgba(77,219,147,0.09),transparent_72%)] shadow-[0_0_0_1px_rgba(77,219,147,0.16),0_0_34px_rgba(77,219,147,0.14)]"
-                          : "border-cyan/38 bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.08),transparent_72%)] shadow-[0_0_0_1px_rgba(86,217,255,0.16),0_0_34px_rgba(86,217,255,0.12)]",
-                        region.boxClassName,
-                      )}
-                    >
-                      <span className="absolute left-3 top-3 inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-white/[0.14] bg-[rgba(5,11,18,0.88)] px-2 font-mono text-[10px] tracking-[0.16em] text-[#eef7ff]">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
             </div>
           </div>
 
@@ -135,20 +158,17 @@ export function TerminalScreenshotFrame({
                 Detect the narrative. Match the coin. Validate the move.
               </p>
               {showCallouts ? (
-                <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] uppercase tracking-[0.16em] text-[#93a8bf]">
-                  {HERO_REGIONS.map((region, index) => (
-                    <span key={region.label} className="inline-flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1.5 font-mono text-[10px] tracking-[0.14em]",
-                          index === HERO_REGIONS.length - 1
-                            ? "border-emerald/26 text-[#d8f3e3]"
-                            : "border-cyan/22 text-[#e3f7ff]",
-                        )}
-                      >
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                      {region.label}
+                <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.16em] text-[#93a8bf] xl:hidden">
+                  {HERO_CALLOUTS.map((callout) => (
+                    <span
+                      key={callout.label}
+                      className={cn(
+                        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5",
+                        callout.toneClassName,
+                      )}
+                    >
+                      <span className={cn("h-1.5 w-1.5", callout.accentClassName)} />
+                      {callout.label}
                     </span>
                   ))}
                 </div>
