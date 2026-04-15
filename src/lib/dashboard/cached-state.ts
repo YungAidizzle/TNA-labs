@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { fetchLatestCorrelatedMemecoinBoard } from "@/lib/dashboard/correlated-memecoins";
 import { getTrendDashboardState } from "@/lib/dashboard/service";
 import { attachTrendMemecoinLinks } from "@/lib/dashboard/trend-memecoin-links";
+import { buildStrictTrendsPageCorrelatedBoard } from "@/lib/dashboard/trends-page-memecoin-matcher";
 import type { TrendDashboardQuery, TrendDashboardVM } from "@/types/view-models";
 
 const DASHBOARD_SHARED_REVALIDATE_SECONDS = 15;
@@ -26,13 +27,18 @@ async function decorateTrendDashboardMemecoins(
     console.error("[dashboard-cached-state] failed to load correlated memecoin board", error);
   }
 
+  const strictCorrelatedMemecoins = buildStrictTrendsPageCorrelatedBoard(
+    state,
+    correlatedMemecoins ?? null,
+  );
+
   const stateWithBoard: TrendDashboardVM = {
     ...state,
-    correlatedMemecoins: correlatedMemecoins ?? null,
+    correlatedMemecoins: strictCorrelatedMemecoins ?? null,
   };
 
   try {
-    return await attachTrendMemecoinLinks(stateWithBoard, correlatedMemecoins);
+    return await attachTrendMemecoinLinks(stateWithBoard, strictCorrelatedMemecoins);
   } catch (error) {
     console.error("[dashboard-cached-state] failed to attach trend memecoin links", error);
     return stateWithBoard;

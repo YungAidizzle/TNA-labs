@@ -60,11 +60,11 @@ export function validateAiTrendCanonicalTitle(value: string): AiTrendTitleValida
   if (tokens.length < 2) {
     errors.push("title must contain at least 2 words");
   }
-  if (tokens.length > 8) {
-    errors.push("title must be 8 words or fewer");
+  if (tokens.length > 10) {
+    errors.push("title must be 10 words or fewer");
   }
-  if (normalizedTitle.length > 72) {
-    errors.push("title exceeds 72 characters");
+  if (normalizedTitle.length > 96) {
+    errors.push("title exceeds 96 characters");
   }
   if (DISALLOWED_TITLE_PUNCTUATION.test(normalizedTitle)) {
     errors.push("title uses headline punctuation or quotes");

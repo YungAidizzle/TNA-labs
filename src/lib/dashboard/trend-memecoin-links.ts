@@ -3,6 +3,10 @@ import "server-only";
 import { fetchLatestCorrelatedMemecoinBoard } from "@/lib/dashboard/correlated-memecoins";
 import { revalidateNarrativeLinkedCoins } from "@/lib/dashboard/dexscreener-live-validation";
 import { getMemecoinDbCapabilities } from "@/lib/dashboard/memecoin-db-capabilities";
+import {
+  buildStrictTrendsPageBoardMatch,
+  strictifyTrendsPageLinkedCoin,
+} from "@/lib/dashboard/trends-page-memecoin-matcher";
 import { getServerPostgresPool, hasDatabaseUrl } from "@/lib/db/server-postgres";
 import {
   CorrelatedMemecoinBoard,
@@ -1842,43 +1846,29 @@ function resolveNarrativeLinkedCoins(
   boardRows: CorrelatedMemecoinRow[],
 ) {
   const resolvedById = new Map<string, NarrativeLinkedCoin>();
-  const normalizedPersisted = persistedLinks.map((linkedCoin) =>
-    normalizeStoredLinkedCoin(linkedCoin),
-  );
+  const normalizedPersisted = persistedLinks
+    .map((linkedCoin) => normalizeStoredLinkedCoin(linkedCoin))
+    .map((linkedCoin) => strictifyTrendsPageLinkedCoin(trend, linkedCoin))
+    .filter((linkedCoin): linkedCoin is NarrativeLinkedCoin => Boolean(linkedCoin));
 
   normalizedPersisted.forEach((linkedCoin) => {
     resolvedById.set(linkedCoin.id, linkedCoin);
   });
 
-  const heuristicMatches = collectHeuristicNarrativeMatches(trend, boardRows);
-  const exactBoardCoins = heuristicMatches
-    .filter((match) => match.matchType === "explicit_origin")
+  const strictBoardCoins = boardRows
+    .map((row) => buildStrictTrendsPageBoardMatch(trend, row))
+    .filter((match): match is NonNullable<typeof match> => Boolean(match))
+    .sort((left, right) => compareNarrativeLinkedCoins(left.linkedCoin, right.linkedCoin))
     .slice(0, MAX_LINKS_PER_TREND)
     .map((match) => match.linkedCoin);
 
-  exactBoardCoins.forEach((linkedCoin) => {
+  strictBoardCoins.forEach((linkedCoin) => {
     const existing = resolvedById.get(linkedCoin.id);
     resolvedById.set(
       linkedCoin.id,
       existing ? mergeNarrativeLinkedCoins(existing, linkedCoin) : linkedCoin,
     );
   });
-
-  if (resolvedById.size === 0) {
-    heuristicMatches
-      .filter((match) => match.matchType === "strong_narrative")
-      .slice(0, MAX_LINKS_PER_TREND)
-      .forEach((match) => {
-        resolvedById.set(match.linkedCoin.id, match.linkedCoin);
-      });
-  }
-
-  if (resolvedById.size === 0) {
-    const bestHeuristic = heuristicMatches[0]?.linkedCoin ?? null;
-    if (bestHeuristic) {
-      resolvedById.set(bestHeuristic.id, bestHeuristic);
-    }
-  }
 
   return [...resolvedById.values()]
     .sort(compareNarrativeLinkedCoins)
@@ -1914,7 +1904,6 @@ export async function attachTrendMemecoinLinks(
   ]);
   const boardRows = correlatedBoard?.rows ?? state.correlatedMemecoins?.rows ?? [];
   const resolvedByTopic = new Map<string, NarrativeLinkedCoin[]>();
-  let fallbackTopicCount = 0;
 
   allRows.forEach((row) => {
     const topicKey = getTrendTopicKey(row);
@@ -1927,21 +1916,8 @@ export async function attachTrendMemecoinLinks(
       linkedCoinsByTopic.get(topicKey) ?? [],
       boardRows,
     );
-    const topLink = resolvedLinks[0] ?? null;
-    const topMatchType = topLink ? getLinkedCoinMatchType(topLink) : null;
-    if (resolvedLinks.length > 0 && topMatchType === "fallback") {
-      fallbackTopicCount += 1;
-    }
     resolvedByTopic.set(topicKey, resolvedLinks);
   });
-
-  if (fallbackTopicCount > 0) {
-    console.info("[trend-memecoin-links] filled narrative coverage from correlated board", {
-      topic_count: resolvedByTopic.size,
-      fallback_topic_count: fallbackTopicCount,
-      board_row_count: boardRows.length,
-    });
-  }
 
   return {
     ...state,

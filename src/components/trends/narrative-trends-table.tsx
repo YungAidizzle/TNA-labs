@@ -129,6 +129,7 @@ export function NarrativeTrendsTable({
         <div>
           {rows.map((row) => {
             const selected = row.id === selectedId;
+            const displayName = getTrendDisplayNameOrPlaceholder(row);
 
             return (
               <button
@@ -148,8 +149,11 @@ export function NarrativeTrendsTable({
                   {row.rank}
                 </span>
 
-                <p className="line-clamp-2 min-w-0 pr-1 text-[14px] font-semibold leading-[1.25] tracking-[-0.02em] text-[#eef4fd] md:text-[15px]">
-                  {getTrendDisplayNameOrPlaceholder(row)}
+                <p
+                  title={displayName}
+                  className="line-clamp-2 min-w-0 pr-1 text-[14px] font-semibold leading-[1.25] tracking-[-0.02em] text-[#eef4fd] md:text-[15px]"
+                >
+                  {displayName}
                 </p>
 
                 <span className="text-right font-mono text-[13px] font-semibold text-[#d7e1ee] md:text-[14px]">

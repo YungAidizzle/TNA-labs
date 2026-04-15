@@ -11,9 +11,9 @@ describe("AI trend canonical title validation", () => {
   it("rejects long headline-style titles and clipped formatting", () => {
     expect(
       validateAiTrendCanonicalTitle(
-        "OpenAI is reportedly pushing a new media strategy after fresh platform talks",
+        "OpenAI is reportedly pushing a major new global media platform strategy after fresh distribution talks",
       ).errors,
-    ).toContain("title must be 8 words or fewer");
+    ).toContain("title must be 10 words or fewer");
     expect(validateAiTrendCanonicalTitle("Anthropic Leak: Here is what happened").errors).toContain(
       "title uses headline punctuation or quotes",
     );

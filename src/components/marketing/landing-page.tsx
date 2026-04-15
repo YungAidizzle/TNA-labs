@@ -178,10 +178,17 @@ export function LandingPage({
                   {BRAND_NAME}
                 </p>
                 <h1 className="mt-6 text-[44px] font-semibold leading-[0.93] tracking-[-0.065em] text-[#f4f8fd] sm:text-[58px] lg:text-[78px]">
-                  Track narratives before the trade gets crowded.
+                  <span className="block">You miss memecoin runs</span>
+                  <span className="block">because you see them too late.</span>
                 </h1>
                 <p className="mt-7 max-w-[560px] text-[17px] leading-8 text-[#9cb1c7]">
-                  Rank emerging narratives, surface the memecoins attached to them, and validate market response from one workflow inside {BRAND_NAME}.
+                  <span className="block">
+                    They don't start on charts &mdash; they start as small spikes in
+                    attention across the internet.
+                  </span>
+                  <span className="mt-2 block">
+                    We track that attention early so you're in before the crowd.
+                  </span>
                 </p>
 
                 <div className="mt-9 flex flex-wrap gap-3">

@@ -91,29 +91,15 @@ export default async function SettingsPage() {
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap gap-3">
+        <div className="mt-6 flex justify-center">
           <form action="/api/stripe/portal" method="post">
             <button
               type="submit"
               className="inline-flex h-11 items-center border border-white/[0.1] bg-white/[0.02] px-5 text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e0ee]"
             >
-              Manage billing
+              Manage Billing
             </button>
           </form>
-          <form action="/api/stripe/portal" method="post">
-            <button
-              type="submit"
-              className="inline-flex h-11 items-center border border-rose/20 bg-rose/10 px-5 text-[12px] font-medium uppercase tracking-[0.16em] text-[#ffb0b0]"
-            >
-              Cancel subscription
-            </button>
-          </form>
-          <Link
-            href="/pricing"
-            className="inline-flex h-11 items-center border border-cyan/20 bg-cyan/10 px-5 text-[12px] font-medium uppercase tracking-[0.16em] text-cyan"
-          >
-            View pricing disclosures
-          </Link>
         </div>
       </section>
 

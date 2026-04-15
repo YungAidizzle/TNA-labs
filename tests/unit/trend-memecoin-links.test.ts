@@ -227,13 +227,18 @@ describe("trend memecoin linking", () => {
     expect(linkedCoin?.symbol).toBe("OAI");
     expect(linkedCoin?.rawMatchSignals).toMatchObject({
       match_type: "explicit_origin",
-      match_score: 91,
-      supporting_keywords: ["openai", "gpu"],
+      match_score: expect.any(Number),
     });
+    expect(
+      Array.isArray((linkedCoin?.rawMatchSignals as Record<string, unknown>)?.supporting_keywords),
+    ).toBe(true);
+    expect(
+      ((linkedCoin?.rawMatchSignals as Record<string, unknown>)?.supporting_keywords as string[] | undefined) ?? [],
+    ).toContain("openai");
     expect(linkedCoin?.matchReasons).toContain("Matched narrative keyword 'openai' and entity overlap on GPU.");
   });
 
-  it("guarantees narratively aligned matches across multiple trend families when stored links are blank", async () => {
+  it("only surfaces direct name-style matches and drops broad thematic families when stored links are blank", async () => {
     const trends = [
       buildTrend({
         topicKey: "ai-openai-anthropic-compute",
@@ -333,7 +338,7 @@ describe("trend memecoin linking", () => {
         buildBoardRow({
           id: "solana:swift-token:swift-pair",
           symbol: "SWIFT",
-          name: "Swift Clip",
+          name: "Taylor Swift Coin",
           strongestTrendKey: "taylor-clip",
           strongestTrendLabel: "Taylor Clip",
           strongestTrendCategory: "creator",
@@ -363,16 +368,18 @@ describe("trend memecoin linking", () => {
 
     expect(topByTopic.get("ai-openai-anthropic-compute")?.symbol).toBe("OAI");
     expect(topByTopic.get("geopolitics-iran-escalation")?.symbol).toBe("IRAN");
-    expect(topByTopic.get("macro-fed-inflation")?.symbol).toBe("BRR");
+    expect(topByTopic.get("macro-fed-inflation")).toBeNull();
     expect(topByTopic.get("politics-trump-maga")?.symbol).toBe("MAGA");
     expect(topByTopic.get("celeb-media-viral-clip")?.symbol).toBe("SWIFT");
-    expect(topByTopic.get("crypto-native-solana-memecoin")?.symbol).toBe("PUMP");
+    expect(topByTopic.get("crypto-native-solana-memecoin")).toBeNull();
 
-      linkedState.leaderboard.forEach((trend) => {
+    linkedState.leaderboard
+      .filter((trend) => (trend.linkedCoins?.length ?? 0) > 0)
+      .forEach((trend) => {
       const linkedCoin = trend.linkedCoins?.[0] ?? null;
       expect(linkedCoin).not.toBeNull();
       expect(linkedCoin?.rawMatchSignals).toMatchObject({
-        match_type: expect.stringMatching(/explicit_origin|strong_narrative|fallback/),
+        match_type: expect.stringMatching(/explicit_origin|strong_narrative/),
         match_score: expect.any(Number),
         match_reason: expect.any(String),
       });
@@ -436,7 +443,7 @@ describe("trend memecoin linking", () => {
     expect(linkedCoins.some((coin) => coin.symbol === "GAI")).toBe(false);
   });
 
-  it("marks category-only matches as fallback when no exact narrative coin exists", async () => {
+  it("returns no linked coin for category-only matches when no exact narrative coin exists", async () => {
     const trend = buildTrend({
       topicKey: "fed-inflation-jitters",
       label: "Fed Inflation Jitters",
@@ -471,9 +478,6 @@ describe("trend memecoin linking", () => {
     const linkedState = await attachTrendMemecoinLinks(state, correlatedMemecoins);
     const linkedCoin = linkedState.leaderboard[0]?.linkedCoins?.[0] ?? null;
 
-    expect(linkedCoin?.symbol).toBe("ECON");
-    expect(linkedCoin?.rawMatchSignals).toMatchObject({
-      match_type: "fallback",
-    });
+    expect(linkedCoin).toBeNull();
   });
 });

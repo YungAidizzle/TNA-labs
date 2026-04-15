@@ -14,6 +14,7 @@ import {
   type TradingViewPreviewFailureCode,
   type TradingViewPreviewResponse,
 } from "@/lib/dashboard/tradingview-preview";
+import { resolveDexscreenerUrl } from "@/lib/dashboard/dexscreener-url";
 import { formatCompactCurrency, formatCurrency, formatHoursShort, formatSignedPercent } from "@/lib/formatters";
 import { cn } from "@/lib/utils/cn";
 import type { MemecoinTerminalRow } from "@/components/trends/memecoin-market-table";
@@ -258,32 +259,47 @@ export function SelectedCoinPanel({
   });
   const row = selectedCoin?.row ?? null;
   const rowIsLive = row ? row.isLive !== false && row.validationStatus !== "invalid" : false;
+  const resolvedDexscreenerUrl = row
+    ? resolveDexscreenerUrl({
+        chainId: row.chainId,
+        pairAddress: row.pairAddress,
+        tokenAddress: row.tokenAddress,
+        dexscreenerUrl: row.dexscreenerUrl,
+      })
+    : null;
+  const previewRow = row
+    ? {
+        ...row,
+        dexscreenerUrl: resolvedDexscreenerUrl ?? row.dexscreenerUrl,
+      }
+    : null;
   const previewQuery = useQuery({
-    queryKey: row
+    queryKey: previewRow
       ? [
           "memecoin-preview",
-          row.id,
-          row.chainId,
-          row.pairAddress,
-          row.tokenAddress,
-          row.symbol,
-          row.quoteSymbol,
-          row.tradingviewSymbol,
-          row.priceUsd,
-          row.priceChange1hPct,
-          row.priceChange6hPct,
-          row.priceChange24hPct,
-          row.updatedAt,
+          previewRow.id,
+          previewRow.chainId,
+          previewRow.pairAddress,
+          previewRow.tokenAddress,
+          previewRow.symbol,
+          previewRow.quoteSymbol,
+          previewRow.tradingviewSymbol,
+          previewRow.priceUsd,
+          previewRow.priceChange1hPct,
+          previewRow.priceChange6hPct,
+          previewRow.priceChange24hPct,
+          resolvedDexscreenerUrl,
+          previewRow.updatedAt,
         ]
       : ["memecoin-preview", "empty"],
     queryFn: ({ signal }) => {
-      if (!row) {
+      if (!previewRow) {
         throw new Error("No memecoin selected");
       }
 
-      return dashboardClient.getMemecoinPreview(row, { signal });
+      return dashboardClient.getMemecoinPreview(previewRow, { signal });
     },
-    enabled: Boolean(allowMarketPreview && row && rowIsLive && row.dexscreenerUrl),
+    enabled: Boolean(allowMarketPreview && previewRow && rowIsLive && resolvedDexscreenerUrl),
     staleTime: 5 * 60_000,
   });
   const previewSessionKey = row
@@ -450,7 +466,7 @@ export function SelectedCoinPanel({
   const previewFailureDetail =
     preview?.failureDetail ??
     (previewQuery.error ? String((previewQuery.error as Error)?.message ?? "") : null);
-  const previewDexUrl = preview?.dexUrl || row.dexscreenerUrl;
+  const previewDexUrl = preview?.dexUrl || resolvedDexscreenerUrl;
   const previewSnapshotUrl = preview?.snapshotImageUrl ?? null;
   const previewSymbol = preview?.status === "tradingview" ? preview.tradingviewSymbol : null;
   const previewRenderMode = allowMarketPreview
@@ -570,22 +586,37 @@ export function SelectedCoinPanel({
       </div>
 
       <div className="border-b border-white/[0.08] px-3 py-3">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <div>
+        <div className="mb-2 flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
             <p className="text-[12px] font-medium text-[#6d819a]">Chart Preview</p>
             <p className="text-[13px] text-[#a7b7ca]">
               {previewSubtitle(previewRenderMode, previewQuery.isPending, allowMarketPreview)}
             </p>
           </div>
-          {previewSymbol ? (
-            <span className="border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[12px] font-mono text-[#c9d4e2]">
-              {previewSymbol}
-            </span>
-          ) : previewBadgeText(previewRenderMode, allowMarketPreview) ? (
-            <span className="border border-white/[0.12] bg-white/[0.04] px-2 py-1 text-[12px] font-mono text-[#c9d4e2]">
-              {previewBadgeText(previewRenderMode, allowMarketPreview)}
-            </span>
-          ) : null}
+          <div className="flex shrink-0 flex-wrap items-start justify-end gap-2 self-start">
+            {resolvedDexscreenerUrl ? (
+              <a
+                data-testid="selected-coin-dexscreener-link"
+                href={resolvedDexscreenerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 whitespace-nowrap border border-cyan/28 bg-cyan/10 px-2.5 py-1.5 text-[11px] font-semibold text-cyan transition-colors hover:bg-cyan/14"
+              >
+                View on Dexscreener
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </a>
+            ) : null}
+
+            {previewSymbol ? (
+              <span className="whitespace-nowrap border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[12px] font-mono text-[#c9d4e2]">
+                {previewSymbol}
+              </span>
+            ) : previewBadgeText(previewRenderMode, allowMarketPreview) ? (
+              <span className="whitespace-nowrap border border-white/[0.12] bg-white/[0.04] px-2 py-1 text-[12px] font-mono text-[#c9d4e2]">
+                {previewBadgeText(previewRenderMode, allowMarketPreview)}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="relative h-[320px] border border-white/[0.08] bg-[#050911]">
@@ -622,9 +653,9 @@ export function SelectedCoinPanel({
               ) : null}
             </>
           ) : showDexPreview ? (
-            previewSnapshotUrl ? (
+            previewSnapshotUrl && previewDexUrl ? (
               <a
-                href={previewDexUrl ?? undefined}
+                href={previewDexUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="group relative block h-full w-full overflow-hidden"
@@ -645,6 +676,18 @@ export function SelectedCoinPanel({
                   </span>
                 </div>
               </a>
+            ) : previewSnapshotUrl ? (
+              <div className="relative h-full w-full overflow-hidden">
+                <img
+                  src={previewSnapshotUrl}
+                  alt={preview?.snapshotAlt ?? `${pairLabel(row)} Dexscreener market snapshot`}
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#050911] via-[#050911]/85 to-transparent px-4 py-3">
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.22em] text-cyan">DEX Snapshot</p>
+                  <p className="mt-1 text-[13px] text-[#d5e1ef]">{pairLabel(row)} on Dexscreener</p>
+                </div>
+              </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
                 <CoinIcon
@@ -719,15 +762,17 @@ export function SelectedCoinPanel({
 
       <div className="px-3 py-3">
         <div className="flex flex-wrap gap-2">
-          <a
-            href={row.dexscreenerUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 border border-cyan/28 bg-cyan/10 px-3 py-2 text-[12px] font-semibold text-cyan transition-colors hover:bg-cyan/14"
-          >
-            Open Dexscreener
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </a>
+          {resolvedDexscreenerUrl ? (
+            <a
+              href={resolvedDexscreenerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 border border-cyan/28 bg-cyan/10 px-3 py-2 text-[12px] font-semibold text-cyan transition-colors hover:bg-cyan/14"
+            >
+              Open Dexscreener
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </a>
+          ) : null}
 
           {websiteUrl ? (
             <a

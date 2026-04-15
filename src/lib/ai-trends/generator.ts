@@ -59,7 +59,7 @@ const GENERATION_SCHEMA = {
         properties: {
           rank: { type: "integer", minimum: 1, maximum: 100 },
           trend_key: { type: "string" },
-          title: { type: "string", minLength: 4, maxLength: 72 },
+          title: { type: "string", minLength: 4, maxLength: 96 },
           summary: { type: "string" },
           confidence_score: { type: "number", minimum: 0, maximum: 100 },
           ai_rank_score: { type: "number", minimum: 0, maximum: 100 },
