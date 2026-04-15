@@ -9,7 +9,6 @@ import {
   LEGAL_CONTACT,
   getSupportContactHref,
 } from "@/lib/legal/contact-details";
-import { SHORT_MARKETING_DISCLAIMER } from "@/lib/legal/disclaimers";
 
 type LandingPageProps = {
   isAuthenticated: boolean;
@@ -21,16 +20,16 @@ type LandingPageProps = {
   } | null;
 };
 
-const HERO_SIGNALS = [
-  "Ranks emerging narratives",
-  "Links narratives to memecoins",
-  "Validates with chart context",
+const HERO_BENEFITS = [
+  "Spot meme-driven attention before price fully reacts",
+  "See which coins actually map to the narrative",
+  "Filter hype with live market validation",
 ] as const;
 
-const HERO_NOTES = [
-  "Narrative-first workflow",
-  "Paid research access",
-  "No trade execution",
+const HERO_PROOF_STRIP = [
+  "Tracks narratives across X, Reddit, Telegram, and market response",
+  "Links rising themes to live memecoins in one workflow",
+  "Built for narrative-first crypto research",
 ] as const;
 
 const PLATFORM_DETAILS = [
@@ -168,64 +167,69 @@ export function LandingPage({
         <MarketingHeader
           isAuthenticated={isAuthenticated}
           hasPaidAccess={hasPaidAccess}
+          tone="subdued"
         />
 
         <main>
           <section className="border-b border-white/[0.06]">
-            <div className="mx-auto w-full max-w-[1440px] px-4 pb-24 pt-12 sm:px-6 lg:px-8 lg:pb-32 lg:pt-20">
-              <div className="grid gap-14 xl:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] xl:items-start xl:gap-12 2xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)] 2xl:gap-14">
-                <div className="min-w-0 max-w-[580px] xl:pb-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
-                    {BRAND_NAME}
+            <div className="mx-auto w-full max-w-[1440px] px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-20 lg:pt-16">
+              <div className="grid items-center gap-12 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)] xl:gap-10 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] 2xl:gap-12">
+                <div className="min-w-0 max-w-[620px]">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#87a6c3]">
+                    ATTENTRA
                   </p>
-                  <h1 className="mt-6 max-w-[11ch] text-[44px] font-semibold leading-[0.95] tracking-[-0.065em] text-[#f4f8fd] sm:text-[58px] lg:text-[68px] xl:text-[76px]">
-                    <span className="block">You miss memecoin runs</span>
-                    <span className="block">because you see them too late.</span>
+                  <h1 className="mt-5 text-[40px] font-semibold leading-[0.92] tracking-[-0.075em] text-[#f4f8fd] max-[360px]:text-[36px] sm:text-[58px] lg:text-[68px] xl:text-[78px]">
+                    <span className="block whitespace-nowrap">You miss memecoin runs</span>
+                    <span className="block whitespace-nowrap">because you see them</span>
+                    <span className="block whitespace-nowrap">too late.</span>
                   </h1>
 
-                  <div className="mt-7 max-w-[34rem] text-[17px] leading-8 text-[#9cb1c7]">
-                    <span className="block">
-                      They don't start on charts &mdash; they start as small spikes in
-                      attention across the internet.
-                    </span>
-                    <span className="mt-2 block">
-                      We track that attention early so you're in before the crowd.
-                    </span>
-                  </div>
-
-                  <div className="mt-9 flex flex-wrap items-center gap-3">
-                    <PrimaryCta href={dashboardHref}>Open Live Terminal</PrimaryCta>
-                    <SecondaryCta href="/#product">View Platform</SecondaryCta>
-                  </div>
-
-                  <div className="mt-10 flex max-w-[34rem] flex-wrap gap-x-6 gap-y-3 text-[12px] font-medium uppercase tracking-[0.14em] text-[#c9d6e4]">
-                    {HERO_SIGNALS.map((item) => (
-                      <span key={item} className="flex items-center gap-2">
-                        <span className="h-1.5 w-1.5 bg-cyan" />
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-
-                  <p className="mt-6 max-w-[33rem] text-[13px] leading-6 text-[#7f93ab]">
-                    {SHORT_MARKETING_DISCLAIMER}
+                  <p className="mt-6 max-w-[33rem] text-[17px] leading-8 text-[#c0d0e1] sm:text-[18px]">
+                    Attentra shows which narratives are accelerating, which memecoins
+                    map to them, and whether momentum is real before the trade gets
+                    crowded.
                   </p>
 
-                  <div className="mt-8 flex max-w-[34rem] flex-wrap gap-x-5 gap-y-2 border-t border-white/[0.08] pt-5 text-[12px] uppercase tracking-[0.14em] text-[#91a5bc]">
-                    {HERO_NOTES.map((item) => (
-                      <span key={item}>{item}</span>
+                  <div className="mt-8 flex flex-wrap items-center gap-3">
+                    <PrimaryCta href={dashboardHref}>Open Live Terminal</PrimaryCta>
+                    <SecondaryCta href="/#proof">See How It Works</SecondaryCta>
+                  </div>
+
+                  <div className="mt-8 grid max-w-[34rem] gap-3 text-[14px] leading-6 text-[#dbe7f4] sm:text-[15px]">
+                    {HERO_BENEFITS.map((item) => (
+                      <span key={item} className="flex items-start gap-3">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 bg-cyan" />
+                        <span>{item}</span>
+                      </span>
                     ))}
                   </div>
                 </div>
 
-                <div className="min-w-0 xl:self-start xl:pt-10">
+                <div className="min-w-0 xl:self-center">
                   <TerminalScreenshotFrame
                     variant="hero"
                     showCallouts
                     priority
-                    className="mx-auto w-full max-w-[920px] xl:mx-0 xl:max-w-[840px] 2xl:max-w-[900px]"
+                    className="mx-auto w-full max-w-[920px] xl:mx-0 xl:max-w-[900px] 2xl:max-w-[940px]"
                   />
                 </div>
+              </div>
+
+              <div className="mt-10 grid gap-3 rounded-[20px] border border-white/[0.08] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.012))] px-4 py-4 sm:px-5 lg:mt-12 lg:grid-cols-3 lg:gap-4">
+                {HERO_PROOF_STRIP.map((item, index) => (
+                  <div
+                    key={item}
+                    className="flex items-start gap-3 border-white/[0.06] lg:items-center lg:border-l lg:pl-4 first:lg:border-l-0 first:lg:pl-0"
+                  >
+                    <span
+                      className={[
+                        "mt-1.5 h-2 w-2 shrink-0",
+                        index === HERO_PROOF_STRIP.length - 1 ? "bg-emerald" : "bg-cyan",
+                      ].join(" ")}
+                    />
+                    <p className="text-[12px] leading-6 text-[#bfd0e2]">{item}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </section>

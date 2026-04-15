@@ -13,10 +13,19 @@ const MASTER_SCREENSHOT_SRC = "/marketing/dashboard-terminal-hero-hq.png";
 const MASTER_SCREENSHOT_WIDTH = 1876;
 const MASTER_SCREENSHOT_HEIGHT = 928;
 
-const CALLOUTS = [
-  { label: "Narrative tracking" },
-  { label: "Momentum memecoins" },
-  { label: "Validation workflow" },
+const HERO_REGIONS = [
+  {
+    label: "Narrative list",
+    boxClassName: "left-[14.2%] top-[6.8%] h-[72%] w-[28.6%]",
+  },
+  {
+    label: "Memecoin table",
+    boxClassName: "left-[44.8%] top-[6.8%] h-[72%] w-[31.4%]",
+  },
+  {
+    label: "Validation panel",
+    boxClassName: "left-[78.3%] top-[6.8%] h-[72%] w-[17.5%]",
+  },
 ] as const;
 
 export function TerminalScreenshotFrame({
@@ -50,7 +59,7 @@ export function TerminalScreenshotFrame({
           className={cn(
             "relative rounded-[30px] border border-white/[0.1] bg-[linear-gradient(180deg,rgba(10,16,24,0.98),rgba(5,8,13,0.995))] p-3 shadow-[0_38px_110px_rgba(0,0,0,0.46)]",
             isHero
-              ? "lg:shadow-[18px_36px_110px_rgba(0,0,0,0.46),-14px_14px_34px_rgba(5,11,18,0.12)]"
+              ? "border-white/[0.12] lg:shadow-[18px_36px_110px_rgba(0,0,0,0.46),-14px_14px_34px_rgba(5,11,18,0.12)]"
               : "",
           )}
         >
@@ -96,13 +105,54 @@ export function TerminalScreenshotFrame({
                 )}
                 sizes={isHero ? "(min-width: 1280px) 900px, (min-width: 1024px) 62vw, 100vw" : "(min-width: 1280px) 620px, (min-width: 1024px) 48vw, 100vw"}
               />
+
+              {isHero && showCallouts ? (
+                <div className="pointer-events-none absolute inset-0 hidden lg:block">
+                  {HERO_REGIONS.map((region, index) => (
+                    <div
+                      key={region.label}
+                      className={cn(
+                        "absolute rounded-[18px] border backdrop-blur-[1px]",
+                        index === HERO_REGIONS.length - 1
+                          ? "border-emerald/40 bg-[radial-gradient(circle_at_top,rgba(77,219,147,0.09),transparent_72%)] shadow-[0_0_0_1px_rgba(77,219,147,0.16),0_0_34px_rgba(77,219,147,0.14)]"
+                          : "border-cyan/38 bg-[radial-gradient(circle_at_top,rgba(86,217,255,0.08),transparent_72%)] shadow-[0_0_0_1px_rgba(86,217,255,0.16),0_0_34px_rgba(86,217,255,0.12)]",
+                        region.boxClassName,
+                      )}
+                    >
+                      <span className="absolute left-3 top-3 inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-white/[0.14] bg-[rgba(5,11,18,0.88)] px-2 font-mono text-[10px] tracking-[0.16em] text-[#eef7ff]">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
 
           {isHero ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
-              <p>Live ranking, linked assets, and market response in one terminal</p>
-              <p>Built for narrative-first crypto research</p>
+            <div className="space-y-3 px-2 pt-3 sm:px-3">
+              <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e4f3]">
+                Detect the narrative. Match the coin. Validate the move.
+              </p>
+              {showCallouts ? (
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-[11px] uppercase tracking-[0.16em] text-[#93a8bf]">
+                  {HERO_REGIONS.map((region, index) => (
+                    <span key={region.label} className="inline-flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1.5 font-mono text-[10px] tracking-[0.14em]",
+                          index === HERO_REGIONS.length - 1
+                            ? "border-emerald/26 text-[#d8f3e3]"
+                            : "border-cyan/22 text-[#e3f7ff]",
+                        )}
+                      >
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      {region.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
@@ -111,30 +161,6 @@ export function TerminalScreenshotFrame({
           )}
         </div>
       </div>
-
-      {showCallouts ? (
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          {CALLOUTS.map((callout, index) => (
-            <div
-              key={callout.label}
-              className={cn(
-                "rounded-[16px] border px-3 py-3 text-[12px] uppercase tracking-[0.14em] shadow-[0_16px_34px_rgba(0,0,0,0.24)]",
-                index === CALLOUTS.length - 1
-                  ? "border-emerald/14 bg-[linear-gradient(180deg,rgba(77,219,147,0.08),rgba(255,255,255,0.03))] text-[#dcf4e7]"
-                  : "border-white/[0.08] bg-white/[0.03] text-[#dce7f5]",
-              )}
-            >
-              <span
-                className={cn(
-                  "mr-2 inline-block h-1.5 w-1.5",
-                  index === CALLOUTS.length - 1 ? "bg-emerald" : "bg-cyan",
-                )}
-              />
-              {callout.label}
-            </div>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

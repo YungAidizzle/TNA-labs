@@ -4,10 +4,12 @@ import Link from "next/link";
 import { Activity } from "lucide-react";
 import { useEffect, useEffectEvent, useState } from "react";
 import { BRAND_DESCRIPTOR, BRAND_NAME } from "@/lib/brand";
+import { cn } from "@/lib/utils/cn";
 
 type MarketingHeaderProps = {
   isAuthenticated: boolean;
   hasPaidAccess?: boolean;
+  tone?: "default" | "subdued";
 };
 
 const NAV_LINKS = [
@@ -20,8 +22,10 @@ const NAV_LINKS = [
 export function MarketingHeader({
   isAuthenticated,
   hasPaidAccess = false,
+  tone = "default",
 }: MarketingHeaderProps) {
   const [scrolled, setScrolled] = useState(false);
+  const isSubdued = tone === "subdued";
 
   const updateScrollState = useEffectEvent(() => {
     setScrolled(window.scrollY > 12);
@@ -54,35 +58,64 @@ export function MarketingHeader({
 
   return (
     <header
-      className={[
+      className={cn(
         "sticky top-0 z-50 transition-all duration-200",
         scrolled
-          ? "border-b border-white/[0.08] bg-[rgba(5,8,12,0.88)] backdrop-blur-xl"
+          ? isSubdued
+            ? "border-b border-white/[0.06] bg-[rgba(5,8,12,0.74)] backdrop-blur-xl"
+            : "border-b border-white/[0.08] bg-[rgba(5,8,12,0.88)] backdrop-blur-xl"
           : "bg-transparent",
-      ].join(" ")}
+      )}
     >
-      <div className="mx-auto flex w-full max-w-[1320px] items-center justify-between gap-5 px-4 py-4 sm:px-6 lg:px-8">
+      <div
+        className={cn(
+          "mx-auto flex w-full items-center justify-between gap-5 px-4 sm:px-6 lg:px-8",
+          isSubdued ? "max-w-[1440px] py-3.5" : "max-w-[1320px] py-4",
+        )}
+      >
         <Link href="/" className="flex min-w-0 items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center border border-white/[0.08] bg-[linear-gradient(180deg,rgba(10,18,28,0.98),rgba(6,10,16,0.98))] text-cyan shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <span
+            className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center bg-[linear-gradient(180deg,rgba(10,18,28,0.98),rgba(6,10,16,0.98))] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+              isSubdued
+                ? "border border-white/[0.06] text-[#8dd9ff]"
+                : "border border-white/[0.08] text-cyan",
+            )}
+          >
             <Activity className="h-4 w-4" />
           </span>
 
-            <span className="min-w-0">
-              <span className="block truncate text-[10px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
-                {BRAND_NAME}
-              </span>
-              <span className="block truncate text-[15px] font-semibold tracking-[-0.03em] text-[#eef4fb]">
-                {BRAND_DESCRIPTOR}
-              </span>
+          <span className="min-w-0">
+            <span
+              className={cn(
+                "block truncate text-[10px] font-semibold uppercase tracking-[0.22em]",
+                isSubdued ? "text-[#677d95]" : "text-[#70849d]",
+              )}
+            >
+              {BRAND_NAME}
             </span>
+            <span
+              className={cn(
+                "block truncate text-[15px] font-semibold tracking-[-0.03em]",
+                isSubdued ? "text-[#dfe8f2]" : "text-[#eef4fb]",
+              )}
+            >
+              {BRAND_DESCRIPTOR}
+            </span>
+          </span>
         </Link>
 
-        <nav className="hidden items-center gap-8 lg:flex">
+        <nav className={cn("hidden items-center lg:flex", isSubdued ? "gap-7" : "gap-8")}>
           {NAV_LINKS.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="text-[12px] font-medium uppercase tracking-[0.16em] text-[#9ab0c7] transition-colors hover:text-[#eef4fb]"
+              className={cn(
+                "text-[12px] font-medium uppercase tracking-[0.16em] transition-colors",
+                isSubdued
+                  ? "text-[#8196ad] hover:text-[#dbe6f2]"
+                  : "text-[#9ab0c7] hover:text-[#eef4fb]",
+              )}
             >
               {item.label}
             </Link>
@@ -92,13 +125,23 @@ export function MarketingHeader({
         <div className="flex items-center gap-2">
           <Link
             href={secondaryHref}
-            className="hidden h-10 items-center px-3 text-[12px] font-medium uppercase tracking-[0.16em] text-[#adbed1] transition-colors hover:text-[#eef4fb] sm:inline-flex"
+            className={cn(
+              "hidden h-10 items-center px-3 text-[12px] font-medium uppercase tracking-[0.16em] transition-colors sm:inline-flex",
+              isSubdued
+                ? "text-[#8ea1b3] hover:text-[#e3edf7]"
+                : "text-[#adbed1] hover:text-[#eef4fb]",
+            )}
           >
             {secondaryLabel}
           </Link>
           <Link
             href={primaryHref}
-            className="inline-flex h-10 items-center border border-cyan/24 bg-[linear-gradient(180deg,rgba(15,44,57,0.96),rgba(8,18,25,0.98))] px-4 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors hover:border-cyan/36"
+            className={cn(
+              "inline-flex h-10 items-center px-4 text-[12px] font-semibold uppercase tracking-[0.16em] transition-colors",
+              isSubdued
+                ? "border border-white/[0.1] bg-white/[0.025] text-[#e2ebf6] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:border-white/[0.16] hover:bg-white/[0.045]"
+                : "border border-cyan/24 bg-[linear-gradient(180deg,rgba(15,44,57,0.96),rgba(8,18,25,0.98))] text-[#effdff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:border-cyan/36",
+            )}
           >
             Open Terminal
           </Link>
