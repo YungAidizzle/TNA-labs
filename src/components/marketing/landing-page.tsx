@@ -172,57 +172,60 @@ export function LandingPage({
 
         <main>
           <section className="border-b border-white/[0.06]">
-            <div className="mx-auto grid w-full max-w-[1440px] gap-12 px-4 pb-24 pt-12 sm:px-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(780px,1.3fr)] lg:gap-10 lg:px-8 lg:pb-32 lg:pt-24">
-              <div className="max-w-[560px] lg:pt-12">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
-                  {BRAND_NAME}
-                </p>
-                <h1 className="mt-6 text-[44px] font-semibold leading-[0.93] tracking-[-0.065em] text-[#f4f8fd] sm:text-[58px] lg:text-[78px]">
-                  <span className="block">You miss memecoin runs</span>
-                  <span className="block">because you see them too late.</span>
-                </h1>
-                <p className="mt-7 max-w-[560px] text-[17px] leading-8 text-[#9cb1c7]">
-                  <span className="block">
-                    They don't start on charts &mdash; they start as small spikes in
-                    attention across the internet.
-                  </span>
-                  <span className="mt-2 block">
-                    We track that attention early so you're in before the crowd.
-                  </span>
-                </p>
+            <div className="mx-auto w-full max-w-[1440px] px-4 pb-24 pt-12 sm:px-6 lg:px-8 lg:pb-32 lg:pt-20">
+              <div className="grid items-center gap-14 xl:grid-cols-[minmax(0,560px)_minmax(0,1fr)] xl:gap-16 2xl:grid-cols-[minmax(0,600px)_minmax(0,1fr)] 2xl:gap-20">
+                <div className="min-w-0 max-w-[580px] xl:pb-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#70849d]">
+                    {BRAND_NAME}
+                  </p>
+                  <h1 className="mt-6 max-w-[11ch] text-[44px] font-semibold leading-[0.95] tracking-[-0.065em] text-[#f4f8fd] sm:text-[58px] lg:text-[68px] xl:text-[76px]">
+                    <span className="block">You miss memecoin runs</span>
+                    <span className="block">because you see them too late.</span>
+                  </h1>
 
-                <div className="mt-9 flex flex-wrap gap-3">
-                  <PrimaryCta href={dashboardHref}>Open Live Terminal</PrimaryCta>
-                  <SecondaryCta href="/#product">View Platform</SecondaryCta>
-                </div>
-
-                <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-[12px] font-medium uppercase tracking-[0.14em] text-[#c9d6e4]">
-                  {HERO_SIGNALS.map((item) => (
-                    <span key={item} className="flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 bg-cyan" />
-                      {item}
+                  <div className="mt-7 max-w-[34rem] text-[17px] leading-8 text-[#9cb1c7]">
+                    <span className="block">
+                      They don't start on charts &mdash; they start as small spikes in
+                      attention across the internet.
                     </span>
-                  ))}
+                    <span className="mt-2 block">
+                      We track that attention early so you're in before the crowd.
+                    </span>
+                  </div>
+
+                  <div className="mt-9 flex flex-wrap items-center gap-3">
+                    <PrimaryCta href={dashboardHref}>Open Live Terminal</PrimaryCta>
+                    <SecondaryCta href="/#product">View Platform</SecondaryCta>
+                  </div>
+
+                  <div className="mt-10 flex max-w-[34rem] flex-wrap gap-x-6 gap-y-3 text-[12px] font-medium uppercase tracking-[0.14em] text-[#c9d6e4]">
+                    {HERO_SIGNALS.map((item) => (
+                      <span key={item} className="flex items-center gap-2">
+                        <span className="h-1.5 w-1.5 bg-cyan" />
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+
+                  <p className="mt-6 max-w-[33rem] text-[13px] leading-6 text-[#7f93ab]">
+                    {SHORT_MARKETING_DISCLAIMER}
+                  </p>
+
+                  <div className="mt-8 flex max-w-[34rem] flex-wrap gap-x-5 gap-y-2 border-t border-white/[0.08] pt-5 text-[12px] uppercase tracking-[0.14em] text-[#91a5bc]">
+                    {HERO_NOTES.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
                 </div>
 
-                <p className="mt-6 max-w-[520px] text-[13px] leading-6 text-[#7f93ab]">
-                  {SHORT_MARKETING_DISCLAIMER}
-                </p>
-
-                <div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 border-t border-white/[0.08] pt-5 text-[12px] uppercase tracking-[0.14em] text-[#91a5bc]">
-                  {HERO_NOTES.map((item) => (
-                    <span key={item}>{item}</span>
-                  ))}
+                <div className="min-w-0 xl:justify-self-end">
+                  <TerminalScreenshotFrame
+                    variant="hero"
+                    showCallouts
+                    priority
+                    className="mx-auto w-full max-w-[920px] xl:max-w-[860px] 2xl:max-w-[920px]"
+                  />
                 </div>
-              </div>
-
-              <div className="relative lg:pt-2">
-                <TerminalScreenshotFrame
-                  variant="hero"
-                  showCallouts
-                  priority
-                  className="mx-auto w-full max-w-[980px]"
-                />
               </div>
             </div>
           </section>
