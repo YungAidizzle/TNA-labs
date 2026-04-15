@@ -1,11 +1,14 @@
 const TITLE_GENERIC_TOKENS = new Set([
+  "attention",
   "analysis",
   "board",
   "breaking",
   "coverage",
-  "dashboard",
   "debate",
+  "debates",
+  "dashboard",
   "discussion",
+  "discourse",
   "headline",
   "headlines",
   "internet",
@@ -15,6 +18,7 @@ const TITLE_GENERIC_TOKENS = new Set([
   "narratives",
   "news",
   "online",
+  "speculation",
   "story",
   "stories",
   "today",
@@ -57,14 +61,14 @@ export function validateAiTrendCanonicalTitle(value: string): AiTrendTitleValida
   if (!normalizedTitle) {
     errors.push("title is empty");
   }
-  if (tokens.length < 2) {
-    errors.push("title must contain at least 2 words");
+  if (tokens.length < 4) {
+    errors.push("title must contain at least 4 words");
   }
-  if (tokens.length > 10) {
-    errors.push("title must be 10 words or fewer");
+  if (tokens.length > 14) {
+    errors.push("title must be 14 words or fewer");
   }
-  if (normalizedTitle.length > 96) {
-    errors.push("title exceeds 96 characters");
+  if (normalizedTitle.length > 140) {
+    errors.push("title exceeds 140 characters");
   }
   if (DISALLOWED_TITLE_PUNCTUATION.test(normalizedTitle)) {
     errors.push("title uses headline punctuation or quotes");
@@ -72,7 +76,7 @@ export function validateAiTrendCanonicalTitle(value: string): AiTrendTitleValida
   if (HEADLINE_STYLE_MARKERS.test(normalizedTitle)) {
     errors.push("title reads like a headline instead of a narrative label");
   }
-  if (informativeTokens.length < 2) {
+  if (informativeTokens.length < 3) {
     errors.push("title is too generic");
   }
 

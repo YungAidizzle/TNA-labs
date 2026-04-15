@@ -172,7 +172,10 @@ export function TrendMemecoinsPanel({
               {rows.length}
             </span>
             {selectedTrendLabel ? (
-              <span className="max-w-[190px] truncate border border-white/[0.08] bg-white/[0.03] px-2 py-1.5">
+              <span
+                title={selectedTrendLabel}
+                className="max-w-[190px] truncate border border-white/[0.08] bg-white/[0.03] px-2 py-1.5"
+              >
                 {selectedTrendLabel}
               </span>
             ) : null}

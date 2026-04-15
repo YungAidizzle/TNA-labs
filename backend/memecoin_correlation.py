@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from backend.dexscreener_client import DexscreenerClient
 from backend.logging_setup import log_event
 from backend.topic_rules import TOPIC_GENERIC_WEAK_TOKENS, TOPIC_NOISE_TOKENS, topic_tokens
+from backend.trend_memecoin_signals import extract_memecoin_seed_phrases, profile_memecoin_attention
 from backend.tradingview_preview import (
     PersistedTradingViewState,
     TradingViewPreviewVerifier,
@@ -92,8 +93,10 @@ GENERIC_SEED_TERMS = {
     "signal",
     "signals",
     "social",
+    "sparking",
     "story",
     "stream",
+    "triggering",
     "topic",
     "topics",
     "trend",
@@ -101,6 +104,12 @@ GENERIC_SEED_TERMS = {
     "update",
     "updates",
     "viral",
+    "driving",
+    "fueling",
+    "fuelling",
+    "reviving",
+    "attention",
+    "speculation",
 }
 NARRATIVE_GENERIC_MATCH_TOKENS = {
     *GENERIC_SEED_TERMS,
@@ -178,9 +187,14 @@ LOW_INFORMATION_LABEL_TOKENS = {
 TREND_CULTURE_SIGNAL_TERMS = {
     "anime",
     "arcade",
+    "brainrot",
+    "catchphrase",
+    "clip",
+    "deepfake",
     "fandom",
     "fanart",
     "fanbase",
+    "fan edit",
     "franchise",
     "game",
     "gaming",
@@ -190,8 +204,10 @@ TREND_CULTURE_SIGNAL_TERMS = {
     "manga",
     "meme",
     "reaction",
+    "remix",
     "shitpost",
     "slang",
+    "stream",
     "streamer",
     "tiktok",
     "timeline",
@@ -205,10 +221,12 @@ TREND_CULTURE_SIGNAL_TERMS = {
 TREND_BUCKET_SELECTION_ORDER = (
     "meme",
     "internet_culture",
+    "crypto_spillover",
     "gaming",
     "entertainment",
     "creator",
     "ai_tech",
+    "memeified_politics",
 )
 SEED_CLASS_PRIORITY = {
     "primary": 60.0,
@@ -240,10 +258,17 @@ PREFERRED_CATEGORY_TERMS: dict[str, set[str]] = {
         "frog",
         "doge",
         "dog",
+        "cat",
+        "animal",
+        "mascot",
+        "catchphrase",
+        "nickname",
+        "slogan",
         "pepe",
         "reaction image",
         "joke",
         "parody",
+        "brainrot",
     },
     "internet_culture": {
         "internet",
@@ -258,6 +283,11 @@ PREFERRED_CATEGORY_TERMS: dict[str, set[str]] = {
         "bluesky",
         "copypasta",
         "stream",
+        "deepfake",
+        "remix",
+        "repost",
+        "fan edit",
+        "platform backlash",
         "trend",
     },
     "entertainment": {
@@ -267,6 +297,8 @@ PREFERRED_CATEGORY_TERMS: dict[str, set[str]] = {
         "album",
         "artist",
         "celebrity",
+        "fandom",
+        "stan",
         "show",
         "series",
         "anime",
@@ -302,6 +334,8 @@ PREFERRED_CATEGORY_TERMS: dict[str, set[str]] = {
         "fanbase",
         "community",
         "onlyfans",
+        "clip",
+        "livestream",
     },
     "ai_tech": {
         "ai",
@@ -318,6 +352,36 @@ PREFERRED_CATEGORY_TERMS: dict[str, set[str]] = {
         "gpu",
         "chip",
         "automation",
+        "deepfake",
+        "companion",
+        "grok",
+        "avatar",
+    },
+    "crypto_spillover": {
+        "memecoin",
+        "memecoins",
+        "meme coin",
+        "solana meme",
+        "base meme",
+        "launchpad",
+        "pump.fun",
+        "letsbonk",
+        "cto",
+        "community takeover",
+        "etf inflows",
+        "spot bitcoin etf",
+        "token launch",
+        "listing",
+        "retail speculation",
+        "rotation",
+    },
+    "memeified_politics": {
+        "mugshot",
+        "debate clip",
+        "rally clip",
+        "campaign meme",
+        "parody ad",
+        "quote tweet war",
     },
 }
 DEPRIORITIZED_TERMS: dict[str, set[str]] = {
@@ -338,6 +402,8 @@ DEPRIORITIZED_TERMS: dict[str, set[str]] = {
         "netanyahu",
         "war",
         "campaign",
+        "parliament",
+        "minister",
     },
     "macro": {
         "inflation",
@@ -362,6 +428,10 @@ DEPRIORITIZED_TERMS: dict[str, set[str]] = {
         "portfolio",
         "options",
         "futures",
+        "earnings",
+        "quarterly",
+        "merger",
+        "acquisition",
     },
     "news": {
         "breaking",
@@ -374,6 +444,8 @@ DEPRIORITIZED_TERMS: dict[str, set[str]] = {
         "shooting",
         "press release",
         "statement",
+        "court filing",
+        "indictment",
     },
 }
 MEMECOIN_STYLE_TERMS = {
@@ -530,12 +602,14 @@ LOW_SIGNAL_TREND_CATEGORIES = {
     "insufficient evidence",
 }
 PREFERRED_TREND_CATEGORY_BUCKETS: dict[str, set[str]] = {
-    "meme": {"meme", "memes"},
-    "internet_culture": {"culture", "internet culture", "media"},
-    "entertainment": {"entertainment", "music", "anime", "movies", "film", "tv"},
-    "gaming": {"gaming", "games"},
-    "creator": {"creator", "creator / influencer", "influencer"},
-    "ai_tech": {"ai", "technology", "science and technology", "tech"},
+    "meme": {"meme", "memes", "animal meme", "catchphrase wave"},
+    "internet_culture": {"culture", "internet culture", "media", "platform drama"},
+    "entertainment": {"entertainment", "music", "anime", "movies", "film", "tv", "celebrity meme", "fandom wave"},
+    "gaming": {"gaming", "games", "gaming meme"},
+    "creator": {"creator", "creator / influencer", "influencer", "creator viral moment"},
+    "ai_tech": {"ai", "technology", "science and technology", "tech", "ai meme wave"},
+    "crypto_spillover": {"crypto spillover"},
+    "memeified_politics": {"memeified politics"},
 }
 DEPRIORITIZED_TREND_CATEGORY_BUCKETS: dict[str, set[str]] = {
     "politics": {"politics", "policy"},
@@ -1150,10 +1224,12 @@ def _trend_category_bonus(bucket: str | None) -> float:
     return {
         "meme": 20.0,
         "internet_culture": 18.0,
+        "crypto_spillover": 17.0,
         "entertainment": 16.0,
         "gaming": 16.0,
         "creator": 14.0,
         "ai_tech": 14.0,
+        "memeified_politics": 10.0,
         "politics": -18.0,
         "macro": -12.0,
         "finance": -12.0,
@@ -1174,10 +1250,12 @@ def _trend_culture_bonus(
     bucket_bonus = {
         "meme": 8.0,
         "internet_culture": 7.0,
+        "crypto_spillover": 7.0,
         "gaming": 7.0,
         "entertainment": 6.0,
         "creator": 6.0,
         "ai_tech": 5.0,
+        "memeified_politics": 4.0,
     }.get(str(preferred_bucket or "").strip(), 0.0)
     activity_bonus = 3.0 if representative_post_count >= 10 else 1.5 if representative_post_count >= 6 else 0.0
     return min(18.0, culture_hits * 1.8 + entity_bonus + bucket_bonus + activity_bonus)
@@ -1476,7 +1554,7 @@ def build_memecoin_correlation_runtime_config_from_env() -> MemecoinCorrelationR
         target_published_results=_parse_int_env("MEMECOIN_CORRELATION_TARGET_PUBLISHED_RESULTS", 0, 0, 500),
         max_political_results=_parse_int_env("MEMECOIN_CORRELATION_MAX_POLITICAL_RESULTS", 32, 0, 64),
         max_theme_results_per_run=_parse_int_env("MEMECOIN_CORRELATION_MAX_THEME_RESULTS_PER_RUN", 12, 1, 24),
-        min_trend_culture_score=_parse_float_env("MEMECOIN_CORRELATION_MIN_TREND_CULTURE_SCORE", -12.0, -20.0, 20.0),
+        min_trend_culture_score=_parse_float_env("MEMECOIN_CORRELATION_MIN_TREND_CULTURE_SCORE", 4.0, -20.0, 20.0),
         min_memecoin_fit_score=_parse_float_env(
             "MEMECOIN_CORRELATION_MIN_MEMECOIN_FIT_SCORE",
             4.0,
@@ -1707,10 +1785,12 @@ def _score_bias(text: str) -> TrendBias:
     preferred_score = (
         preferred_hits["meme"] * 1.8
         + preferred_hits["internet_culture"] * 1.5
+        + preferred_hits["crypto_spillover"] * 1.6
         + preferred_hits["entertainment"] * 1.2
         + preferred_hits["gaming"] * 1.3
         + preferred_hits["creator"] * 1.0
         + preferred_hits["ai_tech"] * 1.4
+        + preferred_hits["memeified_politics"] * 1.1
     )
     penalty_score = (
         deprioritized_hits["politics"] * 2.0
@@ -1781,10 +1861,20 @@ def _trend_priority_score(row: dict[str, Any], text: str, now: datetime) -> floa
         + _log_score(representative_post_count, weight=6.0, cap=10.0)
     )
     confidence_bonus = min(6.0, max(0.0, _safe_float(row.get("summary_confidence"))) * 10.0)
+    memecoin_profile = profile_memecoin_attention(
+        text,
+        display_label,
+        str(row.get("narrative_summary") or "").strip(),
+        str(row.get("context_paragraph") or "").strip(),
+        " ".join(_coerce_text_list(row.get("key_entities"))),
+        raw_category=row.get("trend_category"),
+    )
+    memecoin_attention_bonus = _clamp(memecoin_profile.score, -18.0, 24.0)
     return (
         volume_score
         + freshness_bonus
-        + bias.culture_score * 4.0
+        + bias.culture_score * 3.5
+        + memecoin_attention_bonus
         + _trend_category_bonus(category_bucket)
         + culture_bonus
         + confidence_bonus
@@ -1825,11 +1915,20 @@ def _select_active_trends(
         representative_post_count = max(0, _safe_int(row.get("representative_post_count")))
         trusted_display_name = _should_use_trusted_trend_display_name(row)
         trend_text = _build_trend_text(row)
+        memecoin_profile = profile_memecoin_attention(
+            trend_text,
+            display_label,
+            str(row.get("narrative_summary") or "").strip(),
+            str(row.get("context_paragraph") or "").strip(),
+            " ".join(key_entities),
+            raw_category=row.get("trend_category"),
+        )
+        trend_category_value = str(row.get("trend_category") or "").strip() or memecoin_profile.inferred_category or None
         bias = _score_bias(trend_text)
-        preferred_bucket = _preferred_trend_bucket(row, bias)
+        preferred_bucket = _preferred_trend_bucket({**row, "trend_category": trend_category_value}, bias) or memecoin_profile.bucket
         quality_penalty = _trend_quality_penalty(
             display_label=display_label,
-            trend_category=str(row.get("trend_category") or "").strip() or None,
+            trend_category=trend_category_value,
             enrichment_status=str(row.get("enrichment_status") or "").strip() or None,
             summary_confidence=_safe_float(row.get("summary_confidence")),
             narrative_summary=str(row.get("narrative_summary") or "").strip() or None,
@@ -1841,12 +1940,14 @@ def _select_active_trends(
             trusted_display_name=trusted_display_name,
         )
         priority_score = _trend_priority_score(row, trend_text, now)
+        if memecoin_profile.score < config.min_trend_culture_score and not trusted_display_name:
+            continue
         candidates.append(
             ActiveTrendCandidate(
                 topic_key=topic_key,
                 display_label=display_label,
                 raw_label=str(row.get("raw_label") or row.get("topic_label") or display_label).strip(),
-                trend_category=str(row.get("trend_category") or "").strip() or None,
+                trend_category=trend_category_value,
                 enrichment_status=str(row.get("enrichment_status") or "").strip() or None,
                 summary_confidence=_safe_float(row.get("summary_confidence")),
                 name_status=str(row.get("name_status") or "").strip() or None,
@@ -1871,10 +1972,10 @@ def _select_active_trends(
 
     candidates.sort(
         key=lambda row: (
+            row.priority_score,
             row.total_mentions,
             row.unique_posts,
             row.unique_authors,
-            row.priority_score,
             row.display_label.lower(),
         ),
         reverse=True,
@@ -2003,6 +2104,19 @@ def _build_trend_search_seeds(
         representative_post_count=trend.representative_post_count,
         trusted_name=trend.trusted_display_name,
     )
+    focused_title_phrases = extract_memecoin_seed_phrases(
+        trend.display_label,
+        narrative_summary=trend.narrative_summary,
+        key_entities=trend.key_entities,
+        max_phrases=4,
+    )
+    for index, phrase in enumerate(focused_title_phrases):
+        add_seed(
+            phrase,
+            score=trend.priority_score + 20.0 - index * 1.5,
+            seed_class="primary",
+            title_based=trend.trusted_display_name,
+        )
     if not display_generic:
         add_seed(
             trend.display_label,
@@ -2142,6 +2256,16 @@ def _build_trend_search_seeds(
     if primary_seed is not None:
         selected_seed_rows.append(primary_seed)
         selected_terms.add(primary_key)
+    for seed in ordered_seeds:
+        term_key = str(seed["term"]).lower()
+        if term_key in selected_terms:
+            continue
+        if str(seed.get("seed_class") or "") != "entity":
+            continue
+        selected_seed_rows.append(seed)
+        selected_terms.add(term_key)
+        if len(selected_seed_rows) >= min(max_seeds_per_trend, 2):
+            break
     context_seed_classes = {"cashtag", "hashtag", "topic_seed", "phrase", "tag"}
     for seed in ordered_seeds:
         term_key = str(seed["term"]).lower()

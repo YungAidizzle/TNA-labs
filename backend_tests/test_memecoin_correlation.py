@@ -617,7 +617,7 @@ class MemecoinCorrelationTests(unittest.TestCase):
         )
 
         self.assertEqual(len(selected), 1)
-        self.assertEqual(selected[0].topic_key, "rump")
+        self.assertEqual(selected[0].topic_key, "steam")
 
     def test_build_search_seeds_skips_generic_display_labels(self) -> None:
         trend = _build_trend(
@@ -1158,7 +1158,7 @@ class MemecoinCorrelationTests(unittest.TestCase):
             now=now,
         )
 
-        self.assertCountEqual([trend.topic_key for trend in selected], ["outube", "ovie"])
+        self.assertEqual([trend.topic_key for trend in selected], ["outube"])
         selected_by_key = {trend.topic_key: trend for trend in selected}
         self.assertEqual(selected_by_key["outube"].display_label, "YouTube")
         self.assertFalse(selected_by_key["outube"].trusted_display_name)

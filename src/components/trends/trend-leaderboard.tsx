@@ -137,7 +137,9 @@ const TrendLeaderboardRow = memo(function TrendLeaderboardRow({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-1.5">
           {!showLoadingLabel ? (
-            <p className="truncate text-sm text-foreground">{displayName}</p>
+            <p title={displayName} className="truncate text-sm text-foreground">
+              {displayName}
+            </p>
           ) : (
             <div className="flex min-w-0 items-center gap-2">
               <SkeletonBlock className="h-4 w-28 rounded-sm" />

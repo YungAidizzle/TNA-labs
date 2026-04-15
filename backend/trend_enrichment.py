@@ -16,6 +16,7 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 
 from backend.logging_setup import log_event
+from backend.trend_memecoin_signals import infer_memecoin_trend_category, profile_memecoin_attention
 
 OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
 
@@ -99,8 +100,8 @@ OPENAI_TITLE_SYSTEM_PROMPT = (
     "You are an evidence-bound title generator for a production trend leaderboard. "
     "Use only the supplied posts and diagnostics. "
     "When the cluster is usable, choose exactly one dominant user-facing canonical_name. "
-    "Write a concise narrative label, not a bare entity, keyword bag, or chopped token fragment. "
-    "The label should read like a market, media, or public-discourse narrative. "
+    "Write a descriptive narrative label, not a bare entity, keyword bag, or chopped token fragment. "
+    "The label should read like a current internet narrative with enough specificity for a trader or researcher scanning a board. "
     "Prefer abstention over false specificity. "
     "Do not expose multi-topic mashups in canonical_name. "
     "Do not invent causes, significance, timelines, people, or event details."
@@ -185,17 +186,25 @@ GENERIC_EVIDENCE_TOKENS = {
     "trend",
 }
 VISIBLE_TITLE_NARRATIVE_HINT_TOKENS = {
+    "attention",
     "appeals",
     "backlash",
     "campaign",
+    "catchphrase",
+    "clip",
     "controversy",
     "debate",
+    "deepfake",
     "discourse",
     "escalation",
+    "fan",
     "fallout",
     "fundraising",
+    "inflows",
+    "meme",
     "movie",
     "policy",
+    "reposts",
     "protests",
     "reactions",
     "response",
@@ -565,7 +574,7 @@ def build_trend_title_generation_runtime_config_from_env() -> TrendTitleGenerati
         prompt_version=(
             str(os.getenv("BLUESKY_TREND_TITLE_PROMPT_VERSION", "")).strip()
             or str(os.getenv("BLUESKY_TREND_ENRICHMENT_PROMPT_VERSION", "")).strip()
-            or "visible-title-v3"
+            or "visible-title-v4-memecoin"
         ),
         interval_seconds=_parse_float_env("BLUESKY_TREND_TITLE_INTERVAL_SECONDS", 600.0, 30.0, 3600.0),
         max_topics=_parse_int_env(
@@ -1087,7 +1096,7 @@ def _validate_openai_enrichment_payload(payload: dict[str, Any]) -> dict[str, An
     if status not in ENRICHMENT_STATUSES:
         raise ValueError("status missing or invalid in OpenAI payload")
 
-    canonical_name = _trim_optional_text(payload.get("canonical_name"), limit=120)
+    canonical_name = _trim_optional_text(payload.get("canonical_name"), limit=140)
     summary = _trim_optional_text(payload.get("summary"), limit=520)
     why_attention = _trim_optional_text(payload.get("why_attention"), limit=280)
     abstain_reason = _trim_optional_text(payload.get("abstain_reason"), limit=240)
@@ -1142,7 +1151,7 @@ def _validate_openai_title_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if status not in ENRICHMENT_STATUSES:
         raise ValueError("status missing or invalid in OpenAI title payload")
 
-    canonical_name = _trim_optional_text(payload.get("canonical_name"), limit=120)
+    canonical_name = _trim_optional_text(payload.get("canonical_name"), limit=140)
     abstain_reason = _trim_optional_text(payload.get("abstain_reason"), limit=240)
     evidence_post_ids = _dedupe_text_list(
         payload.get("evidence_post_ids") if isinstance(payload.get("evidence_post_ids"), list) else [],
@@ -1249,13 +1258,13 @@ def _phrase_supported_by_evidence(
 
 
 def _normalize_dominant_label_segment(value: Any) -> str | None:
-    normalized = _trim_optional_text(_normalize_text(value), limit=120)
+    normalized = _trim_optional_text(_normalize_text(value), limit=140)
     if not normalized:
         return None
     parts = normalized.split()
     while len(parts) > 1 and parts[-1].lower() in TRAILING_GENERIC_CANONICAL_TOKENS:
         parts.pop()
-    candidate = _trim_optional_text(" ".join(parts), limit=120)
+    candidate = _trim_optional_text(" ".join(parts), limit=140)
     return candidate or None
 
 
@@ -1401,7 +1410,7 @@ def _rewrite_compound_canonical_name(
     raw_label: str,
     representative_posts: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    canonical_name = _trim_optional_text(structured_output.get("canonical_name"), limit=120)
+    canonical_name = _trim_optional_text(structured_output.get("canonical_name"), limit=140)
     if not canonical_name or not _looks_like_compound_canonical_name(canonical_name, representative_posts):
         return structured_output
 
@@ -1511,6 +1520,26 @@ def _detect_heuristic_visible_title_suffix(representative_posts: list[dict[str, 
         token_counter.update(_tokenize(text))
 
     token_set = set(token_counter)
+    if token_set & {"deepfake", "deepfakes"}:
+        if token_set & {"parody", "parodies", "edit", "edits", "repost", "reposts"}:
+            return "deepfake scandal driving parody edits"
+        return "deepfake meme wave"
+    if token_set & {"clip", "clips"}:
+        if token_set & {"viral", "repost", "reposts", "timeline"}:
+            return "viral clip wave driving reposts"
+        if token_set & {"creator", "streamer", "influencer", "fanbase"}:
+            return "creator clip wave driving reposts"
+    if token_set & {"fan", "fandom", "stan", "stans", "fancam", "anime", "manga"}:
+        return "fan edit wave driving meme posts"
+    if token_set & {"verification", "verified", "ban", "banned", "outage", "algorithm", "moderation"}:
+        return "platform backlash driving creator debate"
+    if token_set & {"etf", "bitcoin", "btc", "solana", "memecoin", "launchpad", "pump", "token"}:
+        if token_set & {"inflow", "inflows"}:
+            return "ETF inflows reviving meme speculation"
+        if token_set & {"launch", "launchpad", "rotation"}:
+            return "launchpad wave driving meme speculation"
+    if token_set & {"animal", "dog", "doge", "cat", "frog", "hippo", "penguin", "mascot"}:
+        return "animal meme wave driving reposts"
     if token_set & {"donate", "d0nation", "donation", "donations", "gofundme"}:
         if token_set & {"family", "families", "save", "help"}:
             return "family donation appeals"
@@ -1540,6 +1569,22 @@ def _detect_heuristic_visible_title_suffix(representative_posts: list[dict[str, 
     return None
 
 
+def _heuristic_suffix_for_memecoin_category(category: str | None) -> str | None:
+    normalized = _normalize_text(category).lower()
+    return {
+        "ai meme wave": "deepfake and parody edits",
+        "animal meme": "animal meme wave driving reposts",
+        "catchphrase wave": "catchphrase wave driving reposts",
+        "creator viral moment": "creator clip wave driving reposts",
+        "celebrity meme": "celebrity meme wave driving parody posts",
+        "platform drama": "platform backlash and creator debate",
+        "fandom wave": "fan edit wave driving meme posts",
+        "gaming meme": "gaming meme wave driving clips",
+        "crypto spillover": "crypto attention and meme speculation",
+        "memeified politics": "meme clip wave driving reposts",
+    }.get(normalized)
+
+
 def _build_heuristic_visible_title_output(
     *,
     raw_label: str,
@@ -1553,11 +1598,22 @@ def _build_heuristic_visible_title_output(
         candidates=[raw_label, *capitalized_phrases],
     )
     if not anchor:
-        anchor = _trim_optional_text(raw_label, limit=120)
-    anchor = _trim_optional_text(re.sub(r"^[#$]+", "", str(anchor or "").strip()), limit=120)
-    suffix = _detect_heuristic_visible_title_suffix(representative_posts)
+        anchor = _trim_optional_text(raw_label, limit=140)
+    anchor = _trim_optional_text(re.sub(r"^[#$]+", "", str(anchor or "").strip()), limit=140)
+    inferred_category = infer_memecoin_trend_category(
+        raw_label,
+        " ".join(_normalize_text(post.get("truncated_text") or post.get("text_content")) for post in representative_posts),
+    )
+    suffix = _detect_heuristic_visible_title_suffix(representative_posts) or _heuristic_suffix_for_memecoin_category(
+        inferred_category
+    )
     if anchor and anchor.lower() in {"youtube", "twitter", "instagram", "reddit", "telegram"}:
-        if suffix not in {"reactions", "controversy"}:
+        if suffix not in {
+            "reactions",
+            "controversy",
+            "platform backlash driving creator debate",
+            "viral clip wave driving reposts",
+        }:
             return None
     if suffix:
         suffix_normalized = _normalize_text(suffix)
@@ -1585,7 +1641,7 @@ def _build_heuristic_visible_title_output(
     )
     return {
         "status": "ok",
-        "canonical_name": canonical_name[:120],
+        "canonical_name": canonical_name[:140],
         "summary": _safe_sentence(
             f"Heuristic title fallback named this cluster as {canonical_name.lower()} because the language evidence was consistent enough for a readable board label."
         )[:520],
@@ -1743,8 +1799,8 @@ def _build_legacy_enrichment_fields(
     topic_key: str,
 ) -> dict[str, Any]:
     status = str(structured_output.get("status") or "insufficient_evidence").strip().lower()
-    canonical_name = _trim_optional_text(structured_output.get("canonical_name"), limit=120)
-    raw_label_value = _trim_optional_text(raw_label or topic_key, limit=120)
+    canonical_name = _trim_optional_text(structured_output.get("canonical_name"), limit=140)
+    raw_label_value = _trim_optional_text(raw_label or topic_key, limit=140)
     if canonical_name and raw_label_value and canonical_name.lower() == raw_label_value.lower():
         canonical_name = None
     summary = _trim_optional_text(structured_output.get("summary"), limit=520)
@@ -1763,7 +1819,14 @@ def _build_legacy_enrichment_fields(
     narrative_summary = " ".join(part for part in narrative_parts if part).strip()
     short_description = _first_sentence(narrative_summary)[:280] or _safe_sentence(raw_label)[:280]
 
-    trend_category = {
+    inferred_trend_category = infer_memecoin_trend_category(
+        canonical_name,
+        summary,
+        why_attention,
+        narrative_summary,
+        raw_label,
+    )
+    trend_category = inferred_trend_category or {
         "mixed": "mixed discussion cluster",
         "insufficient_evidence": "insufficient evidence",
         "junk": "junk cluster",
@@ -2013,13 +2076,17 @@ def _call_openai_for_title(
                 "- Use only provided evidence.\n"
                 "- Prefer abstention over false specificity.\n"
                 "- If evidence is mixed, say mixed but still choose one dominant canonical_name.\n"
-                "- canonical_name must be a concise narrative label, usually 2 to 6 words.\n"
+                "- canonical_name must be a descriptive narrative label, usually 5 to 12 words and never more than 14 words.\n"
                 "- Do not output a bare person name, place name, party name, product name, or keyword fragment by itself.\n"
                 "- Do not output chopped or repaired token fragments like Epublicans, Itchen, Niverse, or Ahmouds.\n"
                 "- Never output a multi-topic mashup in canonical_name.\n"
                 "- Choose the dominant narrative using strongest post share first, then keyword recurrence, then semantic center, then engagement concentration as a tiebreaker.\n"
-                "- Good examples: Trump tariff rhetoric; Israel-Gaza escalation; Nintendo movie speculation; Easter holiday discourse; Radio host controversy.\n"
-                "- Bad examples: Trump; Ahmouds; Onate; Epublicans; Super Mario Galaxy Movie.\n"
+                "- canonical_name should explain what the narrative is, what is specifically happening, and why people are paying attention.\n"
+                "- Favor internet-native wording that would still be clear to a memecoin researcher scanning a board.\n"
+                "- Prioritize meme-translatable narratives: viral clips, creator moments, fan edits, deepfakes, platform drama, slogans, catchphrases, animals, mascots, AI persona waves, and crypto spillover that revives meme speculation.\n"
+                "- Deprioritize generic geopolitics, macro, dry business process news, and non-memeified policy coverage.\n"
+                "- Good examples: Grok deepfake scandal driving viral reposts and parody edits; Spot Bitcoin ETF inflows reviving crypto attention and meme speculation; TikTok platform backlash driving creator debate.\n"
+                "- Bad examples: Trump; Ahmouds; Onate; Epublicans; Platform update buzz; Internet debate topic.\n"
                 "- Only include evidence_post_ids from allowed_evidence_post_ids.\n"
                 f"- Prompt version: {prompt_version}\n\n"
                 f"Input JSON:\n{_json_dumps(prompt_input)}"
@@ -2731,8 +2798,8 @@ def _resolve_visible_name_fields(
     status: str,
     preferred_name_source: str | None = None,
 ) -> dict[str, str | None]:
-    raw_label_value = _trim_optional_text(raw_label, limit=120) or None
-    canonical_name_value = _trim_optional_text(canonical_name, limit=120)
+    raw_label_value = _trim_optional_text(raw_label, limit=140) or None
+    canonical_name_value = _trim_optional_text(canonical_name, limit=140)
     if canonical_name_value and raw_label_value and canonical_name_value.lower() == raw_label_value.lower():
         canonical_name_value = None
 
