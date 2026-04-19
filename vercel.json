@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/ai-native-narratives",
-      "schedule": "0 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
