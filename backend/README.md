@@ -16,6 +16,9 @@ This worker runs independently from the frontend and continuously ingests Bluesk
 ## Required Env Vars
 
 - `DATABASE_URL` (Supabase Postgres connection string)
+- `OPENAI_API_KEY` when `BLUESKY_TREND_TITLE_ENABLED=true` or `BLUESKY_TREND_ENRICHMENT_ENABLED=true`
+
+The title worker is enabled by default, so a normal production `backend.main` deployment needs `OPENAI_API_KEY`.
 
 ## Optional Worker Env Vars
 
@@ -35,6 +38,8 @@ This worker runs independently from the frontend and continuously ingests Bluesk
 - `BLUESKY_RAW_RETENTION_HOURS` (default: `30`; values below `30` are clamped to preserve rolling 24h trend history)
 - `BLUESKY_RAW_CLEANUP_INTERVAL_SECONDS` (default: `60`)
 - `BLUESKY_WORKER_LOG_LEVEL` (default: `INFO`)
+- `BLUESKY_TREND_TITLE_ENABLED` (default: `true`; disable only if you intentionally do not want AI-generated topic names)
+- `BLUESKY_TREND_ENRICHMENT_ENABLED` (default: `false`; expensive richer summaries/research path)
 
 The existing firehose env vars from `backend/bluesky_config.py` also apply.
 
@@ -74,6 +79,9 @@ Suggested Railway service settings:
 - Dockerfile path: `backend/Dockerfile`
 - Start command override: not required (Dockerfile `CMD` already starts worker)
 - Required env var: `DATABASE_URL`
+- Required env var in normal title-writer mode: `OPENAI_API_KEY`
+
+`backend/Dockerfile` only copies `backend/` into the worker image. Repo-root `.env.local` is not present inside the deployed container, so Railway service env vars must include any required OpenAI credentials explicitly.
 
 The worker is frontend-independent and can run continuously as a dedicated background service.
 

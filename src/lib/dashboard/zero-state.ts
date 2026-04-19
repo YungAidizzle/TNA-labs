@@ -103,6 +103,7 @@ export function createZeroRankedTrend(
     spikeMagnitude: 0,
     clusterId: "",
     clusterName: "",
+    clusterTopicKeys: [],
     trendStrengthScore: 0,
     persistenceScore: 0,
     isEarlyTrend: false,

@@ -1,12 +1,35 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useState,
+} from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { EmptyState } from "@/components/shared/empty-state";
 import type { MemecoinTerminalRow } from "@/components/trends/memecoin-market-table";
 import { OverviewStatusStrip } from "@/components/trends/overview-status-strip";
+import {
+  DASHBOARD_MEMECOINS_CLIENT_REFETCH_INTERVAL_MS,
+  DASHBOARD_MEMECOINS_CLIENT_STALE_TIME_MS,
+  DASHBOARD_QUERY_GC_TIME_MS,
+  DASHBOARD_STATUS_CLIENT_REFETCH_INTERVAL_MS,
+  DASHBOARD_STATUS_CLIENT_STALE_TIME_MS,
+  DASHBOARD_SUMMARY_CLIENT_REFETCH_INTERVAL_MS,
+  DASHBOARD_SUMMARY_CLIENT_STALE_TIME_MS,
+  invalidateTrendDashboardQueries,
+  isQueryDataStale,
+  trendDashboardQueryKeys,
+} from "@/lib/dashboard/cache";
 import { dashboardClient } from "@/lib/dashboard/client";
 import { resolveSelectedLiveMemecoinId } from "@/lib/dashboard/memecoin-selection";
 import { buildTrendsPageMemecoinDatasets } from "@/lib/dashboard/trends-page-memecoin-selectors";
@@ -22,6 +45,7 @@ import {
   TrendValidationPanelSkeleton,
 } from "@/features/trends/trend-dashboard-loading-shell";
 import {
+  DashboardDataStatus,
   TrendDashboardQuery,
   TrendLeaderboardMode,
   TrendSort,
@@ -57,7 +81,6 @@ const SORT_OPTIONS: TrendSort[] = [
   "novelty",
   "confirmation",
 ];
-const DEFAULT_REFRESH_MS = 60_000;
 const RANGE_PRESETS: DateRangePreset[] = ["1h", "6h", "24h", "7d"];
 
 type CoinTableMode = "trend" | "all" | "momentum";
@@ -86,6 +109,33 @@ function formatQueryError(error: unknown, fallback: string) {
   return fallback;
 }
 
+function buildStaleSourceMessage(
+  dataStatus: DashboardDataStatus | null | undefined,
+  label: string,
+) {
+  const primaryFreshness = dataStatus?.sourceFreshness[0] ?? null;
+  if (!primaryFreshness || primaryFreshness.sourceStatus !== "stale") {
+    return null;
+  }
+
+  const sourceSnapshotAt =
+    dataStatus?.sourceSnapshotGeneratedAt ??
+    dataStatus?.freshnessDiagnostics?.sourceSnapshotAt ??
+    primaryFreshness.latestCreatedAt ??
+    null;
+  const chainBreakStage = dataStatus?.freshnessDiagnostics?.chainBreakStage ?? null;
+
+  return [
+    `${label} source is stale.`,
+    sourceSnapshotAt ? `Latest source snapshot: ${sourceSnapshotAt}.` : null,
+    chainBreakStage && chainBreakStage !== "none"
+      ? `Upstream issue: ${chainBreakStage}.`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 type TrendDashboardPageProps = {
   scope: TrendScope;
   initialSelectedId?: string | null;
@@ -97,6 +147,7 @@ export function TrendDashboardPage({
 }: TrendDashboardPageProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [manualSelectedTrendId, setManualSelectedTrendId] = useState<string | null>(null);
@@ -118,42 +169,132 @@ export function TrendDashboardPage({
     [mode, range, scope, sort],
   );
 
-  const statusQueryKey = useMemo(() => ["trend-dashboard-status", baseQuery] as const, [baseQuery]);
-  const summaryQueryKey = useMemo(() => ["trend-dashboard-summary", baseQuery] as const, [baseQuery]);
-  const memecoinsQueryKey = useMemo(() => ["trend-dashboard-memecoins", baseQuery] as const, [baseQuery]);
+  const statusQueryKey = useMemo(
+    () => trendDashboardQueryKeys.status(baseQuery),
+    [baseQuery],
+  );
+  const summaryQueryKey = useMemo(
+    () => trendDashboardQueryKeys.summary(baseQuery),
+    [baseQuery],
+  );
+  const memecoinsQueryKey = useMemo(
+    () => trendDashboardQueryKeys.memecoins(baseQuery),
+    [baseQuery],
+  );
 
   const statusQuery = useQuery({
     queryKey: statusQueryKey,
     queryFn: ({ signal }) => dashboardClient.getTrendDashboardStatus(baseQuery, { signal }),
-    staleTime: DEFAULT_REFRESH_MS,
-    refetchInterval: DEFAULT_REFRESH_MS,
+    staleTime: DASHBOARD_STATUS_CLIENT_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    refetchInterval: DASHBOARD_STATUS_CLIENT_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
-    refetchOnMount: true,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
+    placeholderData: keepPreviousData,
   });
 
   const summaryQuery = useQuery({
     queryKey: summaryQueryKey,
     queryFn: ({ signal }) => dashboardClient.getTrendDashboardSummaryVM(baseQuery, { signal }),
-    staleTime: DEFAULT_REFRESH_MS,
-    refetchInterval: DEFAULT_REFRESH_MS,
+    staleTime: DASHBOARD_SUMMARY_CLIENT_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    refetchInterval: DASHBOARD_SUMMARY_CLIENT_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
-    refetchOnMount: true,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
+    placeholderData: keepPreviousData,
   });
 
   const memecoinsQuery = useQuery({
     queryKey: memecoinsQueryKey,
     queryFn: ({ signal }) => dashboardClient.getTrendDashboardMemecoins(baseQuery, { signal }),
-    staleTime: DEFAULT_REFRESH_MS,
-    refetchInterval: DEFAULT_REFRESH_MS,
+    staleTime: DASHBOARD_MEMECOINS_CLIENT_STALE_TIME_MS,
+    gcTime: DASHBOARD_QUERY_GC_TIME_MS,
+    refetchInterval: DASHBOARD_MEMECOINS_CLIENT_REFETCH_INTERVAL_MS,
     refetchIntervalInBackground: false,
-    refetchOnMount: true,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
+    placeholderData: keepPreviousData,
   });
+
+  const refreshDashboardIfStale = useEffectEvent(() => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      return;
+    }
+
+    const refreshJobs: Array<Promise<unknown>> = [];
+
+    if (
+      statusQuery.data &&
+      !statusQuery.isFetching &&
+      isQueryDataStale(statusQuery.dataUpdatedAt, DASHBOARD_STATUS_CLIENT_STALE_TIME_MS)
+    ) {
+      refreshJobs.push(statusQuery.refetch());
+    }
+
+    if (
+      summaryQuery.data &&
+      !summaryQuery.isFetching &&
+      isQueryDataStale(summaryQuery.dataUpdatedAt, DASHBOARD_SUMMARY_CLIENT_STALE_TIME_MS)
+    ) {
+      refreshJobs.push(summaryQuery.refetch());
+    }
+
+    if (
+      memecoinsQuery.data &&
+      !memecoinsQuery.isFetching &&
+      isQueryDataStale(memecoinsQuery.dataUpdatedAt, DASHBOARD_MEMECOINS_CLIENT_STALE_TIME_MS)
+    ) {
+      refreshJobs.push(memecoinsQuery.refetch());
+    }
+
+    if (refreshJobs.length > 0) {
+      void Promise.allSettled(refreshJobs);
+    }
+  });
+
+  useEffect(() => {
+    const handleFocus = () => refreshDashboardIfStale();
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
+  }, []);
+
+  const handleRefreshDashboard = useCallback(() => {
+    void invalidateTrendDashboardQueries(queryClient, baseQuery);
+  }, [baseQuery, queryClient]);
+
+  const handleRetryStatus = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: statusQueryKey,
+      exact: true,
+      refetchType: "active",
+    });
+  }, [queryClient, statusQueryKey]);
+
+  const handleRetrySummary = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: summaryQueryKey,
+      exact: true,
+      refetchType: "active",
+    });
+  }, [queryClient, summaryQueryKey]);
+
+  const handleRetryMemecoins = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: memecoinsQueryKey,
+      exact: true,
+      refetchType: "active",
+    });
+  }, [memecoinsQueryKey, queryClient]);
 
   const allRows = useMemo(() => summaryQuery.data?.leaderboard ?? [], [summaryQuery.data?.leaderboard]);
   const resolvedSelectedId = useMemo(
@@ -284,12 +425,13 @@ export function TrendDashboardPage({
     displayedMemecoinRows.find((item) => item.row.id === selectedCoinId) ?? null;
 
   const summaryErrorMessage =
-    summaryQuery.isError && !summaryQuery.data
+    buildStaleSourceMessage(summaryQuery.data?.dataStatus, "Narrative") ??
+    (summaryQuery.isError && !summaryQuery.data
       ? formatQueryError(
           summaryQuery.error,
           "The narrative ranking request failed. Retry to load the latest ranked trends.",
         )
-      : null;
+      : null);
   const memecoinsErrorMessage =
     memecoinsQuery.isError && !memecoinsQuery.data
       ? formatQueryError(
@@ -311,10 +453,24 @@ export function TrendDashboardPage({
           "The dashboard status request failed. Retry to reconnect to live data.",
         )
       : null;
+  const statusSourceStaleMessage = buildStaleSourceMessage(statusQuery.data?.dataStatus, "Dashboard");
+  const summarySourceStaleMessage = buildStaleSourceMessage(summaryQuery.data?.dataStatus, "Narrative");
+  const memecoinsSourceStaleMessage = buildStaleSourceMessage(memecoinsQuery.data?.dataStatus, "Memecoin");
   const hasAnyStaleData =
+    Boolean(statusSourceStaleMessage) ||
+    Boolean(summarySourceStaleMessage) ||
+    Boolean(memecoinsSourceStaleMessage) ||
     (summaryQuery.isError && Boolean(summaryQuery.data)) ||
     (memecoinsQuery.isError && Boolean(memecoinsQuery.data)) ||
     (statusQuery.isError && Boolean(statusQuery.data));
+  const dashboardRefreshPending =
+    statusQuery.isFetching || summaryQuery.isFetching || memecoinsQuery.isFetching;
+  const dashboardStaleMessage =
+    summarySourceStaleMessage ??
+    memecoinsSourceStaleMessage ??
+    statusSourceStaleMessage ??
+    null;
+  const narrativeRows = summarySourceStaleMessage ? [] : filteredRows;
 
   return (
     <div className={TREND_DASHBOARD_LAYOUT_CLASS_NAME}>
@@ -331,9 +487,7 @@ export function TrendDashboardPage({
           <div className="mt-4 flex justify-center">
             <button
               type="button"
-              onClick={() => {
-                void statusQuery.refetch();
-              }}
+              onClick={handleRetryStatus}
               className="inline-flex h-10 items-center border border-cyan/25 bg-[linear-gradient(180deg,rgba(14,44,57,0.95),rgba(6,17,23,0.96))] px-4 text-[12px] font-semibold uppercase tracking-[0.16em] text-[#effdff]"
             >
               Retry status
@@ -343,14 +497,25 @@ export function TrendDashboardPage({
       )}
 
       {hasAnyStaleData ? (
-        <div className="surface-panel border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b]">
-          Live refresh is degraded. You are viewing the most recent synced dashboard data while requests reconnect.
+        <div className="surface-panel flex flex-col gap-3 border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b] sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            {dashboardStaleMessage ??
+              "Live refresh is degraded. You are viewing the most recent synced dashboard data while requests reconnect."}
+          </p>
+          <button
+            type="button"
+            onClick={handleRefreshDashboard}
+            disabled={dashboardRefreshPending}
+            className="inline-flex h-9 shrink-0 items-center justify-center border border-amber/35 bg-amber/10 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ffe2b8] transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {dashboardRefreshPending ? "Refreshing..." : "Retry refresh"}
+          </button>
         </div>
       ) : null}
 
       <section data-testid="trend-main-workspace" className={TREND_DASHBOARD_WORKSPACE_CLASS_NAME}>
         <LazyTrendNarrativesPanel
-          rows={filteredRows}
+          rows={narrativeRows}
           selectedId={resolvedSelectedId ?? selectedNarrative?.id ?? null}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
@@ -365,9 +530,7 @@ export function TrendDashboardPage({
                 ? "Refreshing live narratives..."
                 : null
           }
-          onRetry={() => {
-            void summaryQuery.refetch();
-          }}
+          onRetry={handleRetrySummary}
         />
 
         <LazyTrendMemecoinsPanel
@@ -387,9 +550,7 @@ export function TrendDashboardPage({
                 ? "Refreshing market rows..."
                 : null
           }
-          onRetry={() => {
-            void memecoinsQuery.refetch();
-          }}
+          onRetry={handleRetryMemecoins}
         />
 
         <LazyTrendValidationPanel
@@ -404,9 +565,7 @@ export function TrendDashboardPage({
                 ? "Refreshing validation context..."
                 : null
           }
-          onRetry={() => {
-            void memecoinsQuery.refetch();
-          }}
+          onRetry={handleRetryMemecoins}
         />
       </section>
     </div>

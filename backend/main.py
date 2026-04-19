@@ -355,6 +355,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    print(
+        "Legacy social ingestion worker disabled. "
+        "Use the AI-native narrative pipeline via /api/cron/ai-native-narratives.",
+        file=sys.stderr,
+    )
+    return 1
+
     args = parse_args()
 
     try:
@@ -521,6 +528,29 @@ def main() -> int:
     trend_title_config = build_trend_title_generation_runtime_config_from_env()
     trend_enrichment_config = build_trend_enrichment_runtime_config_from_env()
     memecoin_correlation_config = build_memecoin_correlation_runtime_config_from_env()
+    ai_config_errors: list[str] = []
+    if trend_title_config.enabled and not trend_title_config.openai_api_key:
+        ai_config_errors.append(
+            "OPENAI_API_KEY is required when BLUESKY_TREND_TITLE_ENABLED=true"
+        )
+    if trend_enrichment_config.enabled and not trend_enrichment_config.openai_api_key:
+        ai_config_errors.append(
+            "OPENAI_API_KEY is required when BLUESKY_TREND_ENRICHMENT_ENABLED=true"
+        )
+    if ai_config_errors:
+        log_event(
+            logger,
+            logging.ERROR,
+            "worker_ai_config_invalid",
+            source=source,
+            errors=ai_config_errors,
+            title_enabled=trend_title_config.enabled,
+            enrichment_enabled=trend_enrichment_config.enabled,
+            title_model_name=trend_title_config.model_name,
+            enrichment_model_name=trend_enrichment_config.model_name,
+        )
+        store.close()
+        return 1
     topic_ai_writer_diagnostics_interval_seconds = _parse_float_env(
         "TOPIC_AI_WRITER_DIAGNOSTICS_INTERVAL_SECONDS",
         600.0,

@@ -1,19 +1,11 @@
 import { unstable_cache } from "next/cache";
-import { fetchLatestCorrelatedMemecoinBoard } from "@/lib/dashboard/correlated-memecoins";
+import {
+  DASHBOARD_MEMECOINS_SERVER_REVALIDATE_SECONDS,
+  DASHBOARD_SUMMARY_SERVER_REVALIDATE_SECONDS,
+  serializeTrendDashboardCacheQuery,
+} from "@/lib/dashboard/cache";
 import { getTrendDashboardState } from "@/lib/dashboard/service";
-import { buildStrictTrendsPageCorrelatedBoard } from "@/lib/dashboard/trends-page-memecoin-matcher";
 import type { TrendDashboardQuery, TrendDashboardVM } from "@/types/view-models";
-
-const DASHBOARD_SHARED_REVALIDATE_SECONDS = 15;
-
-function serializeQuery(query: TrendDashboardQuery) {
-  return JSON.stringify({
-    scope: query.scope,
-    range: query.range,
-    sort: query.sort,
-    mode: query.mode ?? "established",
-  });
-}
 
 const getCachedBaseState = unstable_cache(
   async (serializedQuery: string): Promise<TrendDashboardVM> => {
@@ -25,44 +17,29 @@ const getCachedBaseState = unstable_cache(
   },
   ["trend-dashboard-summary-state"],
   {
-    revalidate: DASHBOARD_SHARED_REVALIDATE_SECONDS,
+    revalidate: DASHBOARD_SUMMARY_SERVER_REVALIDATE_SECONDS,
   },
 );
 
 const getCachedMemecoinState = unstable_cache(
   async (serializedQuery: string): Promise<TrendDashboardVM> => {
     const baseState = await getCachedBaseState(serializedQuery);
-    let marketMemecoins = null;
-
-    try {
-      marketMemecoins = await fetchLatestCorrelatedMemecoinBoard({
-        validationMode: "stored",
-      });
-    } catch (error) {
-      console.error("[dashboard-cached-state] failed to load correlated memecoin board", error);
-    }
-
-    const strictCorrelatedMemecoins = buildStrictTrendsPageCorrelatedBoard(
-      baseState,
-      marketMemecoins ?? null,
-    );
-
     return {
       ...baseState,
-      marketMemecoins: marketMemecoins ?? null,
-      correlatedMemecoins: strictCorrelatedMemecoins ?? null,
+      marketMemecoins: null,
+      correlatedMemecoins: null,
     };
   },
   ["trend-dashboard-memecoin-state"],
   {
-    revalidate: DASHBOARD_SHARED_REVALIDATE_SECONDS,
+    revalidate: DASHBOARD_MEMECOINS_SERVER_REVALIDATE_SECONDS,
   },
 );
 
 export async function getSharedTrendDashboardSummaryState(query: TrendDashboardQuery) {
-  return getCachedBaseState(serializeQuery(query));
+  return getCachedBaseState(serializeTrendDashboardCacheQuery(query));
 }
 
 export async function getSharedTrendDashboardMemecoinState(query: TrendDashboardQuery) {
-  return getCachedMemecoinState(serializeQuery(query));
+  return getCachedMemecoinState(serializeTrendDashboardCacheQuery(query));
 }

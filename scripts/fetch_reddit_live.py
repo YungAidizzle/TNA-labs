@@ -22,6 +22,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    print(
+        "Legacy Reddit ingestion is disabled. "
+        "Use node scripts/run_ai_native_narrative_refresh.mjs --force instead.",
+        file=sys.stderr,
+    )
+    return 1
+
     args = parse_args()
     exit_code, summary = run_reddit_ingestion("live", run_all_buckets=args.all)
     print_summary(summary)

@@ -19,6 +19,13 @@ from backend.trend_enrichment import (
 
 
 def main() -> int:
+    print(
+        "Legacy fragment-topic title backfill is disabled. "
+        "Use node scripts/run_ai_native_narrative_refresh.mjs --force instead.",
+        file=sys.stderr,
+    )
+    return 1
+
     load_repo_env()
     setup_logging()
     logger = logging.getLogger("trend-title-backfill")

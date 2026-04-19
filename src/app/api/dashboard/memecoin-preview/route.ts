@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DASHBOARD_API_CACHE_CONTROL } from "@/lib/dashboard/cache";
 import {
   createFallbackTradingViewPreview,
   createUnavailableTradingViewPreview,
@@ -67,7 +68,7 @@ export async function GET(request: NextRequest) {
         ],
       });
       const response = NextResponse.json(preview);
-      response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+      response.headers.set("Cache-Control", DASHBOARD_API_CACHE_CONTROL.preview);
       return response;
     }
 
@@ -84,7 +85,7 @@ export async function GET(request: NextRequest) {
       priceChange24hPct: validation.priceChange24hPct ?? input.priceChange24hPct,
     });
     const response = NextResponse.json(preview);
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    response.headers.set("Cache-Control", DASHBOARD_API_CACHE_CONTROL.preview);
     if (process.env.NODE_ENV !== "production") {
       console.info("[memecoin-preview]", {
         status: preview.status,
@@ -104,7 +105,7 @@ export async function GET(request: NextRequest) {
       dexscreenerEmbedUrl: input.dexscreenerUrl,
     });
     const response = NextResponse.json(fallback);
-    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    response.headers.set("Cache-Control", DASHBOARD_API_CACHE_CONTROL.preview);
     console.error("[memecoin-preview] failed to resolve preview", {
       error,
       input,

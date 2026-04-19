@@ -22,8 +22,8 @@ async function fetchDashboardView<T>(
   const response = await fetch(
     `/api/dashboard/trends?${buildTrendDashboardSearchParams(query, view).toString()}`,
     {
-      cache: "no-store",
       signal: options?.signal,
+      cache: "no-store",
     },
   );
 
@@ -70,8 +70,8 @@ export const dashboardClient = {
   ): Promise<TradingViewPreviewResponse> {
     const params = buildTradingViewPreviewSearchParams(buildTradingViewPreviewInput(row));
     const response = await fetch(`/api/dashboard/memecoin-preview?${params.toString()}`, {
-      cache: "no-store",
       signal: options?.signal,
+      cache: "no-store",
     });
 
     if (!response.ok) {

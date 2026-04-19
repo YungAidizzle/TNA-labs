@@ -11,6 +11,11 @@ import {
 } from "@/components/trends/tradingview-chart-preview";
 import { dashboardClient } from "@/lib/dashboard/client";
 import {
+  MEMECOIN_PREVIEW_CLIENT_STALE_TIME_MS,
+  MEMECOIN_PREVIEW_QUERY_GC_TIME_MS,
+  trendDashboardQueryKeys,
+} from "@/lib/dashboard/cache";
+import {
   type TradingViewPreviewFailureCode,
   type TradingViewPreviewResponse,
 } from "@/lib/dashboard/tradingview-preview";
@@ -277,23 +282,17 @@ export function SelectedCoinPanel({
     : null;
   const previewQuery = useQuery({
     queryKey: previewRow
-      ? [
-          "memecoin-preview",
-          previewRow.id,
-          previewRow.chainId,
-          previewRow.pairAddress,
-          previewRow.tokenAddress,
-          previewRow.symbol,
-          previewRow.quoteSymbol,
-          previewRow.tradingviewSymbol,
-          previewRow.priceUsd,
-          previewRow.priceChange1hPct,
-          previewRow.priceChange6hPct,
-          previewRow.priceChange24hPct,
+      ? trendDashboardQueryKeys.memecoinPreview({
+          id: previewRow.id,
+          chainId: previewRow.chainId,
+          pairAddress: previewRow.pairAddress,
+          tokenAddress: previewRow.tokenAddress,
+          symbol: previewRow.symbol,
+          quoteSymbol: previewRow.quoteSymbol,
+          tradingviewSymbol: previewRow.tradingviewSymbol,
           resolvedDexscreenerUrl,
-          previewRow.updatedAt,
-        ]
-      : ["memecoin-preview", "empty"],
+        })
+      : [...trendDashboardQueryKeys.previewRoot, "empty"],
     queryFn: ({ signal }) => {
       if (!previewRow) {
         throw new Error("No memecoin selected");
@@ -308,7 +307,11 @@ export function SelectedCoinPanel({
       rowIsLive &&
       resolvedDexscreenerUrl,
     ),
-    staleTime: 5 * 60_000,
+    staleTime: MEMECOIN_PREVIEW_CLIENT_STALE_TIME_MS,
+    gcTime: MEMECOIN_PREVIEW_QUERY_GC_TIME_MS,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
   const preview = previewOverride ?? previewQuery.data ?? null;
   const previewLoading = !previewOverride && previewQuery.isPending;

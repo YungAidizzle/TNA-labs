@@ -68,6 +68,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    print(
+        "Legacy Reddit rotation ingestion is disabled. "
+        "Use node scripts/run_ai_native_narrative_refresh.mjs --force instead.",
+        file=sys.stderr,
+    )
+    return 1
+
     args = parse_args()
     refresh_auxiliary = None
     if args.skip_auxiliary:

@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateSharedAiTrendSnapshot } from "@/lib/ai-trends/generator";
-import { getLatestSuccessfulAiTrendSnapshotView } from "@/lib/ai-trends/repository";
+import { getLatestSuccessfulAiNativeNarrativeRunView } from "@/lib/ai-native-narratives/repository";
+import { runAiNativeNarrativePipeline } from "@/lib/ai-native-narratives/worker";
 import { requirePaidApiUser } from "@/lib/supabase/auth";
-import { DateRangePreset, TrendScope } from "@/types/domain";
-
-const RANGE_OPTIONS: DateRangePreset[] = ["1h", "6h", "24h", "7d"];
-const SCOPE_OPTIONS: TrendScope[] = ["overall", "memes"];
 
 export async function GET() {
   const authResult = await requirePaidApiUser();
@@ -13,12 +9,14 @@ export async function GET() {
     return authResult;
   }
 
-  const view = await getLatestSuccessfulAiTrendSnapshotView();
+  const view = await getLatestSuccessfulAiNativeNarrativeRunView();
   return NextResponse.json({
-    status: view.snapshot ? "succeeded" : "idle",
-    latestSnapshotId: view.snapshot?.id ?? null,
-    latestGeneratedAt: view.snapshot?.generatedAt ?? null,
-    trendCount: view.snapshot?.trendCount ?? 0,
+    status: view.run ? "succeeded" : "idle",
+    latestRunId: view.run?.id ?? null,
+    latestGeneratedAt: view.run?.generatedAt ?? null,
+    candidateCount: view.run?.candidateCount ?? 0,
+    evidenceCount: view.run?.evidenceCount ?? 0,
+    narrativeCount: view.run?.narrativeCount ?? 0,
     freshnessMinutes: view.freshnessMinutes,
   });
 }
@@ -32,13 +30,8 @@ export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const force = searchParams.get("force") === "true";
   const trigger = searchParams.get("trigger")?.trim() || "api-trigger";
-  const scope = searchParams.get("scope");
-  const range = searchParams.get("range");
-  const hasTargetedQuery =
-    SCOPE_OPTIONS.includes(scope as TrendScope) &&
-    RANGE_OPTIONS.includes(range as DateRangePreset);
-  const result = await generateSharedAiTrendSnapshot({
-    force: force || hasTargetedQuery,
+  const result = await runAiNativeNarrativePipeline({
+    force,
     trigger,
   });
   return NextResponse.json(result, { status: 202 });

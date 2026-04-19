@@ -1,4 +1,3 @@
-import { getNewMemecoinCount } from "@/lib/dashboard/memecoin-opportunities";
 import { formatCompactNumber, formatRelativeTimeShort } from "@/lib/formatters";
 import { getTrendPostCount } from "@/lib/utils/trend-ranking";
 import type { DashboardStatusStripItem } from "@/lib/dashboard/api";
@@ -22,23 +21,25 @@ export function buildTrendDashboardStatusStripItems(
   dashboard: TrendDashboardVM,
 ): DashboardStatusStripItem[] {
   const allRows = dashboard.leaderboard ?? [];
-  const correlatedMemecoinRows = dashboard.correlatedMemecoins?.rows ?? [];
-  const prelinkedCoins = allRows.flatMap((row) => row.linkedCoins ?? []);
-  const linkedMemecoinCount = prelinkedCoins.length > 0 ? prelinkedCoins.length : correlatedMemecoinRows.length;
   const referenceTime =
     dashboard.dataStatus?.serverNow ??
     dashboard.dataStatus?.latestFetchedAt ??
-    dashboard.correlatedMemecoins?.updatedAt ??
     null;
-  const totalPosts = allRows.reduce((total, row) => total + getTrendPostCount(row), 0);
-  const postsPerMinute =
-    typeof dashboard.blueskyOverview?.postsPerMinute === "number" &&
-    Number.isFinite(dashboard.blueskyOverview.postsPerMinute)
-      ? dashboard.blueskyOverview.postsPerMinute
-      : totalPosts / 1_440;
+  const totalEvidence = allRows.reduce((total, row) => total + getTrendPostCount(row), 0);
+  const totalSources = allRows.reduce(
+    (total, row) => total + Math.max(0, row.sampleSize ?? 0),
+    0,
+  );
   const newNarrativesCount = allRows.filter((row) =>
     isFreshWithinHours(row.firstSeenAt, referenceTime, 24),
   ).length;
+  const averageConfidence =
+    allRows.length > 0
+      ? Math.round(
+          allRows.reduce((total, row) => total + Math.max(0, row.confidenceScore ?? 0), 0) /
+            allRows.length,
+        )
+      : 0;
 
   return [
     {
@@ -52,24 +53,18 @@ export function buildTrendDashboardStatusStripItems(
       tone: "amber",
     },
     {
-      label: "Posts/min",
-      value: postsPerMinute >= 10 ? postsPerMinute.toFixed(0) : postsPerMinute.toFixed(1),
+      label: "Evidence rows",
+      value: formatCompactNumber(totalEvidence),
       tone: "neutral",
     },
     {
-      label: "Linked memecoins",
-      value: formatCompactNumber(linkedMemecoinCount),
+      label: "Source links",
+      value: formatCompactNumber(totalSources),
       tone: "green",
     },
     {
-      label: "New coins <24h",
-      value: formatCompactNumber(
-        prelinkedCoins.length > 0
-          ? prelinkedCoins.filter(
-              (coin) => typeof coin.age === "number" && Number.isFinite(coin.age) && coin.age < 24,
-            ).length
-          : getNewMemecoinCount(correlatedMemecoinRows),
-      ),
+      label: "Avg confidence",
+      value: `${averageConfidence}%`,
       tone: "amber",
     },
     {

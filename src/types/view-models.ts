@@ -355,6 +355,7 @@ export type RankedTrend = {
   spikeMagnitude?: number;
   clusterId: string;
   clusterName: string;
+  clusterTopicKeys?: string[] | null;
   trendStrengthScore: number;
   persistenceScore: number;
   isEarlyTrend: boolean;
@@ -598,6 +599,8 @@ export type TrendDashboardQuery = {
 };
 
 export type DashboardRuntimeSource =
+  | "ai_native_canonical"
+  | "live_ai_named"
   | "supabase_live"
   | "runtime_snapshot"
   | "local_raw_rebuild"
@@ -723,7 +726,13 @@ export type DashboardFreshnessDiagnostics = {
 export type DashboardDataStatus = {
   stateSource: DashboardRuntimeSource;
   bundleOrigin: DashboardRuntimeBundleOrigin | null;
-  showing: "supabase_live" | "cached_local" | "fresh_local_rebuild" | "zero_state";
+  showing:
+    | "ai_native_canonical"
+    | "live_ai_named"
+    | "supabase_live"
+    | "cached_local"
+    | "fresh_local_rebuild"
+    | "zero_state";
   serverNow?: string | null;
   responseVersion?: string | null;
   runtimeSnapshotGeneratedAt: string | null;

@@ -229,6 +229,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    print(
+        "Legacy Bluesky firehose ingestion is disabled. "
+        "Use node scripts/run_ai_native_narrative_refresh.mjs --force instead.",
+        file=sys.stderr,
+    )
+    return 1
+
     enable_live_loop_defaults()
     args = parse_args()
     print_firehose_boot_mode()
