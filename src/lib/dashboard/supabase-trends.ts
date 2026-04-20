@@ -412,6 +412,12 @@ const TOPIC_ENRICHMENT_MAX_ROWS = readIntegerEnv(
   MAX_LEADERBOARD_ROWS,
   MAX_LEADERBOARD_ROWS * 30,
 );
+const TOPIC_ENRICHMENT_MAX_WINDOW_DRIFT_MINUTES = readIntegerEnv(
+  process.env.TOPIC_ENRICHMENT_MAX_WINDOW_DRIFT_MINUTES,
+  180,
+  0,
+  24 * 60,
+);
 const BLUESKY_WORKER_SOURCE = (() => {
   const value = (process.env.BLUESKY_WORKER_SOURCE ?? "bluesky_firehose_worker").trim();
   return value.length > 0 ? value : "bluesky_firehose_worker";
@@ -2418,9 +2424,25 @@ function scoreTopicEnrichmentSelection(row: TopicEnrichmentRow) {
   return score;
 }
 
-function selectLatestTopicEnrichment(rows: TopicEnrichmentRow[]) {
+function selectLatestTopicEnrichment(
+  rows: TopicEnrichmentRow[],
+  targetWindowEndIso?: string,
+) {
+  const targetWindowMs = parseIsoTimestamp(targetWindowEndIso);
+  const candidateRows =
+    Number.isFinite(targetWindowMs)
+      ? rows.filter((row) => {
+          const rowWindowMs = parseIsoTimestamp(row.asOfWindowEnd);
+          return Number.isFinite(rowWindowMs) &&
+            Math.abs(targetWindowMs - rowWindowMs) <= TOPIC_ENRICHMENT_MAX_WINDOW_DRIFT_MINUTES * 60_000;
+        })
+      : rows;
+  if (candidateRows.length === 0) {
+    return new Map<string, TopicEnrichmentRow>();
+  }
+
   const byTopicKey = new Map<string, TopicEnrichmentRow>();
-  for (const row of rows) {
+  for (const row of candidateRows) {
     const existing = byTopicKey.get(row.topicKey);
     if (!existing) {
       byTopicKey.set(row.topicKey, row);
@@ -2678,7 +2700,7 @@ async function fetchTopicEnrichmentByTopicKeys(
     try {
       const rows = await fetchTopicEnrichmentRowsFromPostgres(normalizedTopicKeys, minWindowEndIso);
       parsedRows.push(...rows.map((row) => parseTopicEnrichmentRow(row)).filter((row): row is TopicEnrichmentRow => Boolean(row)));
-      return selectLatestTopicEnrichment(parsedRows);
+      return selectLatestTopicEnrichment(parsedRows, windowEndIso);
     } catch (error) {
       if (!isPostgresMissingStructure(error)) {
         throw error;
@@ -2690,7 +2712,7 @@ async function fetchTopicEnrichmentByTopicKeys(
     try {
       const rows = await fetchTopicEnrichmentRowsFromSupabase(normalizedTopicKeys, minWindowEndIso);
       parsedRows.push(...rows.map((row) => parseTopicEnrichmentRow(row)).filter((row): row is TopicEnrichmentRow => Boolean(row)));
-      return selectLatestTopicEnrichment(parsedRows);
+      return selectLatestTopicEnrichment(parsedRows, windowEndIso);
     } catch (error) {
       const pgError = error as PostgrestError;
       if (!isSupabaseMissingStructure(pgError)) {
@@ -3023,6 +3045,136 @@ function scoreStableClusterLabelCandidate(label: string) {
     score -= 24;
   }
   return score;
+}
+
+const GENERIC_TREND_DESCRIPTION_PATTERNS = [
+  /discussion trend detected from recent social posts\.?$/i,
+  /topic key appears malformed\.?$/i,
+  /too few unique authors support the cluster\.?$/i,
+];
+
+function hasSpecificNarrativeText(value: string | null | undefined) {
+  const normalized = readStringValue(value);
+  if (!normalized) {
+    return false;
+  }
+  if (GENERIC_TREND_DESCRIPTION_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return false;
+  }
+  return normalized.split(/\s+/).length >= 6;
+}
+
+function resolvePrimaryNarrativeLabel(row: RankedTrend) {
+  return pickReadableStableDisplayLabel(
+    row.displayName,
+    row.trendFallbackLabel,
+    row.trendRawLabel,
+    row.name,
+  );
+}
+
+function isNarrativeQualifiedLeaderboardRow(row: RankedTrend) {
+  const label = resolvePrimaryNarrativeLabel(row);
+  if (!label) {
+    return false;
+  }
+
+  if (
+    isFragmentLikeTopicLabel(label) ||
+    isGenericLikeTopicLabel(label) ||
+    isTemporalLikeTopicLabel(label)
+  ) {
+    return false;
+  }
+
+  const enrichmentStatus = row.trendEnrichment?.status ?? row.trendEnrichmentStatus ?? null;
+  if (enrichmentStatus === "junk") {
+    return false;
+  }
+
+  const compactLabel = compactTopicIdentity(label);
+  const compactKey = compactTopicIdentity(row.canonicalKeySummary ?? "");
+  const looksLikeDroppedLeadingCharacter =
+    compactKey.length >= 4 &&
+    compactLabel.length === compactKey.length + 1 &&
+    compactLabel.slice(1) === compactKey;
+  if (looksLikeDroppedLeadingCharacter) {
+    return false;
+  }
+
+  const tokenCount = getStableTopicLabelTokens(label).length;
+  const supportCount = Math.max(
+    row.uniqueAuthors24h ?? 0,
+    row.supportingThreadCount ?? 0,
+    row.sampleSize ?? 0,
+  );
+  if (enrichmentStatus === "insufficient_evidence" && supportCount < 5) {
+    return false;
+  }
+  if (row.nameStatus !== "ready" && tokenCount === 1 && supportCount < 5) {
+    return false;
+  }
+
+  if (isNarrativeStableDisplayLabel(label) || tokenCount >= 2) {
+    return true;
+  }
+
+  const trustedReadyName =
+    row.nameStatus === "ready" &&
+    (row.nameSource === "ai_exact" ||
+      row.nameSource === "historical_exact" ||
+      row.nameSource === "historical_alias");
+  if (trustedReadyName && getStableTopicInformativeTokens(label).length >= 2) {
+    return true;
+  }
+
+  const hasSpecificSummary = [
+    row.trendDescription,
+    row.trendContextParagraph,
+    row.trendNarrativeSummary,
+    row.trendEnrichment?.shortDescription,
+    row.trendEnrichment?.contextParagraph,
+    row.trendEnrichment?.narrativeSummary,
+  ].some((value) => hasSpecificNarrativeText(value ?? null));
+
+  if (hasSpecificSummary || trustedReadyName) {
+    return true;
+  }
+
+  return compactKey.length > 0 && compactKey === compactLabel;
+}
+
+function filterRowsForNarrativeQuality(rows: RankedTrend[]) {
+  return rows.filter((row) => isNarrativeQualifiedLeaderboardRow(row));
+}
+
+function hasRowNarrativeSupport(row: RankedTrend) {
+  return row.nameStatus === "ready" || [
+    row.trendDescription,
+    row.trendContextParagraph,
+    row.trendNarrativeSummary,
+    row.trendEnrichment?.shortDescription,
+    row.trendEnrichment?.contextParagraph,
+    row.trendEnrichment?.narrativeSummary,
+  ].some((value) => hasSpecificNarrativeText(value ?? null));
+}
+
+function hasStableSingleTokenFragmentAlias(
+  topic: StableTopicDayTotalAggregateRow,
+  row: RankedTrend,
+) {
+  const label = resolvePrimaryNarrativeLabel(row) ?? topic.topicLabel;
+  if (getStableTopicLabelTokens(label).length !== 1) {
+    return false;
+  }
+
+  const compactLabel = compactTopicIdentity(label);
+  return topic.rawTopicKeys.some((rawTopicKey) => {
+    const compactRaw = compactTopicIdentity(rawTopicKey);
+    return compactRaw.length >= 2 &&
+      compactLabel.length === compactRaw.length + 1 &&
+      compactLabel.slice(1) === compactRaw;
+  });
 }
 
 function buildStableClusterCandidateLabels(
@@ -4306,6 +4458,7 @@ async function getSupabaseTrendDashboardStateLegacy(
   query: TrendDashboardQuery,
   options: SupabaseTrendDashboardStateOptions = {},
 ): Promise<TrendDashboardVM> {
+  const applyNarrativeQualityGate = options.applyNarrativeQualityGate !== false;
   const window = buildWindowBuckets(query.range);
   const freshnessProbePromise =
     options.includeFreshnessProbe === false
@@ -4494,6 +4647,7 @@ async function getSupabaseTrendDashboardStateLegacy(
     row.nameSource = "raw";
     row.clusterId = id;
     row.clusterName = defaultDisplayLabel || TREND_NAME_PLACEHOLDER;
+    row.clusterTopicKeys = [topic.normalizedTopic];
     row.scope = query.scope;
     row.source = "bluesky";
     row.labelType = "entity_label";
@@ -4593,14 +4747,17 @@ async function getSupabaseTrendDashboardStateLegacy(
     rankedBaseRows.push(row);
   }
 
-  const emergingCandidates = rankedBaseRows
+  const qualifiedBaseRows = applyNarrativeQualityGate
+    ? filterRowsForNarrativeQuality(rankedBaseRows)
+    : rankedBaseRows;
+  const emergingCandidates = qualifiedBaseRows
     .filter((row) => row.isEarlyTrend || row.growthRate > 10 || (row.breakoutScore ?? 0) > 18);
-  const emergingSeedRows = emergingCandidates.length > 0 ? emergingCandidates : rankedBaseRows;
+  const emergingSeedRows = emergingCandidates.length > 0 ? emergingCandidates : qualifiedBaseRows;
   const selectedMode = query.mode ?? "established";
 
   const establishedRows = prioritizeAiNamedRows(
     sortRowsByMode(
-    rankedBaseRows.map((row) => ({
+    qualifiedBaseRows.map((row) => ({
       ...row,
       leaderboardMode: "established",
     })),
@@ -4617,7 +4774,7 @@ async function getSupabaseTrendDashboardStateLegacy(
   const emergingRows = prioritizeAiNamedRows(
     sortRowsByMode(
     emergingSeedRows.map((row) => {
-      const current = rankedBaseRows.find((candidate) => candidate.id === row.id) ?? row;
+      const current = qualifiedBaseRows.find((candidate) => candidate.id === row.id) ?? row;
       return {
         ...current,
         leaderboardMode: "emerging",
@@ -4696,6 +4853,7 @@ function matchesStableScope(row: StableTopicDayTotalRow, scope: TrendDashboardQu
 type SupabaseTrendDashboardStateOptions = {
   readProfile?: SupabaseTrendReadProfile;
   includeFreshnessProbe?: boolean;
+  applyNarrativeQualityGate?: boolean;
 };
 
 async function getSupabaseTrendDashboardStateStable(
@@ -4703,6 +4861,7 @@ async function getSupabaseTrendDashboardStateStable(
   options: SupabaseTrendDashboardStateOptions = {},
 ): Promise<TrendDashboardVM> {
   const readProfile = options.readProfile ?? "summary";
+  const applyNarrativeQualityGate = options.applyNarrativeQualityGate !== false;
   const window = buildWindowBuckets(query.range);
   const dayIsos = buildWindowDayIsos(window.windowStart, window.windowEnd);
   const requestedStableTopicKey = normalizeRequestedStableTopicKey(query.selectedKey);
@@ -5078,6 +5237,7 @@ async function getSupabaseTrendDashboardStateStable(
     row.nameSource = "raw";
     row.clusterId = id;
     row.clusterName = defaultDisplayLabel || TREND_NAME_PLACEHOLDER;
+    row.clusterTopicKeys = [...topic.rawTopicKeys];
     row.scope = query.scope;
     row.source = "bluesky";
     row.labelType = "entity_label";
@@ -5204,18 +5364,24 @@ async function getSupabaseTrendDashboardStateStable(
     row.trendRawLabel = topic.topicLabel;
     row.trendFallbackLabel = defaultDisplayLabel || null;
     applyTopicEnrichmentToRankedTrend(row, topic.topicLabel, enrichment);
+    if (hasStableSingleTokenFragmentAlias(topic, row) && !hasRowNarrativeSupport(row)) {
+      continue;
+    }
 
     rankedBaseRows.push(row);
   }
 
-  const emergingCandidates = rankedBaseRows
+  const qualifiedBaseRows = applyNarrativeQualityGate
+    ? filterRowsForNarrativeQuality(rankedBaseRows)
+    : rankedBaseRows;
+  const emergingCandidates = qualifiedBaseRows
     .filter((row) => row.isEarlyTrend || row.growthRate > 10 || (row.breakoutScore ?? 0) > 18);
-  const emergingSeedRows = emergingCandidates.length > 0 ? emergingCandidates : rankedBaseRows;
+  const emergingSeedRows = emergingCandidates.length > 0 ? emergingCandidates : qualifiedBaseRows;
   const selectedMode = query.mode ?? "established";
 
   const establishedRows = prioritizeAiNamedRows(
     sortRowsByMode(
-    rankedBaseRows.map((row) => ({
+    qualifiedBaseRows.map((row) => ({
       ...row,
       leaderboardMode: "established",
     })),
@@ -5232,7 +5398,7 @@ async function getSupabaseTrendDashboardStateStable(
   const emergingRows = prioritizeAiNamedRows(
     sortRowsByMode(
     emergingSeedRows.map((row) => {
-      const current = rankedBaseRows.find((candidate) => candidate.id === row.id) ?? row;
+      const current = qualifiedBaseRows.find((candidate) => candidate.id === row.id) ?? row;
       return {
         ...current,
         leaderboardMode: "emerging",

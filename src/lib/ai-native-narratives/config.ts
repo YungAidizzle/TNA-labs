@@ -1,11 +1,13 @@
 import "server-only";
+import { AI_NATIVE_NARRATIVE_CRON_SECRET_NAMES } from "@/lib/ai-native-narratives/scheduler";
 
+const AI_NATIVE_NARRATIVE_BOARD_TARGET = 100;
 const DEFAULT_MODEL_NAME =
   process.env.AI_NATIVE_NARRATIVE_MODEL?.trim() ||
   process.env.AI_TREND_MODEL?.trim() ||
   process.env.OPENAI_TREND_MODEL?.trim() ||
   "gpt-5-mini";
-const DEFAULT_PROMPT_VERSION = "ai-native-canonical-narratives-memecoin-v2";
+const DEFAULT_PROMPT_VERSION = "ai-native-canonical-narratives-memecoin-v4-board100";
 
 function readBooleanEnv(name: string, fallback: boolean) {
   const raw = process.env[name];
@@ -39,6 +41,14 @@ function readIntegerEnv(name: string, fallback: number, min: number, max: number
 }
 
 export function getAiNativeNarrativeConfig() {
+  const configuredCronSecrets = AI_NATIVE_NARRATIVE_CRON_SECRET_NAMES.flatMap((name) => {
+    const value = process.env[name]?.trim();
+    return value ? [{ name, value }] : [];
+  }).filter(
+    (entry, index, entries) =>
+      entries.findIndex((candidate) => candidate.value === entry.value) === index,
+  );
+
   return {
     enabled: readBooleanEnv("ENABLE_AI_NATIVE_NARRATIVES", true),
     refreshIntervalSeconds: readIntegerEnv(
@@ -53,23 +63,35 @@ export function getAiNativeNarrativeConfig() {
       15,
       10_080,
     ),
+    discoveryBatchCount: readIntegerEnv(
+      "AI_NATIVE_NARRATIVE_DISCOVERY_BATCHES",
+      4,
+      1,
+      8,
+    ),
     discoveryCandidateCount: readIntegerEnv(
       "AI_NATIVE_NARRATIVE_DISCOVERY_CANDIDATES",
-      18,
-      8,
-      30,
+      240,
+      AI_NATIVE_NARRATIVE_BOARD_TARGET,
+      480,
+    ),
+    selectionCandidateCount: readIntegerEnv(
+      "AI_NATIVE_NARRATIVE_SELECTION_CANDIDATES",
+      140,
+      AI_NATIVE_NARRATIVE_BOARD_TARGET,
+      320,
     ),
     finalNarrativeCount: readIntegerEnv(
       "AI_NATIVE_NARRATIVE_FINAL_COUNT",
-      12,
-      6,
-      24,
+      AI_NATIVE_NARRATIVE_BOARD_TARGET,
+      AI_NATIVE_NARRATIVE_BOARD_TARGET,
+      200,
     ),
     maxEvidencePerCandidate: readIntegerEnv(
       "AI_NATIVE_NARRATIVE_EVIDENCE_PER_CANDIDATE",
-      4,
+      3,
       2,
-      6,
+      4,
     ),
     modelName: DEFAULT_MODEL_NAME,
     promptVersion: process.env.AI_NATIVE_NARRATIVE_PROMPT_VERSION?.trim() || DEFAULT_PROMPT_VERSION,
@@ -83,7 +105,9 @@ export function getAiNativeNarrativeConfig() {
     searchRegion: process.env.AI_NATIVE_NARRATIVE_SEARCH_REGION?.trim() || null,
     searchCity: process.env.AI_NATIVE_NARRATIVE_SEARCH_CITY?.trim() || null,
     searchTimezone: process.env.AI_NATIVE_NARRATIVE_SEARCH_TIMEZONE?.trim() || "UTC",
-    cronSecret: process.env.CRON_SECRET?.trim() || "",
+    cronSecret: configuredCronSecrets[0]?.value ?? "",
+    cronSecrets: configuredCronSecrets.map((entry) => entry.value),
+    cronSecretNames: configuredCronSecrets.map((entry) => entry.name),
     openAiApiKey: process.env.OPENAI_API_KEY?.trim() || "",
   } as const;
 }

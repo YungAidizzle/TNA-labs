@@ -17,9 +17,7 @@ type TrendNarrativesPanelProps = {
   onSearchTermChange: (value: string) => void;
   onSelect: (id: string) => void;
   loading?: boolean;
-  connecting?: boolean;
   errorMessage?: string | null;
-  staleMessage?: string | null;
   onRetry?: () => void;
 };
 
@@ -81,9 +79,7 @@ export function TrendNarrativesPanel({
   onSearchTermChange,
   onSelect,
   loading = false,
-  connecting = false,
   errorMessage = null,
-  staleMessage = null,
   onRetry,
 }: TrendNarrativesPanelProps) {
   const hasRows = rows.length > 0;
@@ -112,13 +108,6 @@ export function TrendNarrativesPanel({
             </label>
           </div>
         )}
-        disclaimer={
-          errorMessage && hasRows
-            ? staleMessage ?? "Showing last synced narratives while live refresh reconnects."
-            : connecting
-              ? staleMessage ?? "Refreshing live narratives..."
-              : staleMessage ?? undefined
-        }
       >
         {errorMessage && !hasRows && !loading ? (
           <PanelMessage

@@ -72,7 +72,7 @@ describe("cached dashboard state", () => {
     expect(result).toEqual(baseState);
   });
 
-  it("builds the cached memecoin state from the cached base state and stored board snapshot", async () => {
+  it("builds the cached memecoin state from the cached base state and live market board", async () => {
     const baseState = {
       query: {
         scope: "overall",
@@ -126,9 +126,7 @@ describe("cached dashboard state", () => {
         includeFreshnessProbe: false,
       },
     );
-    expect(boardMocks.fetchLatestCorrelatedMemecoinBoard).toHaveBeenCalledWith({
-      validationMode: "stored",
-    });
+    expect(boardMocks.fetchLatestCorrelatedMemecoinBoard).toHaveBeenCalledWith();
     expect(matcherMocks.buildStrictTrendsPageCorrelatedBoard).toHaveBeenCalledWith(
       baseState,
       board,

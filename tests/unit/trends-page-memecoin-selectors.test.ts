@@ -216,4 +216,17 @@ describe("trends page memecoin selectors", () => {
     expect(frogSelection.momentumRows.map((row) => row.row.symbol)).toEqual(["SPEED", "FROG", "ANIME", "TRUMP"]);
     expect(magaSelection.momentumRows.map((row) => row.row.symbol)).toEqual(["SPEED", "FROG", "ANIME", "TRUMP"]);
   });
+
+  it("keeps momentum populated even when no trend is selected and no correlated rows are available", () => {
+    const datasets = buildTrendsPageMemecoinDatasets({
+      selectedTrend: null,
+      trends: [],
+      correlatedRows: [],
+      marketRows,
+    });
+
+    expect(datasets.trendRows).toEqual([]);
+    expect(datasets.allRows).toEqual([]);
+    expect(datasets.momentumRows.map((row) => row.row.symbol)).toEqual(["SPEED", "FROG", "ANIME", "TRUMP"]);
+  });
 });

@@ -73,6 +73,8 @@ python -m backend.main --aggregate-1h
 
 Use `backend/Dockerfile` for the worker service.
 
+This Python worker is not the authoritative AI-native narrative generator. The AI-native hourly trend pipeline now runs from the Node/Railway worker documented in `docs/ai-native-railway-worker.md`, which calls `runAiNativeNarrativePipeline()` directly instead of going through `/api/cron/ai-native-narratives`.
+
 Suggested Railway service settings:
 
 - Build context: repo root

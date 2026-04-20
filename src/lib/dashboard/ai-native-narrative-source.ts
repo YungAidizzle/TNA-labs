@@ -2,7 +2,15 @@ import "server-only";
 
 import { getAiNativeNarrativeConfig } from "@/lib/ai-native-narratives/config";
 import { getLatestSuccessfulAiNativeNarrativeRunView } from "@/lib/ai-native-narratives/repository";
-import type { StoredAiNativeNarrative } from "@/lib/ai-native-narratives/types";
+import {
+  AI_NATIVE_NARRATIVE_SCHEDULER_LABEL,
+  AI_NATIVE_NARRATIVE_SCHEDULER_STRATEGY,
+} from "@/lib/ai-native-narratives/scheduler";
+import type {
+  AiNativeNarrativeRunView,
+  StoredAiNativeNarrative,
+  StoredAiNativeNarrativeRun,
+} from "@/lib/ai-native-narratives/types";
 import { createZeroTrendDashboardVM } from "@/lib/dashboard/zero-state";
 import type {
   DashboardDataStatus,
@@ -55,25 +63,69 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function ageMinutesFromIso(value: string | null | undefined) {
+  const timestamp = Date.parse(value ?? "");
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
+}
+
+function getRunNoteString(
+  run: StoredAiNativeNarrativeRun | null | undefined,
+  key: string,
+) {
+  const value = run?.notesJson?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function buildNarrativeScores(row: StoredAiNativeNarrative) {
   const memeScore = Math.max(0, Math.min(100, row.memeScore));
+  const visualScore = Math.max(0, Math.min(100, row.visualScore));
+  const drynessScore = Math.max(0, Math.min(100, row.drynessScore));
   const confidenceScore = Math.max(0, Math.min(100, row.confidence * 100));
   const evidenceSupport = Math.max(
     0,
     Math.min(100, row.evidenceCount * 10 + row.sourceCount * 5),
   );
-  const memecoinStrength = clampPercent(memeScore * Math.max(row.confidence, 0.1));
-  const attentionScore = clampPercent(memecoinStrength * 0.8 + evidenceSupport * 0.2);
+  const archetypeBoost =
+    row.memeArchetype === "mascot"
+      ? 10
+      : row.memeArchetype === "visual_absurdity"
+        ? 8
+        : row.memeArchetype === "catchphrase"
+          ? 6
+          : row.memeArchetype === "personality"
+            ? 4
+            : row.memeArchetype === "community_joke"
+              ? 3
+              : row.memeArchetype === "political_meme"
+                ? -4
+                : row.memeArchetype === "tech_drama"
+                  ? -2
+                  : 0;
+  const memecoinStrength = clampPercent(
+    memeScore * 0.42 +
+      visualScore * 0.18 +
+      confidenceScore * 0.2 +
+      evidenceSupport * 0.12 +
+      archetypeBoost -
+      drynessScore * 0.18,
+  );
+  const attentionScore = clampPercent(memecoinStrength * 0.78 + evidenceSupport * 0.22);
 
   return {
     memeScore,
+    visualScore,
+    drynessScore,
     confidenceScore,
     evidenceSupport,
     memecoinStrength,
     attentionScore,
-    breakoutScore: clampPercent(memecoinStrength * 0.75 + memeScore * 0.25),
-    noveltyScore: clampPercent(memeScore * 0.7 + confidenceScore * 0.3),
-    velocityScore: clampPercent(memecoinStrength * 0.65 + evidenceSupport * 0.35),
+    breakoutScore: clampPercent(memecoinStrength * 0.72 + visualScore * 0.18 + memeScore * 0.1),
+    noveltyScore: clampPercent(memeScore * 0.42 + visualScore * 0.24 + confidenceScore * 0.22 - drynessScore * 0.12),
+    velocityScore: clampPercent(memecoinStrength * 0.6 + evidenceSupport * 0.28 + visualScore * 0.12),
   };
 }
 
@@ -98,7 +150,8 @@ function buildNarrativeEnrichment(
     whyAttention: row.memeReason,
     evidencePostIds: row.evidenceKeys,
     keyEntities: row.keyEntities,
-    trendCategory: row.status === "watch" ? "memecoin_watch" : "memecoin_candidate",
+    trendCategory:
+      row.status === "watch" ? `memecoin_watch:${row.memeArchetype}` : `memecoin_candidate:${row.memeArchetype}`,
     mixedSignals: [],
     abstainReason: null,
     summaryConfidence: row.confidence,
@@ -171,8 +224,9 @@ function mapNarrativeToRankedTrend(
     firstSeenAt: row.firstSeenAt,
     lastSeenAt: row.lastSeenAt,
     isSingleton: false,
-    trendCategory: row.status === "watch" ? "memecoin_watch" : "memecoin_candidate",
-    contentType: "open_web_memecoin",
+    trendCategory:
+      row.status === "watch" ? `memecoin_watch:${row.memeArchetype}` : `memecoin_candidate:${row.memeArchetype}`,
+    contentType: `open_web_memecoin:${row.memeArchetype}`,
     spamLikelihood: 0,
     templateLikelihood: 0,
     contextualCoherence: row.confidence,
@@ -250,18 +304,44 @@ function mapNarrativeToRankedTrend(
 }
 
 function buildDataStatus(
-  runGeneratedAt: string,
-  latestFetchedAt: string | null,
-  freshnessMinutes: number | null,
+  view: AiNativeNarrativeRunView,
   itemCount: number,
 ): DashboardDataStatus {
   const config = getAiNativeNarrativeConfig();
+  const latestSuccessfulRun = view.run;
+  const latestRun = view.latestRun;
+  const latestFailureRun = view.latestFailureRun;
+  const runGeneratedAt = latestSuccessfulRun?.generatedAt ?? null;
+  const latestFetchedAt =
+    latestSuccessfulRun?.completedAt ?? latestSuccessfulRun?.generatedAt ?? null;
+  const freshnessMinutes = view.freshnessMinutes;
   const sourceStatus =
     freshnessMinutes !== null && freshnessMinutes > config.freshnessWindowMinutes ? "stale" : "fresh";
+  const latestRunCompletedAt = latestRun?.completedAt ?? latestRun?.generatedAt ?? null;
+  const schedulerStrategy =
+    getRunNoteString(latestRun, "schedulerStrategy") ?? AI_NATIVE_NARRATIVE_SCHEDULER_STRATEGY;
+  const schedulerLabel =
+    getRunNoteString(latestRun, "schedulerLabel") ?? AI_NATIVE_NARRATIVE_SCHEDULER_LABEL;
+  const servingMode = sourceStatus === "stale" ? "stale_fallback" : "fresh";
+  const pipelineHealthState = !latestSuccessfulRun
+    ? latestRun?.status === "failed"
+      ? "disconnected"
+      : "stale"
+    : latestRun?.status === "failed" && sourceStatus === "stale"
+      ? "stale"
+      : latestRun?.status === "failed"
+        ? "degraded"
+        : sourceStatus === "stale"
+          ? "stale"
+          : "live";
+  const chainBreakStage =
+    latestRun?.status === "failed" && sourceStatus === "stale" ? "read_model_refresh" : "none";
+  const boardServedNarrativeCount = itemCount;
 
   return {
     stateSource: "ai_native_canonical",
     bundleOrigin: null,
+    servingMode,
     showing: "ai_native_canonical",
     serverNow: new Date().toISOString(),
     runtimeSnapshotGeneratedAt: null,
@@ -293,13 +373,15 @@ function buildDataStatus(
       latestReadModelSeriesWriteAt: null,
       latestReadModelWindowEndAt: null,
       latestSeriesNonZeroBucketAt: null,
-      workerRunStartedAt: null,
-      workerRunStatus: null,
-      workerLastEventAt: null,
-      workerRowsInserted: null,
+      workerRunStartedAt: latestRun?.generatedAt ?? null,
+      workerRunStatus: latestRun?.status ?? null,
+      workerLastEventAt: latestRunCompletedAt,
+      workerRowsInserted:
+        latestRun?.status === "succeeded" ? latestRun.narrativeCount : latestSuccessfulRun?.narrativeCount ?? null,
       workerHeartbeatAt: null,
       workerCurrentStage: null,
-      workerLastSuccessfulWriteAt: null,
+      workerLastSuccessfulWriteAt:
+        latestSuccessfulRun?.completedAt ?? latestSuccessfulRun?.generatedAt ?? null,
       maxSourceTimestampSeen: null,
       maxWrittenTimestamp: null,
       maxProcessedTimestamp: null,
@@ -307,14 +389,56 @@ function buildDataStatus(
       pipelineLagSeconds: null,
       backlogSize: null,
       unprocessedBacklogSize: null,
-      pipelineHealthState: sourceStatus === "stale" ? "stale" : "live",
+      pipelineHealthState,
+      latestRunId: latestRun?.id ?? null,
+      latestRunAt: latestRun?.generatedAt ?? null,
+      latestRunCompletedAt,
+      latestRunStatus: latestRun?.status ?? null,
+      latestRunTrigger: latestRun?.trigger ?? null,
+      latestRunErrorMessage: latestRun?.errorMessage ?? null,
+      latestRunRuntimePath: getRunNoteString(latestRun, "runtimePath"),
+      latestRunExecutionEnvironment: getRunNoteString(latestRun, "executionEnvironment"),
+      latestRunCandidateCount: latestRun?.candidateCount ?? null,
+      latestRunEvidenceCount: latestRun?.evidenceCount ?? null,
+      latestRunNarrativeCount: latestRun?.narrativeCount ?? null,
+      latestSuccessfulRunId: latestSuccessfulRun?.id ?? null,
+      latestSuccessfulRunAt: latestSuccessfulRun?.generatedAt ?? null,
+      latestSuccessfulRunCompletedAt:
+        latestSuccessfulRun?.completedAt ?? latestSuccessfulRun?.generatedAt ?? null,
+      latestSuccessfulRunCandidateCount: latestSuccessfulRun?.candidateCount ?? null,
+      latestSuccessfulRunEvidenceCount: latestSuccessfulRun?.evidenceCount ?? null,
+      latestSuccessfulRunNarrativeCount: latestSuccessfulRun?.narrativeCount ?? null,
+      latestSuccessfulTrigger: latestSuccessfulRun?.trigger ?? null,
+      latestSuccessfulRuntimePath: getRunNoteString(latestSuccessfulRun, "runtimePath"),
+      latestSuccessfulExecutionEnvironment: getRunNoteString(
+        latestSuccessfulRun,
+        "executionEnvironment",
+      ),
+      latestFailureRunId: latestFailureRun?.id ?? null,
+      latestFailureAt: latestFailureRun?.generatedAt ?? null,
+      latestFailureTrigger: latestFailureRun?.trigger ?? null,
+      latestFailureErrorMessage: latestFailureRun?.errorMessage ?? null,
+      latestFailureRuntimePath: getRunNoteString(latestFailureRun, "runtimePath"),
+      latestFailureExecutionEnvironment: getRunNoteString(
+        latestFailureRun,
+        "executionEnvironment",
+      ),
+      boardTargetCount: view.boardTargetCount,
+      boardServedNarrativeCount,
+      boardFreshNarrativeCount: view.boardFreshCount,
+      boardBackfillNarrativeCount: view.boardBackfillCount,
+      schedulerStrategy,
+      schedulerLabel,
+      schedulerExpectedIntervalSeconds: config.refreshIntervalSeconds,
+      cronAuthorizationConfigured: config.cronSecrets.length > 0,
+      cronSecretSources: config.cronSecretNames,
       apiResponseAt: new Date().toISOString(),
       sourceSnapshotAt: runGeneratedAt,
       selectedTrendLatestDataAt: null,
       selectedTrendLatestPointAt: null,
       renderedStaleReferenceAt: runGeneratedAt,
       renderedStaleReferenceSource: "source_snapshot",
-      chainBreakStage: "none",
+      chainBreakStage,
       agesMinutes: {
         ingestion: null,
         processed: null,
@@ -322,7 +446,7 @@ function buildDataStatus(
         readModelFinalize: null,
         readModelWrite: null,
         readModelWindowEnd: null,
-        workerLastEvent: null,
+        workerLastEvent: ageMinutesFromIso(latestRunCompletedAt),
         sourceSnapshot: freshnessMinutes,
         selectedLatestPoint: null,
         selectedLatestData: null,
@@ -341,6 +465,7 @@ export async function getAiNativeNarrativeDashboardState(
     const dataStatus: DashboardDataStatus = {
       stateSource: "zero_state",
       bundleOrigin: null,
+      servingMode: "empty",
       showing: "zero_state",
       serverNow: new Date().toISOString(),
       runtimeSnapshotGeneratedAt: null,
@@ -352,9 +477,10 @@ export async function getAiNativeNarrativeDashboardState(
       sourceFreshness: [],
       refresh: null,
       timings: null,
+      freshnessDiagnostics: buildDataStatus(view, 0).freshnessDiagnostics,
     };
 
-    return {
+      return {
       ...zero,
       dataStatus,
     };
@@ -381,12 +507,7 @@ export async function getAiNativeNarrativeDashboardState(
       ...query,
       mode: query.mode ?? "established",
     },
-    dataStatus: buildDataStatus(
-      view.run.generatedAt,
-      view.run.completedAt ?? view.run.generatedAt,
-      view.freshnessMinutes,
-      leaderboard.length,
-    ),
+    dataStatus: buildDataStatus(view, leaderboard.length),
     leaderboards: {
       established,
       emerging,

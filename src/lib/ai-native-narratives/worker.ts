@@ -1,9 +1,12 @@
 import "server-only";
 
 import crypto from "node:crypto";
+import os from "node:os";
 import OpenAI from "openai";
+import { curateAiNativeNarrativeBoard } from "@/lib/ai-native-narratives/board";
 import { getAiNativeNarrativeConfig } from "@/lib/ai-native-narratives/config";
 import {
+  acquireAiNativeNarrativeExecutionLock,
   getLatestSuccessfulAiNativeNarrativeRun,
   hasAiNativeNarrativeSchema,
   insertFailedAiNativeNarrativeRun,
@@ -12,6 +15,7 @@ import {
 import type {
   AiNativeNarrativeCandidate,
   AiNativeNarrativeEvidence,
+  AiNativeNarrativeMemeArchetype,
   GeneratedAiNativeNarrative,
 } from "@/lib/ai-native-narratives/types";
 import { hasDatabaseUrl } from "@/lib/db/server-postgres";
@@ -51,6 +55,40 @@ const LABEL_GENERIC_TOKENS = new Set([
   "wave",
 ]);
 
+const LABEL_WEAK_TOKENS = new Set([
+  "chaos",
+  "crew",
+  "duo",
+  "energy",
+  "era",
+  "frenzy",
+  "hype",
+  "mania",
+  "momentum",
+  "saga",
+  "storm",
+  "vibes",
+]);
+
+const MEME_ARCHETYPES = [
+  "personality",
+  "conflict",
+  "catchphrase",
+  "mascot",
+  "visual_absurdity",
+  "pop_culture",
+  "tech_drama",
+  "political_meme",
+  "community_joke",
+] as const satisfies readonly AiNativeNarrativeMemeArchetype[];
+
+const DISCOVERY_BATCH_FOCUSES = [
+  "personalities behaving strangely, public feuds, creator meltdowns, and conflict-driven internet drama",
+  "mascots, visual absurdities, weird products, screenshots, clips, and instantly imageable meme objects",
+  "catchphrases, community jokes, fandom flashpoints, fan edits, remixes, and participatory joke formats",
+  "pop-culture crossovers, celebrity internet moments, niche subculture spikes, and tech or political stories only when they are obviously being memed",
+] as const;
+
 type RawDiscoveryEvidence = {
   url?: unknown;
   title?: unknown;
@@ -67,6 +105,9 @@ type RawDiscoveryCandidate = {
   confidence?: unknown;
   meme_score?: unknown;
   meme_reason?: unknown;
+  meme_archetype?: unknown;
+  visual_score?: unknown;
+  dryness_score?: unknown;
   evidence?: unknown;
 };
 
@@ -84,6 +125,9 @@ type RawSelectionRow = {
   verdict?: unknown;
   meme_score?: unknown;
   meme_reason?: unknown;
+  meme_archetype?: unknown;
+  visual_score?: unknown;
+  dryness_score?: unknown;
 };
 
 type RawSelectionPayload = {
@@ -102,6 +146,9 @@ type RawCanonicalNarrative = {
   confidence?: unknown;
   meme_score?: unknown;
   meme_reason?: unknown;
+  meme_archetype?: unknown;
+  visual_score?: unknown;
+  dryness_score?: unknown;
   status?: unknown;
   candidate_keys?: unknown;
   evidence_keys?: unknown;
@@ -175,6 +222,19 @@ function clampMemeScore(value: unknown, fallback: number) {
   return Math.min(100, Math.max(0, scaled));
 }
 
+function clampHundredPointScore(value: unknown, fallback: number) {
+  return clampMemeScore(value, fallback);
+}
+
+function asMemeArchetype(
+  value: unknown,
+  fallback: AiNativeNarrativeMemeArchetype = "community_joke",
+): AiNativeNarrativeMemeArchetype {
+  return MEME_ARCHETYPES.includes(String(value ?? "").trim() as AiNativeNarrativeMemeArchetype)
+    ? (String(value).trim() as AiNativeNarrativeMemeArchetype)
+    : fallback;
+}
+
 function parseOptionalIsoString(value: unknown) {
   const normalized = asNonEmptyString(value);
   if (!normalized) {
@@ -219,6 +279,7 @@ function validateMemecoinNarrativeLabel(value: string) {
   const normalizedLabel = sanitizeCanonicalLabelCandidate(value);
   const tokens = normalizeWordTokens(normalizedLabel);
   const informativeTokens = tokens.filter((token) => !LABEL_GENERIC_TOKENS.has(token));
+  const anchorTokens = informativeTokens.filter((token) => !LABEL_WEAK_TOKENS.has(token));
   const errors: string[] = [];
 
   if (!normalizedLabel) {
@@ -230,11 +291,14 @@ function validateMemecoinNarrativeLabel(value: string) {
   if (tokens.length > 6) {
     errors.push("label must contain at most 6 words");
   }
-  if (normalizedLabel.length > 60) {
-    errors.push("label exceeds 60 characters");
+  if (normalizedLabel.length > 42) {
+    errors.push("label exceeds 42 characters");
   }
   if (informativeTokens.length < 2) {
     errors.push("label is too generic");
+  }
+  if (anchorTokens.length < 1) {
+    errors.push("label lacks a concrete anchor token");
   }
 
   return {
@@ -265,6 +329,20 @@ function toCanonicalNarrativeLabel(value: string, index: number) {
   );
 }
 
+function tryCanonicalNarrativeLabel(value: string, index: number) {
+  try {
+    return {
+      canonicalLabel: toCanonicalNarrativeLabel(value, index),
+      error: null,
+    } as const;
+  } catch (error) {
+    return {
+      canonicalLabel: null,
+      error: error as Error,
+    } as const;
+  }
+}
+
 function uniqueSlug(value: string, seen: Set<string>) {
   const base = slugify(value);
   if (!seen.has(base)) {
@@ -288,6 +366,15 @@ function buildEvidenceKey(url: string, title: string, snippet: string) {
     .update(`${url}\n${title}\n${snippet}`)
     .digest("hex")
     .slice(0, 16);
+}
+
+function truncateForPrompt(value: string | null | undefined, limit: number) {
+  const normalized = normalizeWhitespace(value ?? "");
+  if (normalized.length <= limit) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
 }
 
 function resolveSourceDomain(url: string, explicitDomain: string | null) {
@@ -319,7 +406,7 @@ function buildDiscoverySchema(candidateCount: number, maxEvidencePerCandidate: n
       },
       candidates: {
         type: "array",
-        minItems: Math.max(8, Math.min(candidateCount, 12)),
+        minItems: Math.min(candidateCount, 4),
         maxItems: candidateCount,
         items: {
           type: "object",
@@ -331,6 +418,9 @@ function buildDiscoverySchema(candidateCount: number, maxEvidencePerCandidate: n
             confidence: { type: "number", minimum: 0, maximum: 1 },
             meme_score: { type: "number", minimum: 0, maximum: 100 },
             meme_reason: { type: "string", minLength: 12, maxLength: 220 },
+            meme_archetype: { type: "string", enum: [...MEME_ARCHETYPES] },
+            visual_score: { type: "number", minimum: 0, maximum: 100 },
+            dryness_score: { type: "number", minimum: 0, maximum: 100 },
             evidence: {
               type: "array",
               minItems: 2,
@@ -357,6 +447,9 @@ function buildDiscoverySchema(candidateCount: number, maxEvidencePerCandidate: n
             "confidence",
             "meme_score",
             "meme_reason",
+            "meme_archetype",
+            "visual_score",
+            "dryness_score",
             "evidence",
           ],
         },
@@ -382,8 +475,8 @@ function buildSelectionSchema(candidateCount: number, keptCount: number) {
       },
       selections: {
         type: "array",
-        minItems: Math.max(4, Math.min(keptCount, 8)),
-        maxItems: Math.min(candidateCount, keptCount + 4),
+        minItems: Math.min(candidateCount, 4),
+        maxItems: candidateCount,
         items: {
           type: "object",
           additionalProperties: false,
@@ -392,8 +485,19 @@ function buildSelectionSchema(candidateCount: number, keptCount: number) {
             verdict: { type: "string", enum: ["keep", "discard"] },
             meme_score: { type: "number", minimum: 0, maximum: 100 },
             meme_reason: { type: "string", minLength: 12, maxLength: 220 },
+            meme_archetype: { type: "string", enum: [...MEME_ARCHETYPES] },
+            visual_score: { type: "number", minimum: 0, maximum: 100 },
+            dryness_score: { type: "number", minimum: 0, maximum: 100 },
           },
-          required: ["candidate_key", "verdict", "meme_score", "meme_reason"],
+          required: [
+            "candidate_key",
+            "verdict",
+            "meme_score",
+            "meme_reason",
+            "meme_archetype",
+            "visual_score",
+            "dryness_score",
+          ],
         },
       },
     },
@@ -417,19 +521,22 @@ function buildCanonicalSchema(finalNarrativeCount: number) {
       },
       narratives: {
         type: "array",
-        minItems: Math.max(4, Math.min(finalNarrativeCount, 8)),
+        minItems: 1,
         maxItems: finalNarrativeCount,
         items: {
           type: "object",
           additionalProperties: false,
           properties: {
-            rank: { type: "integer", minimum: 1, maximum: 100 },
+            rank: { type: "integer", minimum: 1, maximum: 500 },
             canonical_name: { type: "string", minLength: 4, maxLength: 80 },
-            summary: { type: "string", minLength: 24, maxLength: 360 },
-            research_summary: { type: "string", minLength: 40, maxLength: 700 },
+            summary: { type: "string", minLength: 24, maxLength: 260 },
+            research_summary: { type: "string", minLength: 40, maxLength: 420 },
             confidence: { type: "number", minimum: 0, maximum: 1 },
             meme_score: { type: "number", minimum: 0, maximum: 100 },
             meme_reason: { type: "string", minLength: 12, maxLength: 220 },
+            meme_archetype: { type: "string", enum: [...MEME_ARCHETYPES] },
+            visual_score: { type: "number", minimum: 0, maximum: 100 },
+            dryness_score: { type: "number", minimum: 0, maximum: 100 },
             status: { type: "string", enum: ["active", "watch", "discarded"] },
             candidate_keys: {
               type: "array",
@@ -466,6 +573,9 @@ function buildCanonicalSchema(finalNarrativeCount: number) {
             "confidence",
             "meme_score",
             "meme_reason",
+            "meme_archetype",
+            "visual_score",
+            "dryness_score",
             "status",
             "candidate_keys",
             "evidence_keys",
@@ -483,45 +593,59 @@ function buildCanonicalSchema(finalNarrativeCount: number) {
   } as const;
 }
 
-function buildDiscoveryPrompt(candidateCount: number, maxEvidencePerCandidate: number) {
+function buildDiscoveryPrompt(
+  candidateCount: number,
+  maxEvidencePerCandidate: number,
+  focus: string,
+) {
   const nowIso = new Date().toISOString();
   return [
-    "Discover current web-native narratives with high memecoin potential for a production dashboard.",
+    "Discover current internet-native narratives with high memecoin creation potential for a production dashboard.",
     "You must use OpenAI web search as the upstream evidence source.",
     "Do not use social-media firehose assumptions, hashtag shards, fragment keys, heuristic topic aliases, or historical repair labels.",
-    `Return up to ${candidateCount} candidate narratives.`,
+    `This batch focus is: ${focus}.`,
+    `Return up to ${candidateCount} candidate narratives for this focus area.`,
     `Each candidate must include ${Math.max(2, maxEvidencePerCandidate - 1)} to ${maxEvidencePerCandidate} evidence items from the open web.`,
     "Every candidate must be a specific narrative object with a coherent subject, not a keyword shard.",
-    "A valid candidate must feel emotionally charged, funny, controversial, absurd, visually memetic, or culturally striking.",
-    "Prioritize personalities behaving unusually, viral clips, weird products, strange events, slogans, jokes, catchphrases, mascots, fandom flashpoints, internet drama, and stories people would parody or tokenize.",
+    "A valid candidate must feel emotionally charged, funny, controversial, absurd, visually memetic, mascot-friendly, or culturally striking.",
+    "Prioritize personalities behaving unusually, viral clips, weird products, mascots, fandom flashpoints, catchphrases, joke formats, internet drama, fan edits, visual reaction images, and stories people would parody, remix, or tokenize.",
+    "Avoid turning broad news events into candidates unless there is a clear meme object, mascot, slogan, or internet behavior attached to them.",
     "Reject dry political analysis, routine policy coverage, capex, regulation, institutional finance, enterprise software, legal process, and macro stories unless the evidence clearly shows they are being memed or sloganized.",
-    "Candidate labels must be punchy memecoin-ready handles, not headlines. Use 2 to 6 words, slogan-like, easy to meme, easy to visualize.",
+    "Candidate labels must be punchy memecoin-ready handles, not headlines. Use 2 to 5 words, slogan-like, easy to meme, easy to visualize, and anchored to the person/object/phrase people would actually post.",
+    "Bad labels: internet discourse, media storm, unhinged duo, corporate trend, policy backlash. Good labels: fruit love island, sad horse, nihilist penguin.",
     "Evidence must include url, title, snippet, source_domain, published_at, and a short note describing why the page supports the narrative.",
     "Prefer fresh evidence and diverse domains.",
     "For each candidate, assign meme_score from 0 to 100 based on virality, emotional intensity, simplicity, visualizability, and slogan potential.",
+    "Assign meme_archetype as one of: personality, conflict, catchphrase, mascot, visual_absurdity, pop_culture, tech_drama, political_meme, community_joke.",
+    "Assign visual_score from 0 to 100 based on how instantly imageable, mascot-like, or screenshotable the narrative is.",
+    "Assign dryness_score from 0 to 100 where low is good and high means the narrative feels too institutional, analytical, or newsy for memecoin behavior.",
     "meme_reason must explain why the narrative could spread as a meme or memecoin.",
-    "The dashboard should feel explainable, memetic, and auditable from cited evidence bundles.",
+    "The dashboard should feel explainable, memetic, auditable from cited evidence bundles, and closer to internet culture than to a news briefing.",
     `Generate the discovery set as of ${nowIso}.`,
   ].join("\n");
 }
 
 function buildSelectionPrompt(candidates: AiNativeNarrativeCandidate[], keptCount: number) {
-  const candidateLines = candidates.flatMap((candidate, index) => [
-    `Candidate ${index + 1}: ${candidate.candidateKey}`,
-    `Name: ${candidate.provisionalName}`,
-    `Summary: ${candidate.summary}`,
-    `Confidence: ${candidate.confidence}`,
-    `Meme score: ${candidate.memeScore}`,
-    `Meme reason: ${candidate.memeReason}`,
-    `Domains: ${candidate.sourceDomains.join(", ") || "unknown"}`,
-  ]);
+  const candidateLines = candidates.flatMap((candidate, index) => {
+    const summary = truncateForPrompt(candidate.summary, 180);
+    const reason = truncateForPrompt(candidate.memeReason, 120);
+    return [
+      `Candidate ${index + 1} | key=${candidate.candidateKey} | name=${candidate.provisionalName} | confidence=${candidate.confidence.toFixed(2)} | meme=${candidate.memeScore} | visual=${candidate.visualScore} | dryness=${candidate.drynessScore} | archetype=${candidate.memeArchetype} | domains=${candidate.sourceDomains.join(",") || "unknown"} | evidence=${candidate.evidenceCount}`,
+      `Summary: ${summary}`,
+      `Why memeable: ${reason}`,
+    ];
+  });
 
   return [
     "Select only the narratives with strong memecoin potential.",
     "Keep candidates that are viral, emotionally intense, simple, slogan-like, easy to visualize, joke-worthy, absurd, controversial, or culturally sticky.",
-    "Discard candidates that feel too serious, too institutional, too policy-heavy, too technical, too complex, or too boring to meme.",
-    `Return at most ${keptCount + 4} selections and mark each as keep or discard.`,
+    "Discard candidates that feel too serious, too institutional, too policy-heavy, too technical, too complex, too broad, or too boring to meme.",
+    "The retained set must feel balanced and curated. Aim for a spread across personalities, absurd visual objects, drama/conflict, catchphrases/community jokes, pop culture, and mascots.",
+    "Do not let tech or political meme candidates dominate the set unless they are unmistakably meme-first rather than news-first.",
+    `Return at most ${candidates.length} selections and mark each as keep or discard.`,
     "Use meme_score from 0 to 100 to reflect memecoin potential, not importance.",
+    "Re-score visual_score and dryness_score if needed. Lower dryness is better.",
+    "If a label is vague or generic, keep the candidate only if you can still justify a strong memecoin case from the evidence.",
     "",
     ...candidateLines,
   ].join("\n");
@@ -530,28 +654,16 @@ function buildSelectionPrompt(candidates: AiNativeNarrativeCandidate[], keptCoun
 function buildCanonicalizationPrompt(candidates: AiNativeNarrativeCandidate[], finalNarrativeCount: number) {
   const candidateLines = candidates.flatMap((candidate, candidateIndex) => {
     const header = [
-      `Candidate ${candidateIndex + 1}: ${candidate.candidateKey}`,
-      `Name: ${candidate.provisionalName}`,
-      `Summary: ${candidate.summary}`,
-      `Confidence: ${candidate.confidence}`,
-      `Meme score: ${candidate.memeScore}`,
-      `Meme reason: ${candidate.memeReason}`,
-      `First seen: ${candidate.firstSeenAt ?? "unknown"}`,
-      `Last seen: ${candidate.lastSeenAt ?? "unknown"}`,
-      `Domains: ${candidate.sourceDomains.join(", ") || "unknown"}`,
-      "Evidence:",
+      `Candidate ${candidateIndex + 1} | key=${candidate.candidateKey} | name=${candidate.provisionalName} | confidence=${candidate.confidence.toFixed(2)} | meme=${candidate.memeScore} | visual=${candidate.visualScore} | dryness=${candidate.drynessScore} | archetype=${candidate.memeArchetype} | first_seen=${candidate.firstSeenAt ?? "unknown"} | last_seen=${candidate.lastSeenAt ?? "unknown"} | domains=${candidate.sourceDomains.join(",") || "unknown"}`,
+      `Summary: ${truncateForPrompt(candidate.summary, 180)}`,
+      `Why memeable: ${truncateForPrompt(candidate.memeReason, 120)}`,
+      "Evidence hints:",
     ];
 
     const evidenceLines = candidate.evidence.map((evidence, evidenceIndex) => {
       return [
-        `  ${evidenceIndex + 1}. evidence_key=${evidence.evidenceKey}`,
-        `     title=${evidence.title}`,
-        `     source_domain=${evidence.sourceDomain}`,
-        `     published_at=${evidence.publishedAt ?? "unknown"}`,
-        `     url=${evidence.url}`,
-        `     snippet=${evidence.snippet}`,
-        `     note=${evidence.note ?? ""}`,
-      ].join("\n");
+        `  ${evidenceIndex + 1}. evidence_key=${evidence.evidenceKey} | domain=${evidence.sourceDomain} | published_at=${evidence.publishedAt ?? "unknown"} | title=${truncateForPrompt(evidence.title, 120)} | note=${truncateForPrompt(evidence.note ?? evidence.snippet, 140)}`,
+      ].join("");
     });
 
     return [...header, ...evidenceLines];
@@ -562,13 +674,17 @@ function buildCanonicalizationPrompt(candidates: AiNativeNarrativeCandidate[], f
     "Use only the provided candidate bundle and cited evidence.",
     "Merge near-duplicates into one canonical narrative when they clearly describe the same narrative object.",
     "Do not emit fragment keys, keyword shards, hashtags, or alias-repair labels.",
-    "Every canonical_name must already be the final dashboard label and must be 2 to 6 words.",
+    "Every canonical_name must already be the final dashboard label and must be 2 to 5 words.",
     "Canonical names must feel punchy, memetic, slogan-like, and tokenizable rather than descriptive or analyst-written.",
+    "Avoid vague labels such as Unhinged Duo, Culture War, Media Storm, Corporate Trend, or Viral Moment when the evidence provides a stronger anchor noun, mascot, person, or catchphrase.",
+    "Prefer labels that contain the concrete object/person/phrase the internet would actually latch onto.",
     "Every narrative must cite the candidate_keys and evidence_keys it used.",
     "Set status to active when the evidence supports a strong memecoin narrative, watch when it is weaker but still memetic, and discarded only when it should not appear on the board.",
     "For each final narrative, assign meme_score from 0 to 100 and meme_reason describing why people would remix, sloganize, parody, or tokenize it.",
-    "Rank final narratives by meme_score multiplied by confidence, not by institutional importance.",
-    `Return up to ${finalNarrativeCount} final canonical narratives.`,
+    "Assign meme_archetype, visual_score, and dryness_score. Lower dryness is better.",
+    "The final board should include a healthy spread of personalities, mascots, visual absurdities, drama/conflict, and catchphrase/community-joke style narratives when the evidence supports them.",
+    "Rank final narratives by memecoin potential, not by institutional importance.",
+    `Return up to ${finalNarrativeCount} final canonical narratives. If the evidence only supports fewer distinct narratives, return only the valid distinct narratives.`,
     "The final board must feel like internet culture with tradable meme energy, not analyst coverage.",
     "",
     ...candidateLines,
@@ -585,35 +701,38 @@ function normalizeDiscoveryPayload(
   }
 
   const seenCandidateKeys = new Set<string>();
-  const candidates = parsed.candidates.slice(0, candidateLimit).map((row, index) => {
+  const candidates: AiNativeNarrativeCandidate[] = [];
+  for (const [index, row] of parsed.candidates.slice(0, candidateLimit).entries()) {
     const rawRow = row as RawDiscoveryCandidate;
-    const provisionalName = toCanonicalNarrativeLabel(
+    const provisionalLabel = tryCanonicalNarrativeLabel(
       asNonEmptyString(rawRow.provisional_name) || `Narrative ${index + 1}`,
       index,
     );
+    if (!provisionalLabel.canonicalLabel) {
+      continue;
+    }
+    const provisionalName = provisionalLabel.canonicalLabel;
     const summary = asNonEmptyString(rawRow.summary);
     if (!summary) {
-      throw new Error(`Discovery candidate ${index + 1} is missing a summary.`);
+      continue;
     }
 
     const evidenceRows = Array.isArray(rawRow.evidence) ? (rawRow.evidence as RawDiscoveryEvidence[]) : [];
     if (evidenceRows.length < 2) {
-      throw new Error(`Discovery candidate ${index + 1} does not have enough evidence.`);
+      continue;
     }
-
-    const evidence: AiNativeNarrativeEvidence[] = evidenceRows.map((evidenceRow, evidenceIndex) => {
+    const evidence: AiNativeNarrativeEvidence[] = [];
+    for (const evidenceRow of evidenceRows) {
       const url = asNonEmptyString(evidenceRow.url);
       const title = asNonEmptyString(evidenceRow.title);
       const snippet = asNonEmptyString(evidenceRow.snippet);
       if (!url || !title || !snippet) {
-        throw new Error(
-          `Discovery candidate ${index + 1} evidence ${evidenceIndex + 1} is missing url/title/snippet.`,
-        );
+        continue;
       }
 
       const explicitDomain = asNonEmptyString(evidenceRow.source_domain);
       const sourceDomain = resolveSourceDomain(url, explicitDomain);
-      return {
+      evidence.push({
         evidenceKey: buildEvidenceKey(url, title, snippet),
         url,
         title,
@@ -621,8 +740,11 @@ function normalizeDiscoveryPayload(
         sourceDomain,
         publishedAt: parseOptionalIsoString(evidenceRow.published_at),
         note: asNonEmptyString(evidenceRow.note),
-      };
-    });
+      });
+    }
+    if (evidence.length < 2) {
+      continue;
+    }
 
     const sourceDomains = [...new Set(evidence.map((entry) => entry.sourceDomain))];
     const publishedTimestamps = evidence
@@ -630,7 +752,7 @@ function normalizeDiscoveryPayload(
       .filter((value) => Number.isFinite(value))
       .sort((left, right) => left - right);
 
-    return {
+    candidates.push({
       candidateKey: uniqueSlug(
         asNonEmptyString(rawRow.candidate_key) || provisionalName,
         seenCandidateKeys,
@@ -640,6 +762,9 @@ function normalizeDiscoveryPayload(
       confidence: clampConfidence(rawRow.confidence, 0.5),
       memeScore: clampMemeScore(rawRow.meme_score, 50),
       memeReason: asNonEmptyString(rawRow.meme_reason) ?? "Model did not explain meme potential.",
+      memeArchetype: asMemeArchetype(rawRow.meme_archetype),
+      visualScore: clampHundredPointScore(rawRow.visual_score, 60),
+      drynessScore: clampHundredPointScore(rawRow.dryness_score, 30),
       status: "detected",
       evidenceCount: evidence.length,
       sourceCount: sourceDomains.length,
@@ -654,8 +779,12 @@ function normalizeDiscoveryPayload(
       rawPayloadJson: {
         candidateKey: asNonEmptyString(rawRow.candidate_key),
       },
-    } satisfies AiNativeNarrativeCandidate;
-  });
+    } satisfies AiNativeNarrativeCandidate);
+  }
+
+  if (candidates.length === 0) {
+    throw new Error("AI-native narrative discovery retained no valid candidates.");
+  }
 
   return {
     generatedAt: parseOptionalIsoString(parsed.generated_context?.as_of) ?? new Date().toISOString(),
@@ -693,19 +822,24 @@ function normalizeSelectionPayload(params: {
         ...existing,
         memeScore: clampMemeScore(rawSelection.meme_score, existing.memeScore),
         memeReason: asNonEmptyString(rawSelection.meme_reason) ?? existing.memeReason,
+        memeArchetype: asMemeArchetype(rawSelection.meme_archetype, existing.memeArchetype),
+        visualScore: clampHundredPointScore(rawSelection.visual_score, existing.visualScore),
+        drynessScore: clampHundredPointScore(rawSelection.dryness_score, existing.drynessScore),
       } satisfies AiNativeNarrativeCandidate;
     })
     .filter((candidate): candidate is AiNativeNarrativeCandidate => Boolean(candidate))
     .sort(
       (left, right) =>
         right.memeScore - left.memeScore ||
+        right.visualScore - left.visualScore ||
+        left.drynessScore - right.drynessScore ||
         right.confidence - left.confidence ||
         right.evidenceCount - left.evidenceCount,
     )
     .slice(0, params.keptCount);
 
-  if (selectedCandidates.length < Math.max(4, Math.min(params.keptCount, 6))) {
-    throw new Error("Memecoin selection pass retained too few candidates.");
+  if (selectedCandidates.length === 0) {
+    throw new Error("Memecoin selection pass retained no candidates.");
   }
 
   return selectedCandidates;
@@ -728,13 +862,17 @@ function normalizeCanonicalPayload(params: {
     ),
   );
   const seenCanonicalIds = new Set<string>();
-
-  const narratives = parsed.narratives.slice(0, params.finalNarrativeCount).map((row, index) => {
+  const narratives: GeneratedAiNativeNarrative[] = [];
+  for (const [index, row] of parsed.narratives.slice(0, params.finalNarrativeCount).entries()) {
     const rawRow = row as RawCanonicalNarrative;
-    const canonicalName = toCanonicalNarrativeLabel(
+    const canonicalLabel = tryCanonicalNarrativeLabel(
       asNonEmptyString(rawRow.canonical_name) || `Narrative ${index + 1}`,
       index,
     );
+    if (!canonicalLabel.canonicalLabel) {
+      continue;
+    }
+    const canonicalName = canonicalLabel.canonicalLabel;
     const candidateKeys = asStringArray(rawRow.candidate_keys, 12).filter((candidateKey) =>
       candidateByKey.has(candidateKey),
     );
@@ -742,10 +880,10 @@ function normalizeCanonicalPayload(params: {
       evidenceByKey.has(evidenceKey),
     );
     if (candidateKeys.length === 0) {
-      throw new Error(`Canonical narrative "${canonicalName}" did not cite any valid candidate keys.`);
+      continue;
     }
     if (evidenceKeys.length < 2) {
-      throw new Error(`Canonical narrative "${canonicalName}" did not cite enough valid evidence keys.`);
+      continue;
     }
 
     const resolvedEvidence = evidenceKeys
@@ -759,10 +897,10 @@ function normalizeCanonicalPayload(params: {
     const summary = asNonEmptyString(rawRow.summary);
     const researchSummary = asNonEmptyString(rawRow.research_summary);
     if (!summary || !researchSummary) {
-      throw new Error(`Canonical narrative "${canonicalName}" is missing summary text.`);
+      continue;
     }
 
-    return {
+    narratives.push({
       rank: Number.isFinite(Number(rawRow.rank)) ? Math.max(1, Math.round(Number(rawRow.rank))) : index + 1,
       canonicalId: uniqueSlug(canonicalName, seenCanonicalIds),
       canonicalName,
@@ -770,6 +908,9 @@ function normalizeCanonicalPayload(params: {
       researchSummary,
       memeScore: clampMemeScore(rawRow.meme_score, 50),
       memeReason: asNonEmptyString(rawRow.meme_reason) ?? "Model did not explain meme potential.",
+      memeArchetype: asMemeArchetype(rawRow.meme_archetype),
+      visualScore: clampHundredPointScore(rawRow.visual_score, 60),
+      drynessScore: clampHundredPointScore(rawRow.dryness_score, 30),
       evidenceCount: Math.max(evidenceKeys.length, Number(rawRow.evidence_count ?? 0) || 0),
       sourceCount: Math.max(inferredDomains.length, Number(rawRow.source_count ?? 0) || 0),
       firstSeenAt:
@@ -798,14 +939,23 @@ function normalizeCanonicalPayload(params: {
         modelRank: rawRow.rank ?? null,
         clusteringNotes: asNonEmptyString(parsed.generated_context?.clustering_notes),
       },
-    } satisfies GeneratedAiNativeNarrative;
-  });
+    } satisfies GeneratedAiNativeNarrative);
+  }
+
+  if (narratives.length === 0) {
+    throw new Error("AI-native narrative canonicalization retained no valid narratives.");
+  }
 
   return narratives
     .sort(
       (left, right) =>
-        right.memeScore * right.confidence - left.memeScore * left.confidence ||
+        right.memeScore * right.confidence +
+          right.visualScore * 0.2 -
+          right.drynessScore * 0.18 -
+          (left.memeScore * left.confidence + left.visualScore * 0.2 - left.drynessScore * 0.18) ||
         right.memeScore - left.memeScore ||
+        right.visualScore - left.visualScore ||
+        left.drynessScore - right.drynessScore ||
         right.confidence - left.confidence ||
         left.rank - right.rank ||
         left.canonicalId.localeCompare(right.canonicalId),
@@ -816,10 +966,158 @@ function normalizeCanonicalPayload(params: {
     }));
 }
 
+function computeSetOverlap(left: string[], right: string[]) {
+  if (left.length === 0 || right.length === 0) {
+    return 0;
+  }
+
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  let shared = 0;
+  for (const value of leftSet) {
+    if (rightSet.has(value)) {
+      shared += 1;
+    }
+  }
+
+  return shared / Math.max(leftSet.size, rightSet.size);
+}
+
+function computeCandidateLabelOverlap(left: string, right: string) {
+  const leftTokens = normalizeWordTokens(left).filter(
+    (token) => !LABEL_GENERIC_TOKENS.has(token) && !LABEL_WEAK_TOKENS.has(token),
+  );
+  const rightTokens = normalizeWordTokens(right).filter(
+    (token) => !LABEL_GENERIC_TOKENS.has(token) && !LABEL_WEAK_TOKENS.has(token),
+  );
+
+  return computeSetOverlap(leftTokens, rightTokens);
+}
+
+function computeCandidateQualityScore(candidate: AiNativeNarrativeCandidate) {
+  const evidenceSupport = Math.min(20, candidate.evidenceCount * 4 + candidate.sourceCount * 2);
+  const recencyTimestamp = Date.parse(candidate.lastSeenAt ?? "");
+  const recencyHours = Number.isFinite(recencyTimestamp)
+    ? Math.max(0, (Date.now() - recencyTimestamp) / 3_600_000)
+    : null;
+  const recencyBonus =
+    recencyHours === null
+      ? 0
+      : recencyHours <= 6
+        ? 8
+        : recencyHours <= 24
+          ? 5
+          : recencyHours <= 72
+            ? 2
+            : 0;
+
+  return (
+    candidate.memeScore * 0.48 +
+    candidate.visualScore * 0.18 +
+    candidate.confidence * 100 * 0.16 +
+    evidenceSupport +
+    recencyBonus -
+    candidate.drynessScore * 0.2
+  );
+}
+
+function hasCandidateOverlap(
+  left: AiNativeNarrativeCandidate,
+  right: AiNativeNarrativeCandidate,
+) {
+  const labelOverlap = computeCandidateLabelOverlap(left.provisionalName, right.provisionalName);
+  const evidenceOverlap = computeSetOverlap(
+    left.evidence.map((entry) => entry.evidenceKey),
+    right.evidence.map((entry) => entry.evidenceKey),
+  );
+  const domainOverlap = computeSetOverlap(left.sourceDomains, right.sourceDomains);
+
+  return (
+    left.candidateKey === right.candidateKey ||
+    evidenceOverlap >= 0.34 ||
+    (labelOverlap >= 0.6 && domainOverlap >= 0.34) ||
+    (labelOverlap >= 0.75 && left.memeArchetype === right.memeArchetype)
+  );
+}
+
+function mergeDiscoveryCandidatePool(
+  candidates: AiNativeNarrativeCandidate[],
+  limit: number,
+) {
+  const rankedPool = [...candidates].sort(
+    (left, right) =>
+      computeCandidateQualityScore(right) - computeCandidateQualityScore(left) ||
+      right.memeScore - left.memeScore ||
+      right.visualScore - left.visualScore ||
+      left.drynessScore - right.drynessScore ||
+      right.confidence - left.confidence,
+  );
+  const merged: AiNativeNarrativeCandidate[] = [];
+
+  for (const candidate of rankedPool) {
+    if (merged.length >= limit) {
+      break;
+    }
+    if (merged.some((existing) => hasCandidateOverlap(existing, candidate))) {
+      continue;
+    }
+    merged.push(candidate);
+  }
+
+  if (merged.length < Math.min(limit, candidates.length)) {
+    for (const candidate of rankedPool) {
+      if (merged.length >= limit) {
+        break;
+      }
+      if (merged.some((existing) => existing.candidateKey === candidate.candidateKey)) {
+        continue;
+      }
+      merged.push(candidate);
+    }
+  }
+
+  return merged;
+}
+
+function backfillSelectedCandidates(
+  selectedCandidates: AiNativeNarrativeCandidate[],
+  fallbackCandidates: AiNativeNarrativeCandidate[],
+  targetCount: number,
+) {
+  const filled = [...selectedCandidates];
+
+  for (const candidate of fallbackCandidates) {
+    if (filled.length >= targetCount) {
+      break;
+    }
+    if (filled.some((existing) => existing.candidateKey === candidate.candidateKey)) {
+      continue;
+    }
+    if (filled.some((existing) => hasCandidateOverlap(existing, candidate))) {
+      continue;
+    }
+    filled.push(candidate);
+  }
+
+  return filled;
+}
+
+function planDiscoveryBatches(totalCandidateCount: number, batchCount: number) {
+  const actualBatchCount = Math.max(1, Math.min(batchCount, DISCOVERY_BATCH_FOCUSES.length));
+  const baseSize = Math.floor(totalCandidateCount / actualBatchCount);
+  const remainder = totalCandidateCount % actualBatchCount;
+
+  return Array.from({ length: actualBatchCount }, (_, index) => ({
+    focus: DISCOVERY_BATCH_FOCUSES[index] ?? DISCOVERY_BATCH_FOCUSES.at(-1)!,
+    candidateCount: baseSize + (index < remainder ? 1 : 0),
+  })).filter((batch) => batch.candidateCount > 0);
+}
+
 async function requestDiscovery(params: {
   client: OpenAI;
   modelName: string;
   candidateCount: number;
+  focus: string;
   maxEvidencePerCandidate: number;
   searchContextSize: "low" | "medium" | "high";
   searchCountry: string;
@@ -829,7 +1127,11 @@ async function requestDiscovery(params: {
 }) {
   const response = await params.client.responses.create({
     model: params.modelName,
-    input: buildDiscoveryPrompt(params.candidateCount, params.maxEvidencePerCandidate),
+    input: buildDiscoveryPrompt(
+      params.candidateCount,
+      params.maxEvidencePerCandidate,
+      params.focus,
+    ),
     text: {
       format: {
         type: "json_schema",
@@ -931,8 +1233,39 @@ async function requestCanonicalization(params: {
 export async function runAiNativeNarrativePipeline(options: {
   force?: boolean;
   trigger?: string;
+  runtimePath?: string;
+  executionEnvironment?: string;
+  schedulerStrategy?: string;
+  schedulerLabel?: string;
 } = {}) {
   const config = getAiNativeNarrativeConfig();
+  const trigger = options.trigger ?? "manual";
+  const runtimePath = options.runtimePath ?? null;
+  const executionEnvironment = options.executionEnvironment ?? null;
+  const schedulerStrategy = options.schedulerStrategy ?? null;
+  const schedulerLabel = options.schedulerLabel ?? null;
+  const baseRunNotes = {
+    trigger,
+    runtimePath,
+    executionEnvironment,
+    schedulerStrategy,
+    schedulerLabel,
+    hostname: os.hostname(),
+    pid: process.pid,
+    nodeVersion: process.version,
+    deploymentId:
+      process.env.RAILWAY_DEPLOYMENT_ID?.trim() ||
+      process.env.VERCEL_DEPLOYMENT_ID?.trim() ||
+      null,
+    serviceInstanceId:
+      process.env.RAILWAY_REPLICA_ID?.trim() ||
+      process.env.HOSTNAME?.trim() ||
+      null,
+    gitCommitSha:
+      process.env.RAILWAY_GIT_COMMIT_SHA?.trim() ||
+      process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+      null,
+  } satisfies Record<string, unknown>;
   if (!config.enabled) {
     return {
       skipped: true,
@@ -950,143 +1283,255 @@ export async function runAiNativeNarrativePipeline(options: {
 
   if (!(await hasAiNativeNarrativeSchema())) {
     throw new Error(
-      "Missing AI-native narrative schema. Apply backend/migrations/20260419_ai_native_canonical_narratives.sql first.",
+      "Missing AI-native narrative schema. Apply backend/migrations/20260419_ai_native_canonical_narratives.sql, backend/migrations/20260419_ai_native_canonical_narratives_memecoin_focus.sql, and backend/migrations/20260419_ai_native_canonical_narratives_memecoin_quality_v3.sql first.",
     );
   }
 
-  const latestRun = await getLatestSuccessfulAiNativeNarrativeRun();
-  if (!options.force && latestRun?.generatedAt) {
-    const elapsedSeconds = (Date.now() - Date.parse(latestRun.generatedAt)) / 1000;
-    if (Number.isFinite(elapsedSeconds) && elapsedSeconds < config.refreshIntervalSeconds) {
-      return {
-        skipped: true,
-        reason: "interval_guard",
-        runId: latestRun.id,
-        generatedAt: latestRun.generatedAt,
-      } as const;
-    }
+  const executionLock = await acquireAiNativeNarrativeExecutionLock();
+  if (!executionLock) {
+    console.warn("[ai-native-narratives] execution skipped because another worker holds the lock", {
+      trigger,
+      runtimePath,
+    });
+    return {
+      skipped: true,
+      reason: "execution_lock",
+      trigger,
+      runtimePath,
+    } as const;
   }
 
-  const client = new OpenAI({ apiKey: config.openAiApiKey });
-  let lastError: Error | null = null;
-  let lastDiscoveryResponse: Record<string, unknown> | null = null;
-  let lastSelectionResponse: Record<string, unknown> | null = null;
-  let lastCanonicalizationResponse: Record<string, unknown> | null = null;
+  try {
+    const latestRun = await getLatestSuccessfulAiNativeNarrativeRun();
+    if (!options.force && latestRun?.generatedAt) {
+      const elapsedSeconds = (Date.now() - Date.parse(latestRun.generatedAt)) / 1000;
+      if (Number.isFinite(elapsedSeconds) && elapsedSeconds < config.refreshIntervalSeconds) {
+        return {
+          skipped: true,
+          reason: "interval_guard",
+          runId: latestRun.id,
+          generatedAt: latestRun.generatedAt,
+          trigger,
+          runtimePath,
+        } as const;
+      }
+    }
 
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      const discovery = await requestDiscovery({
-        client,
-        modelName: config.modelName,
-        candidateCount: config.discoveryCandidateCount,
-        maxEvidencePerCandidate: config.maxEvidencePerCandidate,
-        searchContextSize: config.searchContextSize,
-        searchCountry: config.searchCountry,
-        searchRegion: config.searchRegion,
-        searchCity: config.searchCity,
-        searchTimezone: config.searchTimezone,
-      });
-      lastDiscoveryResponse = {
-        ...(discovery.rawResponseJson ?? {}),
-        attempt,
-      };
-      const normalizedDiscovery = normalizeDiscoveryPayload(
-        discovery.outputText,
-        config.discoveryCandidateCount,
-      );
+    const client = new OpenAI({ apiKey: config.openAiApiKey });
+    let lastError: Error | null = null;
+    let lastDiscoveryResponse: Record<string, unknown> | null = null;
+    let lastSelectionResponse: Record<string, unknown> | null = null;
+    let lastCanonicalizationResponse: Record<string, unknown> | null = null;
 
-      const keptCount = Math.max(
-        config.finalNarrativeCount,
-        Math.min(config.discoveryCandidateCount, 14),
-      );
-      const selection = await requestMemecoinSelection({
-        client,
-        modelName: config.modelName,
-        candidates: normalizedDiscovery.candidates,
-        keptCount,
-      });
-      lastSelectionResponse = {
-        ...(selection.rawResponseJson ?? {}),
-        attempt,
-      };
-      const selectedCandidates = normalizeSelectionPayload({
-        content: selection.outputText,
-        candidates: normalizedDiscovery.candidates,
-        keptCount,
-      });
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const discoveryPlan = planDiscoveryBatches(
+          config.discoveryCandidateCount,
+          config.discoveryBatchCount,
+        );
+        const discoveryBatchResponses: Array<Record<string, unknown>> = [];
+        const rawDiscoveredCandidates: AiNativeNarrativeCandidate[] = [];
+        let discoveryGeneratedAt: string | null = null;
 
-      const canonicalization = await requestCanonicalization({
-        client,
-        modelName: config.modelName,
-        candidates: selectedCandidates,
-        finalNarrativeCount: config.finalNarrativeCount,
-      });
-      lastCanonicalizationResponse = {
-        ...(canonicalization.rawResponseJson ?? {}),
-        attempt,
-      };
-      const narratives = normalizeCanonicalPayload({
-        content: canonicalization.outputText,
-        candidates: selectedCandidates,
-        finalNarrativeCount: config.finalNarrativeCount,
-      });
+        for (const [batchIndex, batch] of discoveryPlan.entries()) {
+          try {
+            const discovery = await requestDiscovery({
+              client,
+              modelName: config.modelName,
+              candidateCount: batch.candidateCount,
+              focus: batch.focus,
+              maxEvidencePerCandidate: config.maxEvidencePerCandidate,
+              searchContextSize: config.searchContextSize,
+              searchCountry: config.searchCountry,
+              searchRegion: config.searchRegion,
+              searchCity: config.searchCity,
+              searchTimezone: config.searchTimezone,
+            });
+            const normalizedDiscovery = normalizeDiscoveryPayload(
+              discovery.outputText,
+              batch.candidateCount,
+            );
+            rawDiscoveredCandidates.push(...normalizedDiscovery.candidates);
+            const generatedAtTimestamp = Date.parse(normalizedDiscovery.generatedAt);
+            if (
+              Number.isFinite(generatedAtTimestamp) &&
+              (!discoveryGeneratedAt ||
+                generatedAtTimestamp > Date.parse(discoveryGeneratedAt))
+            ) {
+              discoveryGeneratedAt = normalizedDiscovery.generatedAt;
+            }
 
-      const runId = await storeSuccessfulAiNativeNarrativeRun({
-        trigger: options.trigger ?? "manual",
-        generatedAt: normalizedDiscovery.generatedAt,
-        modelName: config.modelName,
-        promptVersion: config.promptVersion,
-        candidates: normalizedDiscovery.candidates,
-        narratives,
-        discoveryResponseJson: lastDiscoveryResponse,
-        canonicalizationResponseJson: {
-          selection: lastSelectionResponse,
-          canonicalization: lastCanonicalizationResponse,
-        },
-        notesJson: {
-          trigger: options.trigger ?? "manual",
-          refreshIntervalSeconds: config.refreshIntervalSeconds,
-          freshnessWindowMinutes: config.freshnessWindowMinutes,
-          discoveryCandidateCount: config.discoveryCandidateCount,
-          finalNarrativeCount: config.finalNarrativeCount,
-          maxEvidencePerCandidate: config.maxEvidencePerCandidate,
-          discoveryMode: "openai_web_search_memecoin_focus",
-          selectedCandidateCount: selectedCandidates.length,
-        },
-      });
+            discoveryBatchResponses.push({
+              ...(discovery.rawResponseJson ?? {}),
+              batchIndex,
+              focus: batch.focus,
+              candidateCountRequested: batch.candidateCount,
+              candidateCountRetained: normalizedDiscovery.candidates.length,
+              generatedAt: normalizedDiscovery.generatedAt,
+            });
+          } catch (error) {
+            discoveryBatchResponses.push({
+              batchIndex,
+              focus: batch.focus,
+              candidateCountRequested: batch.candidateCount,
+              error: String((error as Error)?.message ?? error ?? "unknown discovery batch failure"),
+            });
+            console.error("[ai-native-narratives] discovery batch failed", {
+              attempt,
+              batchIndex,
+              focus: batch.focus,
+              error: String((error as Error)?.message ?? error),
+            });
+          }
+        }
 
-      return {
-        skipped: false,
-        runId,
-        generatedAt: normalizedDiscovery.generatedAt,
-        candidateCount: normalizedDiscovery.candidates.length,
-        narrativeCount: narratives.length,
-        evidenceCount: normalizedDiscovery.candidates.reduce(
-          (total, candidate) => total + candidate.evidence.length,
+        lastDiscoveryResponse = {
+          attempt,
+          batches: discoveryBatchResponses,
+        };
+
+        const minimumDiscoveryPool = Math.max(
+          config.finalNarrativeCount,
+          Math.min(config.selectionCandidateCount, Math.ceil(config.discoveryCandidateCount * 0.5)),
+        );
+        if (rawDiscoveredCandidates.length < minimumDiscoveryPool) {
+          throw new Error(
+            `AI-native narrative discovery retained ${rawDiscoveredCandidates.length} valid candidates across ${discoveryPlan.length} batches; need at least ${minimumDiscoveryPool}.`,
+          );
+        }
+
+        const mergedCandidates = mergeDiscoveryCandidatePool(
+          rawDiscoveredCandidates,
+          Math.max(config.selectionCandidateCount, config.finalNarrativeCount + 40),
+        );
+        if (mergedCandidates.length < config.finalNarrativeCount) {
+          throw new Error(
+            `AI-native narrative discovery deduped down to ${mergedCandidates.length} candidates; need at least ${config.finalNarrativeCount}.`,
+          );
+        }
+
+        const selectionInputCandidates = mergedCandidates.slice(
           0,
-        ),
-      } as const;
-    } catch (error) {
-      lastError = error as Error;
-      console.error("[ai-native-narratives] attempt failed", {
-        attempt,
-        trigger: options.trigger ?? "manual",
-        error: String(lastError?.message ?? error),
-      });
-    }
-  }
+          Math.min(mergedCandidates.length, config.selectionCandidateCount),
+        );
+        const keptCount = Math.min(
+          selectionInputCandidates.length,
+          Math.max(config.finalNarrativeCount + 24, Math.ceil(config.finalNarrativeCount * 1.24)),
+        );
+        const selection = await requestMemecoinSelection({
+          client,
+          modelName: config.modelName,
+          candidates: selectionInputCandidates,
+          keptCount,
+        });
+        lastSelectionResponse = {
+          ...(selection.rawResponseJson ?? {}),
+          attempt,
+        };
+        const selectedCandidates = backfillSelectedCandidates(
+          normalizeSelectionPayload({
+            content: selection.outputText,
+            candidates: selectionInputCandidates,
+            keptCount,
+          }),
+          selectionInputCandidates,
+          keptCount,
+        );
 
-  await insertFailedAiNativeNarrativeRun({
-    trigger: options.trigger ?? "manual",
-    modelName: config.modelName,
-    promptVersion: config.promptVersion,
-    generatedAt: new Date().toISOString(),
-    errorMessage: String(lastError?.message ?? "AI-native narrative pipeline failed."),
-    discoveryResponseJson: lastDiscoveryResponse,
-    canonicalizationResponseJson: {
-      selection: lastSelectionResponse,
-      canonicalization: lastCanonicalizationResponse,
-    },
-  });
-  throw lastError ?? new Error("AI-native narrative pipeline failed.");
+        const canonicalization = await requestCanonicalization({
+          client,
+          modelName: config.modelName,
+          candidates: selectedCandidates,
+          finalNarrativeCount: config.finalNarrativeCount,
+        });
+        lastCanonicalizationResponse = {
+          ...(canonicalization.rawResponseJson ?? {}),
+          attempt,
+        };
+        const narratives = normalizeCanonicalPayload({
+          content: canonicalization.outputText,
+          candidates: selectedCandidates,
+          finalNarrativeCount: config.finalNarrativeCount,
+        });
+        const curatedNarratives = curateAiNativeNarrativeBoard(
+          narratives,
+          config.finalNarrativeCount,
+        );
+
+        const runId = await storeSuccessfulAiNativeNarrativeRun({
+          trigger,
+          generatedAt: discoveryGeneratedAt ?? new Date().toISOString(),
+          modelName: config.modelName,
+          promptVersion: config.promptVersion,
+          candidates: selectionInputCandidates,
+          narratives: curatedNarratives,
+          discoveryResponseJson: lastDiscoveryResponse,
+          canonicalizationResponseJson: {
+            selection: lastSelectionResponse,
+            canonicalization: lastCanonicalizationResponse,
+          },
+          notesJson: {
+            ...baseRunNotes,
+            refreshIntervalSeconds: config.refreshIntervalSeconds,
+            freshnessWindowMinutes: config.freshnessWindowMinutes,
+            discoveryBatchCount: config.discoveryBatchCount,
+            discoveryCandidateCount: config.discoveryCandidateCount,
+            selectionCandidateCount: config.selectionCandidateCount,
+            finalNarrativeCount: config.finalNarrativeCount,
+            maxEvidencePerCandidate: config.maxEvidencePerCandidate,
+            discoveryMode: "openai_web_search_memecoin_board_v4_board100",
+            rawDiscoveredCandidateCount: rawDiscoveredCandidates.length,
+            mergedCandidateCount: mergedCandidates.length,
+            selectionInputCandidateCount: selectionInputCandidates.length,
+            selectedCandidateCount: selectedCandidates.length,
+            curatedNarrativeCount: curatedNarratives.length,
+          },
+        });
+
+        return {
+          skipped: false,
+          runId,
+          generatedAt: discoveryGeneratedAt ?? new Date().toISOString(),
+          candidateCount: selectionInputCandidates.length,
+          narrativeCount: curatedNarratives.length,
+          evidenceCount: selectionInputCandidates.reduce(
+            (total, candidate) => total + candidate.evidence.length,
+            0,
+          ),
+          trigger,
+          runtimePath,
+        } as const;
+      } catch (error) {
+        lastError = error as Error;
+        console.error("[ai-native-narratives] attempt failed", {
+          attempt,
+          trigger,
+          runtimePath,
+          error: String(lastError?.message ?? error),
+        });
+      }
+    }
+
+    await insertFailedAiNativeNarrativeRun({
+      trigger,
+      modelName: config.modelName,
+      promptVersion: config.promptVersion,
+      generatedAt: new Date().toISOString(),
+      errorMessage: String(lastError?.message ?? "AI-native narrative pipeline failed."),
+      discoveryResponseJson: lastDiscoveryResponse,
+      canonicalizationResponseJson: {
+        selection: lastSelectionResponse,
+        canonicalization: lastCanonicalizationResponse,
+      },
+      notesJson: {
+        ...baseRunNotes,
+        refreshIntervalSeconds: config.refreshIntervalSeconds,
+        freshnessWindowMinutes: config.freshnessWindowMinutes,
+        failureRecordedAt: new Date().toISOString(),
+      },
+    });
+    throw lastError ?? new Error("AI-native narrative pipeline failed.");
+  } finally {
+    await executionLock.release();
+  }
 }

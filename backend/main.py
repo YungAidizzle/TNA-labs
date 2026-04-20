@@ -357,7 +357,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     print(
         "Legacy social ingestion worker disabled. "
-        "Use the AI-native narrative pipeline via /api/cron/ai-native-narratives.",
+        "Use the Railway AI-native worker daemon instead of /api/cron/ai-native-narratives.",
         file=sys.stderr,
     )
     return 1
