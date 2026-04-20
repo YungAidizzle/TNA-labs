@@ -136,8 +136,56 @@ describe("shared AI trend source", () => {
 
     expect(result).not.toBeNull();
     expect(result?.leaderboard.map((row) => row.name)).toEqual([
-      "Solana Memecoin Rotation",
       "Clip Remix Cycle",
+      "Solana Memecoin Rotation",
     ]);
+  });
+
+  it("rejects stale shared AI snapshots before they can override the live board", async () => {
+    repositoryMocks.getLatestSuccessfulAiTrendSnapshotView.mockResolvedValueOnce({
+      snapshot: {
+        id: 44,
+        status: "succeeded",
+        createdAt: "2026-04-13T10:00:00.000Z",
+        generatedAt: "2026-04-13T10:00:00.000Z",
+        completedAt: "2026-04-13T10:00:00.000Z",
+        trendCount: 1,
+        modelName: "gpt-test",
+        promptVersion: "test",
+        errorMessage: null,
+      },
+      freshnessMinutes: 24 * 60,
+      trends: [
+        {
+          id: 1,
+          snapshotId: 44,
+          rank: 1,
+          trendKey: "stale-story",
+          title: "Stale Story",
+          summary: "A once-hot narrative that no longer reflects the live board.",
+          confidenceScore: 82,
+          aiRankScore: 80,
+          importanceNote: "This should not replace the live board after a day-old delay.",
+          category: "Internet",
+          sourceScope: "global",
+          sourceCount: 24,
+          generatedAt: "2026-04-13T10:00:00.000Z",
+        },
+      ],
+    });
+
+    const { createZeroTrendDashboardVM } = await import("@/lib/dashboard/zero-state");
+    const { getSharedAiTrendDashboardState } = await import("@/lib/dashboard/ai-trend-source");
+
+    const baseState = createZeroTrendDashboardVM({
+      scope: "overall",
+      range: "24h",
+      mode: "established",
+      sort: "posts",
+    });
+
+    const result = await getSharedAiTrendDashboardState(baseState.query, baseState);
+
+    expect(result).toBeNull();
   });
 });

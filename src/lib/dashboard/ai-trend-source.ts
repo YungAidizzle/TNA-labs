@@ -36,6 +36,27 @@ function readBooleanEnv(name: string, fallback: boolean) {
   return fallback;
 }
 
+function readIntegerEnv(name: string, fallback: number, min: number, max: number) {
+  const raw = process.env[name];
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw.trim(), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
+const SHARED_AI_TREND_MAX_FRESHNESS_MINUTES = readIntegerEnv(
+  "SHARED_AI_TREND_MAX_FRESHNESS_MINUTES",
+  360,
+  5,
+  7 * 24 * 60,
+);
+
 function shouldUseSharedAiTrendSource() {
   return readBooleanEnv("USE_SHARED_AI_TREND_SOURCE", true);
 }
@@ -70,6 +91,28 @@ type SharedAiNarrativeSourceItem = Pick<
   | "sourceCount"
   | "generatedAt"
 >;
+
+function sanitizeSharedAiNarrativeText(value: string | null | undefined) {
+  const normalized = String(value ?? "")
+    .replace(/\s*\(\[[^\]]+\]\([^)]+\)\)\s*/g, " ")
+    .replace(/\s*https?:\/\/\S+\s*/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function resolveSharedAiSnapshotAgeMinutes(generatedAt: string, freshnessMinutes: number | null) {
+  if (freshnessMinutes !== null) {
+    return freshnessMinutes;
+  }
+
+  const generatedAtMs = Date.parse(generatedAt);
+  if (!Number.isFinite(generatedAtMs)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round((Date.now() - generatedAtMs) / 60_000));
+}
 
 function getLifecycleStage(rank: number) {
   if (rank <= 20) {
@@ -113,6 +156,9 @@ function buildAiRankedTrend(
   query: TrendDashboardQuery,
   freshnessMinutes: number | null,
 ): RankedTrend {
+  const sanitizedSummary = sanitizeSharedAiNarrativeText(item.summary) ?? item.summary;
+  const sanitizedImportanceNote =
+    sanitizeSharedAiNarrativeText(item.importanceNote) ?? sanitizedSummary;
   const estimatedActivity = estimateActivityCount(item);
   const confidenceScore = clamp(item.confidenceScore, 0, 100);
   const aiRankScore = clamp(item.aiRankScore || confidenceScore, 0, 100);
@@ -194,9 +240,9 @@ function buildAiRankedTrend(
       matchedQueries: [item.title],
       queryCount: 1,
     },
-    trendDescription: item.summary,
-    trendContextParagraph: item.importanceNote ?? item.summary,
-    trendNarrativeSummary: item.summary,
+    trendDescription: sanitizedSummary,
+    trendContextParagraph: sanitizedImportanceNote,
+    trendNarrativeSummary: sanitizedSummary,
     trendRawLabel: item.title,
     trendFallbackLabel: item.title,
     trendSummaryConfidence: confidenceScore,
@@ -287,6 +333,23 @@ export async function getSharedAiTrendDashboardState(
 
   const view = await getLatestSuccessfulAiTrendSnapshotView();
   if (!view.snapshot || view.trends.length === 0) {
+    return null;
+  }
+
+  const snapshotAgeMinutes = resolveSharedAiSnapshotAgeMinutes(
+    view.snapshot.generatedAt,
+    view.freshnessMinutes,
+  );
+  if (
+    snapshotAgeMinutes === null ||
+    snapshotAgeMinutes > SHARED_AI_TREND_MAX_FRESHNESS_MINUTES
+  ) {
+    console.warn("[ai-trend-source] shared AI snapshot skipped because it is stale", {
+      snapshotId: view.snapshot.id,
+      snapshotGeneratedAt: view.snapshot.generatedAt,
+      snapshotAgeMinutes,
+      maxFreshnessMinutes: SHARED_AI_TREND_MAX_FRESHNESS_MINUTES,
+    });
     return null;
   }
 

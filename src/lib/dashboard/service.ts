@@ -27,6 +27,7 @@ export async function getTrendDashboardState(
     const dataStatus: DashboardDataStatus = {
       stateSource: "zero_state",
       bundleOrigin: null,
+      servingMode: "empty",
       showing: "zero_state",
       serverNow: new Date().toISOString(),
       runtimeSnapshotGeneratedAt: null,

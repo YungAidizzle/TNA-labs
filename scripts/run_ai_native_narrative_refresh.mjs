@@ -40,6 +40,9 @@ function parseArgs() {
   const args = process.argv.slice(2);
   return {
     force: args.includes("--force"),
+    trigger:
+      args.find((value) => value.startsWith("--trigger="))?.slice("--trigger=".length) ||
+      "vercel-admin-route-cli",
     baseUrl:
       args.find((value) => value.startsWith("--base-url="))?.slice("--base-url=".length) ||
       process.env.AI_NATIVE_NARRATIVE_BASE_URL ||
@@ -54,10 +57,14 @@ async function main() {
   if (args.force) {
     url.searchParams.set("force", "true");
   }
+  url.searchParams.set("trigger", args.trigger);
 
   const headers = {};
-  if ((process.env.CRON_SECRET || "").trim()) {
-    headers.authorization = `Bearer ${process.env.CRON_SECRET.trim()}`;
+  const cronSecret =
+    (process.env.CRON_SECRET || "").trim() ||
+    (process.env.ATTENTRA_CRON_SECRET || "").trim();
+  if (cronSecret) {
+    headers.authorization = `Bearer ${cronSecret}`;
   }
 
   const response = await fetch(url, {

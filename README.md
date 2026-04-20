@@ -26,6 +26,8 @@ Use `pnpm dev` if you only want the Next.js app.
 Use `pnpm worker:bluesky:once` to run one ingestion/title/enrichment pass and wait for secondary naming jobs to drain before exit.
 Use `pnpm worker:trend-names:backfill` to force a top-250 naming backfill without waiting for a page request.
 
+AI-native trend generation is now owned by Railway. Use `pnpm worker:narratives:daemon` for the authoritative hourly worker, `pnpm worker:narratives:refresh` for a one-shot direct run, and `pnpm worker:narratives:refresh:route` only for the optional Vercel admin route. Production setup is documented in `docs/ai-native-railway-worker.md`.
+
 Cost controls:
 
 - Request-path AI naming is not a supported production path. Keep `ALLOW_REQUEST_PATH_VISIBLE_TOPIC_ENRICHMENT=false`.

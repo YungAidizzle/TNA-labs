@@ -790,6 +790,58 @@ describe("stable Supabase trend ranking", () => {
     expect(vm.leaderboard.some((row) => row.canonicalKeySummary === "uesday")).toBe(false);
   });
 
+  it("drops stale single-entity enrichment rows when no current narrative label survives", async () => {
+    setScenario({
+      totalsRows: [
+        createWindowTotalRow({
+          topicKey: "rump",
+          topicLabel: "Trump",
+          totalMentions: 160,
+          uniquePosts: 70,
+          uniqueAuthors: 58,
+        }),
+        createWindowTotalRow({
+          topicKey: "creator-clip-backlash",
+          topicLabel: "Creator Clip Backlash",
+          totalMentions: 90,
+          uniquePosts: 42,
+          uniqueAuthors: 35,
+        }),
+      ],
+      enrichmentRows: [
+        {
+          ...createEnrichmentRow({
+            topicKey: "rump",
+            rawLabel: "Trump",
+            canonicalName: "Donald Trump",
+            keyEntities: ["Donald Trump"],
+          }),
+          as_of_window_end: "2026-03-28T12:00:00.000Z",
+          generated_at: "2026-03-28T12:05:00.000Z",
+          refreshed_at: "2026-03-28T12:05:00.000Z",
+          ai_name_generated_at: "2026-03-28T12:05:00.000Z",
+          ai_name_refreshed_at: "2026-03-28T12:05:00.000Z",
+        },
+      ],
+      seriesRows: [],
+      queriedSeriesDays: [],
+      queriedSeriesTopicKeys: [],
+    });
+
+    const vm = await fetchStableVm({
+      scope: "overall",
+      range: "24h",
+      mode: "established",
+      sort: "posts",
+    });
+
+    expect(vm.leaderboard.map((row) => row.canonicalKeySummary)).toEqual([
+      "creator-clip-backlash",
+    ]);
+    expect(vm.leaderboard[0]?.displayName).toBe("Creator Clip Backlash");
+    expect(vm.leaderboard.some((row) => row.canonicalKeySummary === "rump")).toBe(false);
+  });
+
   it("hydrates stable series across every calendar day touched by a 7d window", async () => {
     const expectedDays = buildWindowDayIsos("7d");
     const window = buildWindow("7d");

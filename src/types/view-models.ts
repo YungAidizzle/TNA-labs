@@ -613,6 +613,8 @@ export type DashboardRuntimeBundleOrigin =
   | "manual_full_regroup"
   | "legacy_bootstrap";
 
+export type DashboardServingMode = "fresh" | "stale_fallback" | "empty";
+
 export type DashboardRefreshMode =
   | "local_rebuild"
   | "manual_full_regroup"
@@ -694,6 +696,41 @@ export type DashboardFreshnessDiagnostics = {
   backlogSize?: number | null;
   unprocessedBacklogSize?: number | null;
   pipelineHealthState?: "live" | "delayed" | "degraded" | "stale" | "disconnected" | null;
+  latestRunId?: number | null;
+  latestRunAt?: string | null;
+  latestRunCompletedAt?: string | null;
+  latestRunStatus?: "succeeded" | "failed" | null;
+  latestRunTrigger?: string | null;
+  latestRunErrorMessage?: string | null;
+  latestRunRuntimePath?: string | null;
+  latestRunExecutionEnvironment?: string | null;
+  latestSuccessfulRunId?: number | null;
+  latestSuccessfulRunAt?: string | null;
+  latestSuccessfulRunCompletedAt?: string | null;
+  latestSuccessfulRunCandidateCount?: number | null;
+  latestSuccessfulRunEvidenceCount?: number | null;
+  latestSuccessfulRunNarrativeCount?: number | null;
+  latestSuccessfulTrigger?: string | null;
+  latestSuccessfulRuntimePath?: string | null;
+  latestSuccessfulExecutionEnvironment?: string | null;
+  latestFailureRunId?: number | null;
+  latestFailureAt?: string | null;
+  latestFailureTrigger?: string | null;
+  latestFailureErrorMessage?: string | null;
+  latestFailureRuntimePath?: string | null;
+  latestFailureExecutionEnvironment?: string | null;
+  latestRunCandidateCount?: number | null;
+  latestRunEvidenceCount?: number | null;
+  latestRunNarrativeCount?: number | null;
+  boardTargetCount?: number | null;
+  boardServedNarrativeCount?: number | null;
+  boardFreshNarrativeCount?: number | null;
+  boardBackfillNarrativeCount?: number | null;
+  schedulerStrategy?: string | null;
+  schedulerLabel?: string | null;
+  schedulerExpectedIntervalSeconds?: number | null;
+  cronAuthorizationConfigured?: boolean | null;
+  cronSecretSources?: string[] | null;
   apiResponseAt: string | null;
   sourceSnapshotAt: string | null;
   selectedTrendLatestDataAt: string | null;
@@ -726,6 +763,7 @@ export type DashboardFreshnessDiagnostics = {
 export type DashboardDataStatus = {
   stateSource: DashboardRuntimeSource;
   bundleOrigin: DashboardRuntimeBundleOrigin | null;
+  servingMode?: DashboardServingMode | null;
   showing:
     | "ai_native_canonical"
     | "live_ai_named"

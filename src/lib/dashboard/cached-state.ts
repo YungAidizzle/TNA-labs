@@ -4,7 +4,9 @@ import {
   DASHBOARD_SUMMARY_SERVER_REVALIDATE_SECONDS,
   serializeTrendDashboardCacheQuery,
 } from "@/lib/dashboard/cache";
+import { fetchLatestCorrelatedMemecoinBoard } from "@/lib/dashboard/correlated-memecoins";
 import { getTrendDashboardState } from "@/lib/dashboard/service";
+import { buildStrictTrendsPageCorrelatedBoard } from "@/lib/dashboard/trends-page-memecoin-matcher";
 import type { TrendDashboardQuery, TrendDashboardVM } from "@/types/view-models";
 
 const getCachedBaseState = unstable_cache(
@@ -24,10 +26,16 @@ const getCachedBaseState = unstable_cache(
 const getCachedMemecoinState = unstable_cache(
   async (serializedQuery: string): Promise<TrendDashboardVM> => {
     const baseState = await getCachedBaseState(serializedQuery);
+    const marketMemecoins = await fetchLatestCorrelatedMemecoinBoard();
+    const correlatedMemecoins = buildStrictTrendsPageCorrelatedBoard(
+      baseState,
+      marketMemecoins,
+    );
+
     return {
       ...baseState,
-      marketMemecoins: null,
-      correlatedMemecoins: null,
+      marketMemecoins,
+      correlatedMemecoins,
     };
   },
   ["trend-dashboard-memecoin-state"],

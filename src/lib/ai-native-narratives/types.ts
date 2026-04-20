@@ -4,6 +4,17 @@ export type AiNativeNarrativeCandidateStatus = "detected" | "clustered" | "disca
 
 export type AiNativeNarrativeStatus = "active" | "watch" | "discarded";
 
+export type AiNativeNarrativeMemeArchetype =
+  | "personality"
+  | "conflict"
+  | "catchphrase"
+  | "mascot"
+  | "visual_absurdity"
+  | "pop_culture"
+  | "tech_drama"
+  | "political_meme"
+  | "community_joke";
+
 export type AiNativeNarrativeEvidence = {
   evidenceKey: string;
   url: string;
@@ -21,6 +32,9 @@ export type AiNativeNarrativeCandidate = {
   confidence: number;
   memeScore: number;
   memeReason: string;
+  memeArchetype: AiNativeNarrativeMemeArchetype;
+  visualScore: number;
+  drynessScore: number;
   status: AiNativeNarrativeCandidateStatus;
   evidenceCount: number;
   sourceCount: number;
@@ -39,6 +53,9 @@ export type GeneratedAiNativeNarrative = {
   researchSummary: string;
   memeScore: number;
   memeReason: string;
+  memeArchetype: AiNativeNarrativeMemeArchetype;
+  visualScore: number;
+  drynessScore: number;
   evidenceCount: number;
   sourceCount: number;
   firstSeenAt: string | null;
@@ -76,6 +93,7 @@ export type StoredAiNativeNarrativeRun = {
   modelName: string;
   promptVersion: string;
   errorMessage: string | null;
+  notesJson: Record<string, unknown> | null;
 };
 
 export type StoredAiNativeNarrative = GeneratedAiNativeNarrative & {
@@ -87,6 +105,15 @@ export type StoredAiNativeNarrative = GeneratedAiNativeNarrative & {
 
 export type AiNativeNarrativeRunView = {
   run: StoredAiNativeNarrativeRun | null;
+  latestRun: StoredAiNativeNarrativeRun | null;
+  latestFailureRun: StoredAiNativeNarrativeRun | null;
+  recentRuns: StoredAiNativeNarrativeRun[];
   narratives: StoredAiNativeNarrative[];
+  latestRunNarratives: StoredAiNativeNarrative[];
+  boardTargetCount: number;
+  boardFreshCount: number;
+  boardBackfillCount: number;
+  boardHistoricalRowsConsidered: number;
+  boardHasFullTarget: boolean;
   freshnessMinutes: number | null;
 };

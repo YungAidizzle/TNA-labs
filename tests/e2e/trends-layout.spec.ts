@@ -405,11 +405,27 @@ async function mockDashboardRoute(
         ? {
             items: [
               { label: "Active narratives", value: "18", tone: "neutral" },
+              { label: "Avg confidence", value: "88%", tone: "neutral" },
+              { label: "Last update", value: "now", tone: "neutral" },
+              { label: "Status", value: "Live", tone: "green" },
+            ],
+            systemDetails: [
+              { label: "Source links", value: "54", tone: "neutral" },
+              { label: "Evidence rows", value: "126", tone: "neutral" },
               { label: "New narratives", value: "2", tone: "amber" },
-              { label: "Posts/min", value: "13", tone: "neutral" },
-              { label: "Linked memecoins", value: "3", tone: "green" },
-              { label: "New coins <24h", value: "1", tone: "amber" },
-              { label: "Last refresh", value: "now", tone: "neutral" },
+              { label: "Last attempt", value: "1m", tone: "neutral" },
+              { label: "Run state", value: "Running", tone: "neutral" },
+              { label: "Trigger", value: "Railway hourly worker", tone: "neutral" },
+              {
+                label: "Scheduler",
+                value: "Railway hourly worker",
+                tone: "neutral",
+              },
+              {
+                label: "Runtime",
+                value: "Railway hourly daemon",
+                tone: "neutral",
+              },
             ],
             dataStatus: (payload as DashboardFixture).dataStatus ?? null,
           }
@@ -648,8 +664,11 @@ test("status strip replaces cards with compact terminal metrics", async ({ page 
 
   const liveStrip = page.getByTestId("trend-live-strip");
   await expect(liveStrip).toBeVisible();
-  await expect(liveStrip.getByTestId("trend-live-strip-item")).toHaveCount(6);
-  await expect(liveStrip).toContainText("Linked memecoins");
+  await expect(liveStrip.getByTestId("trend-live-strip-item")).toHaveCount(4);
+  await expect(liveStrip).toContainText("Avg confidence");
+  await expect(liveStrip).toContainText("Status");
+  await expect(liveStrip).not.toContainText("Linked memecoins");
+  await expect(liveStrip).not.toContainText("Trigger");
   await expect(page.getByTestId("trend-summary-cards")).toHaveCount(0);
 });
 
@@ -705,7 +724,7 @@ test("loading shell mirrors the loaded three-pane trends workspace", async ({ pa
   const workspace = page.getByTestId("trend-main-workspace");
 
   await expect(page.getByTestId("trend-live-strip")).toBeVisible();
-  await expect(page.getByTestId("trend-live-strip-item")).toHaveCount(6);
+  await expect(page.getByTestId("trend-live-strip-item")).toHaveCount(4);
   await expect(workspace.getByText("Narratives", { exact: true })).toBeVisible();
   await expect(workspace.getByText("Memecoins", { exact: true })).toBeVisible();
   await expect(workspace.getByText("Validation", { exact: true })).toBeVisible();

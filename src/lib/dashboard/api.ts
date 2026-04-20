@@ -20,6 +20,7 @@ export type DashboardStatusStripItem = {
 
 export type TrendDashboardStatusResponse = {
   items: DashboardStatusStripItem[];
+  systemDetails: DashboardStatusStripItem[] | null;
   dataStatus: DashboardDataStatus | null;
 };
 

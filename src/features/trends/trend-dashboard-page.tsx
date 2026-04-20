@@ -31,6 +31,7 @@ import {
   trendDashboardQueryKeys,
 } from "@/lib/dashboard/cache";
 import { dashboardClient } from "@/lib/dashboard/client";
+import { isDashboardStaleFallback } from "@/lib/dashboard/data-status";
 import { resolveSelectedLiveMemecoinId } from "@/lib/dashboard/memecoin-selection";
 import { buildTrendsPageMemecoinDatasets } from "@/lib/dashboard/trends-page-memecoin-selectors";
 import { getTrendDisplayNameOrPlaceholder } from "@/lib/dashboard/trend-name-state";
@@ -45,7 +46,6 @@ import {
   TrendValidationPanelSkeleton,
 } from "@/features/trends/trend-dashboard-loading-shell";
 import {
-  DashboardDataStatus,
   TrendDashboardQuery,
   TrendLeaderboardMode,
   TrendSort,
@@ -107,33 +107,6 @@ function formatQueryError(error: unknown, fallback: string) {
   }
 
   return fallback;
-}
-
-function buildStaleSourceMessage(
-  dataStatus: DashboardDataStatus | null | undefined,
-  label: string,
-) {
-  const primaryFreshness = dataStatus?.sourceFreshness[0] ?? null;
-  if (!primaryFreshness || primaryFreshness.sourceStatus !== "stale") {
-    return null;
-  }
-
-  const sourceSnapshotAt =
-    dataStatus?.sourceSnapshotGeneratedAt ??
-    dataStatus?.freshnessDiagnostics?.sourceSnapshotAt ??
-    primaryFreshness.latestCreatedAt ??
-    null;
-  const chainBreakStage = dataStatus?.freshnessDiagnostics?.chainBreakStage ?? null;
-
-  return [
-    `${label} source is stale.`,
-    sourceSnapshotAt ? `Latest source snapshot: ${sourceSnapshotAt}.` : null,
-    chainBreakStage && chainBreakStage !== "none"
-      ? `Upstream issue: ${chainBreakStage}.`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
 }
 
 type TrendDashboardPageProps = {
@@ -425,13 +398,12 @@ export function TrendDashboardPage({
     displayedMemecoinRows.find((item) => item.row.id === selectedCoinId) ?? null;
 
   const summaryErrorMessage =
-    buildStaleSourceMessage(summaryQuery.data?.dataStatus, "Narrative") ??
-    (summaryQuery.isError && !summaryQuery.data
+    summaryQuery.isError && !summaryQuery.data
       ? formatQueryError(
           summaryQuery.error,
           "The narrative ranking request failed. Retry to load the latest ranked trends.",
         )
-      : null);
+      : null;
   const memecoinsErrorMessage =
     memecoinsQuery.isError && !memecoinsQuery.data
       ? formatQueryError(
@@ -453,29 +425,51 @@ export function TrendDashboardPage({
           "The dashboard status request failed. Retry to reconnect to live data.",
         )
       : null;
-  const statusSourceStaleMessage = buildStaleSourceMessage(statusQuery.data?.dataStatus, "Dashboard");
-  const summarySourceStaleMessage = buildStaleSourceMessage(summaryQuery.data?.dataStatus, "Narrative");
-  const memecoinsSourceStaleMessage = buildStaleSourceMessage(memecoinsQuery.data?.dataStatus, "Memecoin");
+  const statusShowingFallback = isDashboardStaleFallback(
+    statusQuery.data?.dataStatus,
+    {
+      hasRenderableData: Boolean(statusQuery.data?.items.length),
+    },
+  );
+  const summaryShowingFallback = isDashboardStaleFallback(
+    summaryQuery.data?.dataStatus,
+    {
+      hasRenderableData: allRows.length > 0,
+    },
+  );
+  const memecoinsShowingFallback = isDashboardStaleFallback(
+    memecoinsQuery.data?.dataStatus,
+    {
+      hasRenderableData:
+        (memecoinsQuery.data?.marketMemecoins?.rows.length ?? 0) > 0 ||
+        (memecoinsQuery.data?.correlatedMemecoins?.rows.length ?? 0) > 0,
+    },
+  );
+  const statusRetainedAfterError = statusQuery.isError && Boolean(statusQuery.data);
+  const summaryRetainedAfterError = summaryQuery.isError && Boolean(summaryQuery.data);
+  const memecoinsRetainedAfterError = memecoinsQuery.isError && Boolean(memecoinsQuery.data);
   const hasAnyStaleData =
-    Boolean(statusSourceStaleMessage) ||
-    Boolean(summarySourceStaleMessage) ||
-    Boolean(memecoinsSourceStaleMessage) ||
-    (summaryQuery.isError && Boolean(summaryQuery.data)) ||
-    (memecoinsQuery.isError && Boolean(memecoinsQuery.data)) ||
-    (statusQuery.isError && Boolean(statusQuery.data));
+    statusShowingFallback ||
+    summaryShowingFallback ||
+    memecoinsShowingFallback ||
+    summaryRetainedAfterError ||
+    memecoinsRetainedAfterError ||
+    statusRetainedAfterError;
   const dashboardRefreshPending =
     statusQuery.isFetching || summaryQuery.isFetching || memecoinsQuery.isFetching;
-  const dashboardStaleMessage =
-    summarySourceStaleMessage ??
-    memecoinsSourceStaleMessage ??
-    statusSourceStaleMessage ??
-    null;
-  const narrativeRows = summarySourceStaleMessage ? [] : filteredRows;
+  const dashboardRefreshNotice =
+    summaryShowingFallback || summaryRetainedAfterError
+      ? "Showing recent narratives."
+      : "Showing recent dashboard data.";
+  const narrativeRows = filteredRows;
 
   return (
     <div className={TREND_DASHBOARD_LAYOUT_CLASS_NAME}>
       {statusQuery.data ? (
-        <OverviewStatusStrip items={statusQuery.data.items} />
+        <OverviewStatusStrip
+          items={statusQuery.data.items}
+          systemDetails={statusQuery.data.systemDetails}
+        />
       ) : statusQuery.isPending ? (
         <TrendStatusStripSkeleton />
       ) : (
@@ -498,17 +492,14 @@ export function TrendDashboardPage({
 
       {hasAnyStaleData ? (
         <div className="surface-panel flex flex-col gap-3 border border-amber/20 bg-amber/10 px-4 py-3 text-[13px] text-[#f7c27b] sm:flex-row sm:items-center sm:justify-between">
-          <p>
-            {dashboardStaleMessage ??
-              "Live refresh is degraded. You are viewing the most recent synced dashboard data while requests reconnect."}
-          </p>
+          <p>{dashboardRefreshNotice}</p>
           <button
             type="button"
             onClick={handleRefreshDashboard}
             disabled={dashboardRefreshPending}
             className="inline-flex h-9 shrink-0 items-center justify-center border border-amber/35 bg-amber/10 px-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ffe2b8] transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {dashboardRefreshPending ? "Refreshing..." : "Retry refresh"}
+            {dashboardRefreshPending ? "Refreshing..." : "Retry Refresh"}
           </button>
         </div>
       ) : null}
@@ -521,15 +512,7 @@ export function TrendDashboardPage({
           onSearchTermChange={setSearchTerm}
           onSelect={handleSelect}
           loading={summaryQuery.isPending && !summaryQuery.data}
-          connecting={summaryQuery.isFetching}
           errorMessage={summaryErrorMessage}
-          staleMessage={
-            summaryQuery.data && summaryQuery.isError
-              ? "Showing last synced narratives while refresh reconnects."
-              : summaryQuery.data && summaryQuery.isFetching
-                ? "Refreshing live narratives..."
-                : null
-          }
           onRetry={handleRetrySummary}
         />
 
