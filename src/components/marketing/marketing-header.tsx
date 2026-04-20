@@ -10,6 +10,8 @@ type MarketingHeaderProps = {
   isAuthenticated: boolean;
   hasPaidAccess?: boolean;
   tone?: "default" | "subdued";
+  mobileVariant?: "default" | "minimal";
+  mobilePrimaryLabel?: string;
 };
 
 const NAV_LINKS = [
@@ -23,9 +25,12 @@ export function MarketingHeader({
   isAuthenticated,
   hasPaidAccess = false,
   tone = "default",
+  mobileVariant = "default",
+  mobilePrimaryLabel,
 }: MarketingHeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const isSubdued = tone === "subdued";
+  const isMinimalMobile = mobileVariant === "minimal";
 
   const updateScrollState = useEffectEvent(() => {
     setScrolled(window.scrollY > 12);
@@ -56,6 +61,8 @@ export function MarketingHeader({
       ? "/pricing"
       : "/sign-up";
 
+  const primaryLabel = "Open Terminal";
+
   return (
     <header
       className={cn(
@@ -70,7 +77,7 @@ export function MarketingHeader({
       <div
         className={cn(
           "mx-auto flex w-full items-center justify-between gap-5 px-4 sm:px-6 lg:px-8",
-          isSubdued ? "max-w-[1440px] py-3.5" : "max-w-[1320px] py-4",
+          isSubdued ? "max-w-[1440px] py-3 sm:py-3.5" : "max-w-[1320px] py-3.5 sm:py-4",
         )}
       >
         <Link href="/" className="flex min-w-0 items-center gap-3">
@@ -98,6 +105,7 @@ export function MarketingHeader({
               className={cn(
                 "block truncate text-[15px] font-semibold tracking-[-0.03em]",
                 isSubdued ? "text-[#dfe8f2]" : "text-[#eef4fb]",
+                isMinimalMobile ? "hidden sm:block" : "",
               )}
             >
               {BRAND_DESCRIPTOR}
@@ -143,7 +151,14 @@ export function MarketingHeader({
                 : "border border-cyan/24 bg-[linear-gradient(180deg,rgba(15,44,57,0.96),rgba(8,18,25,0.98))] text-[#effdff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:border-cyan/36",
             )}
           >
-            Open Terminal
+            {mobilePrimaryLabel ? (
+              <>
+                <span className="md:hidden">{mobilePrimaryLabel}</span>
+                <span className="hidden md:inline">{primaryLabel}</span>
+              </>
+            ) : (
+              primaryLabel
+            )}
           </Link>
         </div>
       </div>

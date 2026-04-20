@@ -8,6 +8,12 @@ type TerminalScreenshotFrameProps = {
   className?: string;
   imageClassName?: string;
   priority?: boolean;
+  quality?: number;
+  routeLabel?: string;
+  frameLabel?: string;
+  frameDescription?: string;
+  footerText?: string;
+  viewportClassName?: string;
 };
 
 const HERO_CALLOUTS = [
@@ -40,8 +46,25 @@ export function TerminalScreenshotFrame({
   className,
   imageClassName,
   priority = false,
+  quality = 92,
+  routeLabel,
+  frameLabel,
+  frameDescription,
+  footerText,
+  viewportClassName,
 }: TerminalScreenshotFrameProps) {
   const isHero = variant === "hero";
+  const resolvedRouteLabel = routeLabel ?? "/trends";
+  const resolvedFrameLabel =
+    frameLabel ?? (isHero ? "Live Terminal View" : "Linked Asset Detail");
+  const resolvedFrameDescription =
+    frameDescription ??
+    "Ranked narratives, linked memecoins, and validation context";
+  const resolvedFooterText =
+    footerText ??
+    (isHero
+      ? "Detect the narrative. Match the coin. Validate the move."
+      : "Linked assets and validation context in one view");
 
   return (
     <div className={cn("relative", className)}>
@@ -109,16 +132,16 @@ export function TerminalScreenshotFrame({
                   <span className="h-2.5 w-2.5 rounded-full bg-[#52d890]" />
                 </div>
                 <div className="hidden rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-[#8fa4bd] sm:block">
-                  /trends
+                  {resolvedRouteLabel}
                 </div>
               </div>
 
               <div className="text-right">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#6f849d]">
-                  {isHero ? "Live Terminal View" : "Linked Asset Detail"}
+                  {resolvedFrameLabel}
                 </p>
                 <p className="mt-1 text-[12px] text-[#b7c7d9]">
-                  Ranked narratives, linked memecoins, and validation context
+                  {resolvedFrameDescription}
                 </p>
               </div>
             </div>
@@ -126,7 +149,10 @@ export function TerminalScreenshotFrame({
             <div
               className={cn(
                 "relative overflow-hidden rounded-b-[24px]",
-                isHero ? "bg-[#040810]" : "h-[300px] bg-[#040810] sm:h-[360px] lg:h-[464px]",
+                isHero
+                  ? "bg-[#040810]"
+                  : "h-[300px] bg-[#040810] sm:h-[360px] lg:h-[464px]",
+                viewportClassName,
               )}
             >
               <Image
@@ -135,7 +161,7 @@ export function TerminalScreenshotFrame({
                 width={masterScreenshot.width}
                 height={masterScreenshot.height}
                 priority={priority}
-                quality={100}
+                quality={quality}
                 className={cn(
                   isHero ? "block h-auto w-full" : "block h-full w-full object-cover object-[68%_center]",
                   imageClassName,
@@ -152,7 +178,7 @@ export function TerminalScreenshotFrame({
           {isHero ? (
             <div className="space-y-3 px-2 pt-3 sm:px-3">
               <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-[#d6e4f3]">
-                Detect the narrative. Match the coin. Validate the move.
+                {resolvedFooterText}
               </p>
               {showCallouts ? (
                 <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.16em] text-[#93a8bf] xl:hidden">
@@ -173,7 +199,7 @@ export function TerminalScreenshotFrame({
             </div>
           ) : (
             <div className="px-2 pt-3 text-[11px] uppercase tracking-[0.16em] text-[#8aa0b8] sm:px-3">
-              Linked assets and validation context in one view
+              {resolvedFooterText}
             </div>
           )}
         </div>

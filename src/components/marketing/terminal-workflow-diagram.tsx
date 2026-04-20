@@ -1,28 +1,5 @@
 import { cn } from "@/lib/utils/cn";
-
-const WORKFLOW_STEPS = [
-  {
-    step: "01",
-    title: "Detect narrative acceleration",
-    detail:
-      "Rank emerging narratives by attention velocity, post volume, and platform spread so fast-moving themes surface before a ticker-led workflow takes over.",
-    chips: ["Attention velocity", "Post volume", "Platform spread"],
-  },
-  {
-    step: "02",
-    title: "Surface linked memecoins",
-    detail:
-      "Pull correlated memecoins into the same workspace with linked assets, confidence scoring, and liquidity context while the narrative is still active.",
-    chips: ["Linked assets", "Liquidity", "Confidence"],
-  },
-  {
-    step: "03",
-    title: "Validate market response",
-    detail:
-      "Pressure-test the selected coin with chart context, transaction flow, and market-cap context before deciding whether the move deserves capital or continued monitoring.",
-    chips: ["Chart context", "Transactions", "Market cap"],
-  },
-] as const;
+import { WORKFLOW_STEPS } from "@/components/marketing/landing-page-content";
 
 export function TerminalWorkflowDiagram() {
   return (
