@@ -31,10 +31,21 @@ const configMocks = vi.hoisted(() => ({
 vi.mock("@/lib/ai-native-narratives/repository", () => repositoryMocks);
 vi.mock("@/lib/ai-native-narratives/config", () => configMocks);
 
-function createNarrative(index = 1) {
+function createNarrative(
+  index = 1,
+  overrides: Partial<{
+    runId: number;
+    runGeneratedAt: string;
+    runModelName: string;
+    runPromptVersion: string;
+  }> = {},
+) {
   return {
     id: index,
-    runId: 11,
+    runId: overrides.runId ?? 11,
+    runGeneratedAt: overrides.runGeneratedAt ?? "2026-04-20T06:00:00.000Z",
+    runModelName: overrides.runModelName ?? "gpt-test",
+    runPromptVersion: overrides.runPromptVersion ?? "test",
     rank: index,
     canonicalId: `banana-cat-${index}`,
     canonicalName: index === 1 ? "Banana Cat" : `Banana Cat ${index}`,
@@ -250,5 +261,85 @@ describe("AI-native narrative dashboard source", () => {
     expect(diagnostics?.latestRunStatus).toBe("failed");
     expect(diagnostics?.pipelineHealthState).toBe("degraded");
     expect(diagnostics?.chainBreakStage).toBe("none");
+  });
+
+  it("preserves row-level prompt provenance for historical backfill narratives", async () => {
+    repositoryMocks.getLatestSuccessfulAiNativeNarrativeRunView.mockResolvedValueOnce({
+      run: {
+        id: 21,
+        status: "succeeded",
+        trigger: "railway-hourly-worker",
+        generatedAt: "2026-04-20T10:30:00.000Z",
+        completedAt: "2026-04-20T10:36:00.000Z",
+        candidateCount: 140,
+        evidenceCount: 420,
+        narrativeCount: 23,
+        modelName: "gpt-test",
+        promptVersion: "ai-native-canonical-narratives-memecoin-v4-board100",
+        errorMessage: null,
+        notesJson: createRunNotes(),
+      },
+      latestRun: {
+        id: 21,
+        status: "succeeded",
+        trigger: "railway-hourly-worker",
+        generatedAt: "2026-04-20T10:30:00.000Z",
+        completedAt: "2026-04-20T10:36:00.000Z",
+        candidateCount: 140,
+        evidenceCount: 420,
+        narrativeCount: 23,
+        modelName: "gpt-test",
+        promptVersion: "ai-native-canonical-narratives-memecoin-v4-board100",
+        errorMessage: null,
+        notesJson: createRunNotes(),
+      },
+      latestFailureRun: null,
+      recentRuns: [],
+      narratives: [
+        createNarrative(1, {
+          runId: 21,
+          runGeneratedAt: "2026-04-20T10:30:00.000Z",
+          runModelName: "gpt-test",
+          runPromptVersion: "ai-native-canonical-narratives-memecoin-v4-board100",
+        }),
+        createNarrative(2, {
+          runId: 19,
+          runGeneratedAt: "2026-04-20T09:15:00.000Z",
+          runModelName: "gpt-test",
+          runPromptVersion: "ai-native-canonical-narratives-memecoin-v3",
+        }),
+      ],
+      latestRunNarratives: [
+        createNarrative(1, {
+          runId: 21,
+          runGeneratedAt: "2026-04-20T10:30:00.000Z",
+          runModelName: "gpt-test",
+          runPromptVersion: "ai-native-canonical-narratives-memecoin-v4-board100",
+        }),
+      ],
+      boardTargetCount: 100,
+      boardFreshCount: 1,
+      boardBackfillCount: 1,
+      boardHistoricalRowsConsidered: 1,
+      boardHasFullTarget: false,
+      freshnessMinutes: 25,
+    });
+
+    const { getAiNativeNarrativeDashboardState } = await import(
+      "@/lib/dashboard/ai-native-narrative-source"
+    );
+
+    const vm = await getAiNativeNarrativeDashboardState({
+      scope: "overall",
+      range: "24h",
+      mode: "established",
+      sort: "posts",
+    });
+    const historicalRow = vm.leaderboard.find((row) => row.id === "banana-cat-2");
+
+    expect(historicalRow?.trendEnrichment?.promptVersion).toBe(
+      "ai-native-canonical-narratives-memecoin-v3",
+    );
+    expect(historicalRow?.trendEnrichment?.generatedAt).toBe("2026-04-20T09:15:00.000Z");
   });
 });

@@ -131,9 +131,9 @@ function buildNarrativeScores(row: StoredAiNativeNarrative) {
 
 function buildNarrativeEnrichment(
   row: StoredAiNativeNarrative,
-  generatedAt: string,
-  modelName: string,
-  promptVersion: string,
+  generatedAt: string | null,
+  modelName: string | null,
+  promptVersion: string | null,
 ): TrendAiEnrichment {
   return {
     rawLabel: row.canonicalName,
@@ -168,10 +168,13 @@ function buildNarrativeEnrichment(
 function mapNarrativeToRankedTrend(
   row: StoredAiNativeNarrative,
   scope: TrendDashboardQuery["scope"],
-  generatedAt: string,
-  modelName: string,
-  promptVersion: string,
+  fallbackGeneratedAt: string | null,
+  fallbackModelName: string | null,
+  fallbackPromptVersion: string | null,
 ): RankedTrend {
+  const generatedAt = row.runGeneratedAt ?? fallbackGeneratedAt;
+  const modelName = row.runModelName ?? fallbackModelName;
+  const promptVersion = row.runPromptVersion ?? fallbackPromptVersion;
   const enrichment = buildNarrativeEnrichment(row, generatedAt, modelName, promptVersion);
   const scores = buildNarrativeScores(row);
   const ageHours = (() => {
@@ -491,9 +494,9 @@ export async function getAiNativeNarrativeDashboardState(
       mapNarrativeToRankedTrend(
         row,
         query.scope,
-        view.run!.generatedAt,
-        view.run!.modelName,
-        view.run!.promptVersion,
+        view.run?.generatedAt ?? null,
+        view.run?.modelName ?? null,
+        view.run?.promptVersion ?? null,
       ),
     ),
     query,

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/react";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { AppProviders } from "@/providers/app-providers";
 import { BRAND_DESCRIPTOR, BRAND_META_DESCRIPTION, BRAND_NAME } from "@/lib/brand";
@@ -58,6 +59,7 @@ export default function RootLayout({
         className={`${plexSans.variable} ${plexMono.variable} h-full min-h-screen bg-background antialiased`}
       >
         <AppProviders>{children}</AppProviders>
+        <Analytics />
       </body>
     </html>
   );

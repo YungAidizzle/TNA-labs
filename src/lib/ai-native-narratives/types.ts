@@ -99,6 +99,9 @@ export type StoredAiNativeNarrativeRun = {
 export type StoredAiNativeNarrative = GeneratedAiNativeNarrative & {
   id: number;
   runId: number;
+  runGeneratedAt: string | null;
+  runModelName: string | null;
+  runPromptVersion: string | null;
   createdAt: string;
   updatedAt: string;
 };

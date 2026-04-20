@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getAiNativeNarrativeDashboardState } from "@/lib/dashboard/ai-native-narrative-source";
+import { attachStoredTrendDexscreenerMatches } from "@/lib/dashboard/trend-dexscreener-matches";
 import { createZeroTrendDashboardVM } from "@/lib/dashboard/zero-state";
 import type { DashboardDataStatus, TrendDashboardQuery, TrendDashboardVM } from "@/types/view-models";
 
@@ -17,7 +18,8 @@ export async function getTrendDashboardState(
   void _options;
 
   try {
-    return await getAiNativeNarrativeDashboardState(query);
+    const state = await getAiNativeNarrativeDashboardState(query);
+    return attachStoredTrendDexscreenerMatches(state);
   } catch (error) {
     console.error("[dashboard] failed to load AI-native narrative dashboard state", {
       query,

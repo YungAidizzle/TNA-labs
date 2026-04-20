@@ -436,11 +436,9 @@ const PREVIEW_MEMECOINS: MemecoinTerminalRow[] = [
 
 const STATUS_ITEMS = [
   { label: "Active narratives", value: "248", tone: "neutral" as const },
-  { label: "New narratives", value: "14", tone: "amber" as const },
-  { label: "Posts/min", value: "11.8", tone: "neutral" as const },
-  { label: "Linked memecoins", value: "42", tone: "green" as const },
-  { label: "New coins <24h", value: "6", tone: "amber" as const },
-  { label: "Last refresh", value: "19s", tone: "neutral" as const },
+  { label: "Avg confidence", value: "88%", tone: "neutral" as const },
+  { label: "Last update", value: "19s", tone: "neutral" as const },
+  { label: "Status", value: "Live", tone: "green" as const },
 ] as const;
 
 const PANEL_DISCLAIMER =

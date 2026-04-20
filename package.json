@@ -10,6 +10,7 @@
     "worker:narratives:daemon": "pnpm exec tsx --conditions=react-server scripts/run_ai_native_narrative_worker.ts",
     "worker:narratives:refresh:route": "node scripts/run_ai_native_narrative_refresh.mjs",
     "worker:narratives:refresh:route:force": "node scripts/run_ai_native_narrative_refresh.mjs --force",
+    "worker:trend-dex-matches:backfill": "pnpm exec tsx --conditions=react-server scripts/backfill_trend_dexscreener_matches.ts",
     "worker:memecoin:tv-backfill": "python scripts/backfill_memecoin_tradingview_previews.py",
     "build": "next build",
     "start": "next start",

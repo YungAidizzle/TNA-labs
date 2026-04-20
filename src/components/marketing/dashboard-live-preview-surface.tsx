@@ -14,6 +14,7 @@ import type { MemecoinTerminalRow } from "@/components/trends/memecoin-market-ta
 
 type DashboardLivePreviewSurfaceProps = {
   statusItems: DashboardStatusStripItem[];
+  statusSystemDetails?: DashboardStatusStripItem[] | null;
   narrativeRows: RankedTrend[];
   selectedNarrativeId: string | null;
   selectedNarrativeLabel: string | null;
@@ -27,6 +28,7 @@ const noop = () => {};
 
 export function DashboardLivePreviewSurface({
   statusItems,
+  statusSystemDetails = null,
   narrativeRows,
   selectedNarrativeId,
   selectedNarrativeLabel,
@@ -45,7 +47,7 @@ export function DashboardLivePreviewSurface({
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <main className="min-h-0 flex-1 overflow-hidden p-3">
           <div className={TREND_DASHBOARD_LAYOUT_CLASS_NAME}>
-            <OverviewStatusStrip items={statusItems} />
+            <OverviewStatusStrip items={statusItems} systemDetails={statusSystemDetails} />
 
             <section className={TREND_DASHBOARD_WORKSPACE_CLASS_NAME}>
               <TrendNarrativesPanel

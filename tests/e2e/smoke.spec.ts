@@ -22,7 +22,7 @@ test("dashboard keeps staged navigation curated without unlocking placeholder mo
   await expect(page.getByLabel("Intelligence").getByText("Memecoins", { exact: true })).toBeVisible();
   await expect(page.getByLabel("System").getByText("API / Data Export", { exact: true })).toBeVisible();
   await expect(page.getByText("Active narratives")).toBeVisible({ timeout: 45_000 });
-  await expect(page.getByText(/^Linked memecoins$/)).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByText(/^Avg confidence$/)).toBeVisible({ timeout: 45_000 });
   await expect(page.getByPlaceholder("Search narratives")).toBeVisible({ timeout: 45_000 });
   await expect(page.getByText(/^Validation$/)).toBeVisible({ timeout: 45_000 });
 

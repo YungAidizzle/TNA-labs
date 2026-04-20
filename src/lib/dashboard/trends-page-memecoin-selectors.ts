@@ -32,6 +32,64 @@ type TrendsPageMemecoinDatasets = {
   momentumRows: TrendsPageMemecoinRow[];
 };
 
+function normalizeLower(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeUrl(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function matchesStoredLinkedCoin(
+  row: CorrelatedMemecoinRow,
+  narrativeId: string | null | undefined,
+  coin: {
+    address: string;
+    pairAddress?: string | null;
+    dexscreenerUrl?: string | null;
+    chainId?: string | null;
+    symbol: string;
+  },
+) {
+  const normalizedChain = normalizeLower(coin.chainId);
+  const rowChain = normalizeLower(row.chainId);
+  if (normalizedChain && rowChain && normalizedChain !== rowChain) {
+    return false;
+  }
+
+  const normalizedAddress = normalizeLower(coin.address);
+  if (normalizedAddress && normalizedAddress === normalizeLower(row.tokenAddress)) {
+    return true;
+  }
+
+  const normalizedPair = normalizeLower(coin.pairAddress);
+  if (normalizedPair && normalizedPair === normalizeLower(row.pairAddress)) {
+    return true;
+  }
+
+  const normalizedDexUrl = normalizeUrl(coin.dexscreenerUrl);
+  if (normalizedDexUrl && normalizedDexUrl === normalizeUrl(row.dexscreenerUrl)) {
+    return true;
+  }
+
+  return (
+    normalizeLower(coin.symbol) === normalizeLower(row.symbol) &&
+    (!narrativeId || (row.links ?? []).some((link) => link.topicKey === narrativeId))
+  );
+}
+
+function filterMarketRowsForStoredLinkedCoins(
+  trends: RankedTrend[],
+  marketRows: CorrelatedMemecoinRow[],
+) {
+  return marketRows.filter((row) =>
+    trends.some((trend) => {
+      const narrativeId = getNarrativeTopicKey(trend);
+      return (trend.linkedCoins ?? []).some((coin) => matchesStoredLinkedCoin(row, narrativeId, coin));
+    }),
+  );
+}
+
 function compareLinksByStrength(left: CorrelatedMemecoinLink, right: CorrelatedMemecoinLink) {
   if (left.isPrimary !== right.isPrimary) {
     return left.isPrimary ? -1 : 1;
@@ -129,16 +187,20 @@ export function buildTrendsPageMemecoinDatasets({
   correlatedRows,
   marketRows,
 }: TrendsPageMemecoinSelectorInput): TrendsPageMemecoinDatasets {
+  void correlatedRows;
   const activeTrendKeys = getActiveTrendKeys(trends);
+  const storedTrendScope = selectedTrend ? [selectedTrend] : [];
+  const storedTrendMarketRows = filterMarketRowsForStoredLinkedCoins(storedTrendScope, marketRows);
+  const storedAllMarketRows = filterMarketRowsForStoredLinkedCoins(trends, marketRows);
 
-  const trendRows = getNarrativeCoinOpportunities(selectedTrend, correlatedRows).map((item) => ({
+  const trendRows = getNarrativeCoinOpportunities(selectedTrend, storedTrendMarketRows).map((item) => ({
     row: item.row,
     activeLink: item.activeLink,
     confidenceScore: item.confidenceScore,
     related: true,
   }));
 
-  const allRows = buildSurfacedMemecoinUniverse(trends, correlatedRows)
+  const allRows = buildSurfacedMemecoinUniverse(trends, storedAllMarketRows)
     .flatMap((row) => {
       const activeLink = getBestActiveLink(row, activeTrendKeys);
       if (!activeLink) {

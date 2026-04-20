@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildTrendsPageMemecoinDatasets } from "@/lib/dashboard/trends-page-memecoin-selectors";
 import { createZeroRankedTrend } from "@/lib/dashboard/zero-state";
-import type { CorrelatedMemecoinRow, RankedTrend } from "@/types/view-models";
+import type { CorrelatedMemecoinRow, NarrativeLinkedCoin, RankedTrend } from "@/types/view-models";
 
-function makeTrend(topicKey: string, label: string): RankedTrend {
+function makeTrend(
+  topicKey: string,
+  label: string,
+  linkedCoins: NarrativeLinkedCoin[] = [],
+): RankedTrend {
   const row = createZeroRankedTrend("overall", "24h");
 
   return {
@@ -19,6 +23,7 @@ function makeTrend(topicKey: string, label: string): RankedTrend {
     trendNarrativeSummary: `${label} summary`,
     trendContextParagraph: `${label} context`,
     trendDescription: `${label} description`,
+    linkedCoins,
   };
 }
 
@@ -67,10 +72,44 @@ function makeRow(
   };
 }
 
-describe("trends page memecoin selectors", () => {
-  const frogTrend = makeTrend("trend-frog", "Frog Rotation");
-  const magaTrend = makeTrend("trend-maga", "MAGA Meme Cycle");
+function makeLinkedCoin(
+  topicKey: string,
+  label: string,
+  row: CorrelatedMemecoinRow,
+  confidence: number,
+): NarrativeLinkedCoin {
+  return {
+    id: `${row.chainId}:${row.tokenAddress}`,
+    symbol: row.symbol,
+    name: row.name,
+    address: row.tokenAddress,
+    confidence,
+    confidenceBand: confidence >= 90 ? "high" : "medium",
+    liquidity: row.liquidityUsd ?? null,
+    volume: row.volume24hUsd ?? null,
+    age: row.pairAgeHours ?? null,
+    priceUsd: row.priceUsd ?? null,
+    priceChange1hPct: row.priceChange1hPct ?? null,
+    priceChange6hPct: row.priceChange6hPct ?? null,
+    priceChange24hPct: row.priceChange24hPct ?? null,
+    marketCap: row.marketCapUsd ?? null,
+    fdv: row.fdvUsd ?? null,
+    quoteSymbol: row.quoteSymbol ?? null,
+    chainId: row.chainId,
+    pairAddress: row.pairAddress,
+    dexscreenerUrl: row.dexscreenerUrl,
+    marketScore: row.marketScore ?? null,
+    whyLinked: `Stored DexScreener search match for ${label}.`,
+    matchReasons: [`Stored DexScreener search match for ${label}.`],
+    rawMatchSignals: {
+      match_type: "dexscreener_search",
+      trend_topic_key: topicKey,
+    },
+    lastUpdatedAt: row.updatedAt,
+  };
+}
 
+describe("trends page memecoin selectors", () => {
   const strictRows = [
     makeRow({
       id: "frog-row",
@@ -120,6 +159,32 @@ describe("trends page memecoin selectors", () => {
           linkScore: 25,
           supportPostCount: 1,
           supportInteractionScore: 7,
+          isPrimary: true,
+        },
+      ],
+    }),
+    makeRow({
+      id: "frog-board-only",
+      name: "Broad Frog Beta",
+      symbol: "BETA",
+      rank: 4,
+      correlationScore: 74,
+      strongestTrendKey: "trend-frog",
+      strongestTrendLabel: "Frog Rotation",
+      matchedTrendKeys: ["trend-frog"],
+      links: [
+        {
+          topicKey: "trend-frog",
+          topicLabel: "Frog Rotation",
+          trendCategory: "meme",
+          narrativeSummary: "Frog summary",
+          lexicalScore: 11,
+          mentionScore: 4,
+          timingScore: 4,
+          cultureFitScore: 5,
+          linkScore: 21,
+          supportPostCount: 1,
+          supportInteractionScore: 5,
           isPrimary: true,
         },
       ],
@@ -175,6 +240,14 @@ describe("trends page memecoin selectors", () => {
     }),
   ];
 
+  const frogTrend = makeTrend("trend-frog", "Frog Rotation", [
+    makeLinkedCoin("trend-frog", "Frog Rotation", strictRows[0]!, 95),
+    makeLinkedCoin("trend-frog", "Frog Rotation", strictRows[1]!, 84),
+  ]);
+  const magaTrend = makeTrend("trend-maga", "MAGA Meme Cycle", [
+    makeLinkedCoin("trend-maga", "MAGA Meme Cycle", strictRows[3]!, 88),
+  ]);
+
   it("keeps the trend tab scoped to the selected trend only", () => {
     const datasets = buildTrendsPageMemecoinDatasets({
       selectedTrend: frogTrend,
@@ -185,6 +258,7 @@ describe("trends page memecoin selectors", () => {
 
     expect(datasets.trendRows.map((row) => row.row.symbol)).toEqual(["FROG", "ANIME"]);
     expect(datasets.trendRows.every((row) => row.activeLink?.topicKey === "trend-frog")).toBe(true);
+    expect(datasets.trendRows.some((row) => row.row.symbol === "BETA")).toBe(false);
   });
 
   it("aggregates the all tab across active trends without reusing the selected trend link", () => {
@@ -197,6 +271,7 @@ describe("trends page memecoin selectors", () => {
 
     expect(datasets.allRows.map((row) => row.row.symbol)).toEqual(["FROG", "TRUMP", "ANIME"]);
     expect(datasets.allRows.find((row) => row.row.symbol === "TRUMP")?.activeLink?.topicKey).toBe("trend-maga");
+    expect(datasets.allRows.some((row) => row.row.symbol === "BETA")).toBe(false);
   });
 
   it("keeps momentum fully independent from trend selection and includes the full market board", () => {
@@ -213,8 +288,20 @@ describe("trends page memecoin selectors", () => {
       marketRows,
     });
 
-    expect(frogSelection.momentumRows.map((row) => row.row.symbol)).toEqual(["SPEED", "FROG", "ANIME", "TRUMP"]);
-    expect(magaSelection.momentumRows.map((row) => row.row.symbol)).toEqual(["SPEED", "FROG", "ANIME", "TRUMP"]);
+    expect(frogSelection.momentumRows.map((row) => row.row.symbol)).toEqual([
+      "SPEED",
+      "FROG",
+      "ANIME",
+      "TRUMP",
+      "BETA",
+    ]);
+    expect(magaSelection.momentumRows.map((row) => row.row.symbol)).toEqual([
+      "SPEED",
+      "FROG",
+      "ANIME",
+      "TRUMP",
+      "BETA",
+    ]);
   });
 
   it("keeps momentum populated even when no trend is selected and no correlated rows are available", () => {
@@ -227,6 +314,12 @@ describe("trends page memecoin selectors", () => {
 
     expect(datasets.trendRows).toEqual([]);
     expect(datasets.allRows).toEqual([]);
-    expect(datasets.momentumRows.map((row) => row.row.symbol)).toEqual(["SPEED", "FROG", "ANIME", "TRUMP"]);
+    expect(datasets.momentumRows.map((row) => row.row.symbol)).toEqual([
+      "SPEED",
+      "FROG",
+      "ANIME",
+      "TRUMP",
+      "BETA",
+    ]);
   });
 });

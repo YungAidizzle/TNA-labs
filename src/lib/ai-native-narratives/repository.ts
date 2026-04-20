@@ -53,10 +53,17 @@ type NarrativeRow = {
   key_entities_json: unknown;
   created_at: Date | string;
   updated_at: Date | string;
+  run_generated_at?: Date | string | null;
+  run_model_name?: string | null;
+  run_prompt_version?: string | null;
+  run_notes_json?: unknown;
 };
 
-type HistoricalNarrativeRow = NarrativeRow & {
-  run_generated_at: Date | string;
+type NarrativeSourceRun = {
+  generatedAt: string | null;
+  modelName: string | null;
+  promptVersion: string | null;
+  notesJson: Record<string, unknown> | null;
 };
 
 function toIsoString(value: Date | string | null | undefined) {
@@ -80,6 +87,15 @@ function asStringArray(value: unknown) {
   return value
     .map((entry) => String(entry ?? "").trim())
     .filter((entry, index, source) => entry.length > 0 && source.indexOf(entry) === index);
+}
+
+function asOptionalString(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized || null;
 }
 
 function asRecord(value: unknown) {
@@ -129,10 +145,79 @@ function mapRunRow(row: RunRow): StoredAiNativeNarrativeRun {
   };
 }
 
-function mapNarrativeRow(row: NarrativeRow): StoredAiNativeNarrative {
+function mapNarrativeSourceRun(
+  row: Pick<NarrativeRow, "run_generated_at" | "run_model_name" | "run_prompt_version" | "run_notes_json">,
+): NarrativeSourceRun {
+  return {
+    generatedAt: toIsoString(row.run_generated_at),
+    modelName: asOptionalString(row.run_model_name),
+    promptVersion: asOptionalString(row.run_prompt_version),
+    notesJson: asRecord(row.run_notes_json),
+  };
+}
+
+type NarrativeGenerationFamily = "memecoin" | "legacy" | "unknown";
+
+function resolveNarrativeGenerationFamily(run: {
+  promptVersion: string | null;
+  notesJson: Record<string, unknown> | null;
+}): NarrativeGenerationFamily {
+  const promptVersion = String(run.promptVersion ?? "").trim().toLowerCase();
+  const discoveryMode = String(run.notesJson?.discoveryMode ?? "").trim().toLowerCase();
+
+  if (promptVersion.includes("memecoin") || discoveryMode.includes("memecoin")) {
+    return "memecoin";
+  }
+
+  if (
+    promptVersion === "ai-native-canonical-narratives-v1" ||
+    discoveryMode === "openai_web_search_only"
+  ) {
+    return "legacy";
+  }
+
+  return "unknown";
+}
+
+function isCompatibleHistoricalNarrativeRun(
+  latestRun: StoredAiNativeNarrativeRun,
+  candidateRun: NarrativeSourceRun,
+) {
+  const latestPromptVersion = latestRun.promptVersion.trim().toLowerCase();
+  const candidatePromptVersion = String(candidateRun.promptVersion ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (latestPromptVersion && candidatePromptVersion && latestPromptVersion === candidatePromptVersion) {
+    return true;
+  }
+
+  const latestFamily = resolveNarrativeGenerationFamily({
+    promptVersion: latestRun.promptVersion,
+    notesJson: latestRun.notesJson,
+  });
+  if (latestFamily === "unknown") {
+    return false;
+  }
+
+  return (
+    resolveNarrativeGenerationFamily({
+      promptVersion: candidateRun.promptVersion,
+      notesJson: candidateRun.notesJson,
+    }) === latestFamily
+  );
+}
+
+function mapNarrativeRow(
+  row: NarrativeRow,
+  sourceRun: NarrativeSourceRun | StoredAiNativeNarrativeRun | null = null,
+): StoredAiNativeNarrative {
   return {
     id: Number(row.id),
     runId: Number(row.run_id),
+    runGeneratedAt: sourceRun?.generatedAt ?? toIsoString(row.run_generated_at),
+    runModelName: sourceRun?.modelName ?? asOptionalString(row.run_model_name),
+    runPromptVersion: sourceRun?.promptVersion ?? asOptionalString(row.run_prompt_version),
     rank: Number(row.rank),
     canonicalId: row.canonical_id,
     canonicalName: row.canonical_name,
@@ -387,11 +472,11 @@ export async function getLatestSuccessfulAiNativeNarrativeRunView(): Promise<AiN
       `,
       [run.id],
     );
-    const latestRunNarratives = narrativeResult.rows.map(mapNarrativeRow);
+    const latestRunNarratives = narrativeResult.rows.map((row) => mapNarrativeRow(row, run));
     const historicalNarrativesResult =
       latestRunNarratives.length >= boardTargetCount
-        ? { rows: [] as HistoricalNarrativeRow[] }
-        : await pool.query<HistoricalNarrativeRow>(
+        ? { rows: [] as NarrativeRow[] }
+        : await pool.query<NarrativeRow>(
             `
               SELECT
                 narrative.id,
@@ -418,7 +503,10 @@ export async function getLatestSuccessfulAiNativeNarrativeRunView(): Promise<AiN
                 narrative.key_entities_json,
                 narrative.created_at,
                 narrative.updated_at,
-                run.generated_at AS run_generated_at
+                run.generated_at AS run_generated_at,
+                run.model_name AS run_model_name,
+                run.prompt_version AS run_prompt_version,
+                run.notes_json AS run_notes_json
               FROM public.ai_narratives AS narrative
               INNER JOIN public.ai_narrative_runs AS run
                 ON run.id = narrative.run_id
@@ -431,13 +519,17 @@ export async function getLatestSuccessfulAiNativeNarrativeRunView(): Promise<AiN
             [run.id, Math.max(boardTargetCount * 20, 400)],
           );
     const historicalNarratives = historicalNarrativesResult.rows
-      .map((row) => ({
-        narrative: mapNarrativeRow(row),
-        runGeneratedAt: toIsoString(row.run_generated_at),
-      }))
+      .map((row) => {
+        const sourceRun = mapNarrativeSourceRun(row);
+        return {
+          narrative: mapNarrativeRow(row, sourceRun),
+          sourceRun,
+        };
+      })
+      .filter((entry) => isCompatibleHistoricalNarrativeRun(run, entry.sourceRun))
       .sort(
         (left, right) =>
-          Date.parse(right.runGeneratedAt ?? "") - Date.parse(left.runGeneratedAt ?? "") ||
+          Date.parse(right.sourceRun.generatedAt ?? "") - Date.parse(left.sourceRun.generatedAt ?? "") ||
           computeAiNativeNarrativeQualityScore(right.narrative) -
             computeAiNativeNarrativeQualityScore(left.narrative) ||
           left.narrative.rank - right.narrative.rank,

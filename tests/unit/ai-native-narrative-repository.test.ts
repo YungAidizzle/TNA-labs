@@ -27,6 +27,10 @@ function createNarrativeRow(params: {
   canonicalName?: string;
   lastSeenAt?: string;
   createdAt?: string;
+  runGeneratedAt?: string;
+  runModelName?: string;
+  runPromptVersion?: string;
+  runNotesJson?: Record<string, unknown> | null;
 }) {
   return {
     id: params.runId * 1_000 + params.rank,
@@ -53,6 +57,10 @@ function createNarrativeRow(params: {
     key_entities_json: [params.canonicalName ?? params.canonicalId.replace(/-/g, " ")],
     created_at: params.createdAt ?? "2026-04-20T08:05:00.000Z",
     updated_at: params.createdAt ?? "2026-04-20T08:05:00.000Z",
+    run_generated_at: params.runGeneratedAt ?? null,
+    run_model_name: params.runModelName ?? null,
+    run_prompt_version: params.runPromptVersion ?? null,
+    run_notes_json: params.runNotesJson ?? null,
   };
 }
 
@@ -95,8 +103,11 @@ describe("ai-native narrative repository", () => {
           canonicalId: `historical-${index + 1}`,
           canonicalName: `Historical${index + 1} Nova${index + 1}`,
           createdAt: "2026-04-20T07:00:00.000Z",
+          runGeneratedAt: "2026-04-20T07:00:00.000Z",
+          runModelName: "gpt-test",
+          runPromptVersion: "test-v1",
+          runNotesJson: { discoveryMode: "openai_web_search_memecoin_board_v4_board100" },
         }),
-        run_generated_at: "2026-04-20T07:00:00.000Z",
       })),
     ];
 
@@ -180,6 +191,101 @@ describe("ai-native narrative repository", () => {
     expect(result.narratives[63]?.canonicalId.startsWith("historical-")).toBe(true);
     expect(new Set(result.narratives.map((row) => row.canonicalId)).size).toBe(100);
     expect(result.freshnessMinutes).toBe(120);
+  });
+
+  it("filters incompatible historical backfill rows from legacy non-memecoin prompt families", async () => {
+    const latestRunRows = Array.from({ length: 23 }, (_, index) =>
+      createNarrativeRow({
+        runId: 77,
+        rank: index + 1,
+        canonicalId: `fresh-${index + 1}`,
+        canonicalName: `Fresh${index + 1} Echo${index + 1}`,
+      }),
+    );
+    const historicalRows = [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        ...createNarrativeRow({
+          runId: 76,
+          rank: index + 1,
+          canonicalId: `compatible-${index + 1}`,
+          canonicalName: `Compatible${index + 1} Meme${index + 1}`,
+          createdAt: "2026-04-20T07:00:00.000Z",
+          runGeneratedAt: "2026-04-20T07:00:00.000Z",
+          runModelName: "gpt-test",
+          runPromptVersion: "ai-native-canonical-narratives-memecoin-v3",
+          runNotesJson: { discoveryMode: "openai_web_search_memecoin_board_v3" },
+        }),
+      })),
+      ...Array.from({ length: 6 }, (_, index) => ({
+        ...createNarrativeRow({
+          runId: 75,
+          rank: index + 1,
+          canonicalId: `legacy-${index + 1}`,
+          canonicalName: `Legacy${index + 1} Analyst${index + 1}`,
+          createdAt: "2026-04-20T06:00:00.000Z",
+          runGeneratedAt: "2026-04-20T06:00:00.000Z",
+          runModelName: "gpt-test",
+          runPromptVersion: "ai-native-canonical-narratives-v1",
+          runNotesJson: { discoveryMode: "openai_web_search_only" },
+        }),
+      })),
+    ];
+
+    postgresMocks.query
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 77,
+            status: "succeeded",
+            trigger: "hourly",
+            generated_at: "2026-04-20T08:00:00.000Z",
+            completed_at: "2026-04-20T08:05:00.000Z",
+            candidate_count: 140,
+            evidence_count: 420,
+            narrative_count: 23,
+            model_name: "gpt-test",
+            prompt_version: "ai-native-canonical-narratives-memecoin-v4-board100",
+            error_message: null,
+            notes_json: { discoveryMode: "openai_web_search_memecoin_board_v4_board100" },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 77,
+            status: "succeeded",
+            trigger: "hourly",
+            generated_at: "2026-04-20T08:00:00.000Z",
+            completed_at: "2026-04-20T08:05:00.000Z",
+            candidate_count: 140,
+            evidence_count: 420,
+            narrative_count: 23,
+            model_name: "gpt-test",
+            prompt_version: "ai-native-canonical-narratives-memecoin-v4-board100",
+            error_message: null,
+            notes_json: { discoveryMode: "openai_web_search_memecoin_board_v4_board100" },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: latestRunRows,
+      })
+      .mockResolvedValueOnce({
+        rows: historicalRows,
+      });
+
+    const { getLatestSuccessfulAiNativeNarrativeRunView } = await import(
+      "@/lib/ai-native-narratives/repository"
+    );
+    const result = await getLatestSuccessfulAiNativeNarrativeRunView();
+
+    expect(result.boardFreshCount).toBe(23);
+    expect(result.boardBackfillCount).toBe(8);
+    expect(result.boardHistoricalRowsConsidered).toBe(8);
+    expect(result.narratives).toHaveLength(31);
+    expect(result.narratives.some((row) => row.canonicalId.startsWith("legacy-"))).toBe(false);
+    expect(result.narratives.filter((row) => row.canonicalId.startsWith("compatible-"))).toHaveLength(8);
   });
 
   it("returns an empty view when no successful run has persisted narratives", async () => {

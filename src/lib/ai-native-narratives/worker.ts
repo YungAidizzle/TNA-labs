@@ -8,10 +8,12 @@ import { getAiNativeNarrativeConfig } from "@/lib/ai-native-narratives/config";
 import {
   acquireAiNativeNarrativeExecutionLock,
   getLatestSuccessfulAiNativeNarrativeRun,
+  getLatestSuccessfulAiNativeNarrativeRunView,
   hasAiNativeNarrativeSchema,
   insertFailedAiNativeNarrativeRun,
   storeSuccessfulAiNativeNarrativeRun,
 } from "@/lib/ai-native-narratives/repository";
+import { refreshStoredTrendDexscreenerMatches } from "@/lib/dashboard/trend-dexscreener-matches";
 import type {
   AiNativeNarrativeCandidate,
   AiNativeNarrativeEvidence,
@@ -1390,13 +1392,16 @@ export async function runAiNativeNarrativePipeline(options: {
           batches: discoveryBatchResponses,
         };
 
-        const minimumDiscoveryPool = Math.max(
-          config.finalNarrativeCount,
-          Math.min(config.selectionCandidateCount, Math.ceil(config.discoveryCandidateCount * 0.5)),
+        // The board read path can backfill to the 100-row target from historical successful runs.
+        // The worker only needs a viable fresh pool here, not a board-sized pool, before moving
+        // into selection and canonicalization.
+        const minimumViableCandidatePool = Math.max(
+          12,
+          Math.min(24, Math.ceil(config.finalNarrativeCount * 0.12)),
         );
-        if (rawDiscoveredCandidates.length < minimumDiscoveryPool) {
+        if (rawDiscoveredCandidates.length < minimumViableCandidatePool) {
           throw new Error(
-            `AI-native narrative discovery retained ${rawDiscoveredCandidates.length} valid candidates across ${discoveryPlan.length} batches; need at least ${minimumDiscoveryPool}.`,
+            `AI-native narrative discovery retained ${rawDiscoveredCandidates.length} valid candidates across ${discoveryPlan.length} batches; need at least ${minimumViableCandidatePool}.`,
           );
         }
 
@@ -1404,9 +1409,9 @@ export async function runAiNativeNarrativePipeline(options: {
           rawDiscoveredCandidates,
           Math.max(config.selectionCandidateCount, config.finalNarrativeCount + 40),
         );
-        if (mergedCandidates.length < config.finalNarrativeCount) {
+        if (mergedCandidates.length < minimumViableCandidatePool) {
           throw new Error(
-            `AI-native narrative discovery deduped down to ${mergedCandidates.length} candidates; need at least ${config.finalNarrativeCount}.`,
+            `AI-native narrative discovery deduped down to ${mergedCandidates.length} candidates; need at least ${minimumViableCandidatePool}.`,
           );
         }
 
@@ -1487,6 +1492,26 @@ export async function runAiNativeNarrativePipeline(options: {
             curatedNarrativeCount: curatedNarratives.length,
           },
         });
+        try {
+          const latestView = await getLatestSuccessfulAiNativeNarrativeRunView();
+          await refreshStoredTrendDexscreenerMatches({
+            narratives: latestView.narratives.map((narrative) => ({
+              topicKey: narrative.canonicalId,
+              topicLabel: narrative.canonicalName,
+              summary: narrative.summary,
+              keyEntities: narrative.keyEntities,
+              sourceRunId: narrative.runId,
+              sourceNarrativeId: narrative.id,
+            })),
+          });
+        } catch (trendDexMatchError) {
+          console.error("[ai-native-narratives] stored DexScreener trend matching failed", {
+            runId,
+            trigger,
+            runtimePath,
+            error: String((trendDexMatchError as Error)?.message ?? trendDexMatchError),
+          });
+        }
 
         return {
           skipped: false,
