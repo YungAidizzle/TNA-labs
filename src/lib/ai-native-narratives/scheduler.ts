@@ -8,6 +8,7 @@ export const AI_NATIVE_NARRATIVE_MANUAL_ROUTE_TRIGGER = "vercel-admin-route";
 export const AI_NATIVE_NARRATIVE_RAILWAY_MANUAL_TRIGGER = "railway-cli";
 export const AI_NATIVE_NARRATIVE_ROUTE_RUNTIME_PATH = "vercel_admin_route";
 export const AI_NATIVE_NARRATIVE_DASHBOARD_RUNTIME_PATH = "vercel_dashboard_api";
+export const AI_NATIVE_NARRATIVE_RAILWAY_CRON_RUNTIME_PATH = "railway_hourly_cron";
 export const AI_NATIVE_NARRATIVE_RAILWAY_DAEMON_RUNTIME_PATH = "railway_hourly_daemon";
 export const AI_NATIVE_NARRATIVE_RAILWAY_ONCE_RUNTIME_PATH = "railway_worker_once";
 export const AI_NATIVE_NARRATIVE_AUTHORITATIVE_RUNTIME = "railway_worker";
@@ -54,6 +55,9 @@ export function formatAiNativeNarrativeRuntimeLabel(value: string | null | undef
   const normalized = String(value ?? "").trim().toLowerCase();
   if (!normalized) {
     return "Unknown";
+  }
+  if (normalized === AI_NATIVE_NARRATIVE_RAILWAY_CRON_RUNTIME_PATH) {
+    return "Railway hourly cron job";
   }
   if (normalized === AI_NATIVE_NARRATIVE_RAILWAY_DAEMON_RUNTIME_PATH) {
     return "Railway hourly daemon";

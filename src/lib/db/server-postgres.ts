@@ -22,10 +22,21 @@ export function getServerPostgresPool() {
     connectionString: databaseUrl,
     max: 3,
     idleTimeoutMillis: 10_000,
+    allowExitOnIdle: true,
     ssl: {
       rejectUnauthorized: false,
     },
   });
 
   return cachedPool;
+}
+
+export async function closeServerPostgresPool() {
+  if (!cachedPool) {
+    return;
+  }
+
+  const pool = cachedPool;
+  cachedPool = null;
+  await pool.end();
 }

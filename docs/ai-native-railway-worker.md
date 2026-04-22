@@ -6,11 +6,18 @@ Railway is the authoritative hourly execution environment for AI-native trend ge
 
 Create a dedicated Railway service from the repo root.
 
+This repository root also contains the web app deployment defaults (`Dockerfile` and `railpack.json`).
+The AI-native worker is not in its own subdirectory, so the worker service must keep the Railway Root Directory at `/`.
+For the worker service, point Railway config-as-code at `/railway.worker.json` so the service builds from `/Dockerfile.railway-worker` instead of the web app image.
+
 - Runtime: `Node`
-- Build command: `pnpm install --frozen-lockfile`
-- Start command: `pnpm worker:narratives:daemon`
+- Source repo branch: `main`
+- Root Directory: `/`
+- Dockerfile path: `/Dockerfile.railway-worker`
+- Start command: `pnpm worker:narratives:cron`
+- Cron Schedule: `0 * * * *` (UTC)
 - Instances: `1`
-- Restart policy: Railway default restart on crash/exit
+- Restart policy: `NEVER`
 
 Required environment variables:
 
@@ -34,7 +41,7 @@ Manual/admin-only Vercel route secrets:
 - `CRON_SECRET`
 - `ATTENTRA_CRON_SECRET`
 
-The Railway daemon writes `trigger=railway-hourly-worker` and `runtimePath=railway_hourly_daemon` into each run row. The dashboard and `/api/cron/ai-native-narratives` read those diagnostics back from the DB.
+The Railway cron job writes `trigger=railway-hourly-worker` and `runtimePath=railway_hourly_cron` into each run row. The dashboard and `/api/cron/ai-native-narratives` read those diagnostics back from the DB.
 
 ## Operational Commands
 
@@ -58,12 +65,12 @@ pnpm worker:narratives:refresh:route
 
 ## Verification
 
-1. Deploy the Railway worker service with `pnpm worker:narratives:daemon`.
-2. Confirm Railway logs show `trigger: railway-hourly-worker` and `runtimePath: railway_hourly_daemon`.
+1. Deploy the Railway worker service with `pnpm worker:narratives:cron`.
+2. Confirm Railway logs show `trigger: railway-hourly-worker` and `runtimePath: railway_hourly_cron`.
 3. Wait for the next run, then query `/api/cron/ai-native-narratives` with the admin secret.
 4. Verify:
    - `latestTrigger = railway-hourly-worker`
    - `latestRunStatus = succeeded`
-   - `latestRuntimePath = railway_hourly_daemon`
+   - `latestRuntimePath = railway_hourly_cron`
    - `schedulerStrategy = railway_worker_hourly_authoritative`
 5. Open the dashboard status panel and verify `Trigger`, `Scheduler`, and `Runtime` show Railway-owned execution.

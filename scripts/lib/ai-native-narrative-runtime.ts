@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  AI_NATIVE_NARRATIVE_RAILWAY_CRON_RUNTIME_PATH,
   AI_NATIVE_NARRATIVE_RAILWAY_DAEMON_RUNTIME_PATH,
   AI_NATIVE_NARRATIVE_RAILWAY_ONCE_RUNTIME_PATH,
   AI_NATIVE_NARRATIVE_SCHEDULER_LABEL,
@@ -87,6 +88,7 @@ export async function executeRailwayAiNativeNarrativeRun(params: {
   force?: boolean;
   trigger: string;
   runtimePath:
+    | typeof AI_NATIVE_NARRATIVE_RAILWAY_CRON_RUNTIME_PATH
     | typeof AI_NATIVE_NARRATIVE_RAILWAY_DAEMON_RUNTIME_PATH
     | typeof AI_NATIVE_NARRATIVE_RAILWAY_ONCE_RUNTIME_PATH;
 }) {

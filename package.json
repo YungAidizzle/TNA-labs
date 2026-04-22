@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:live": "node scripts/dev-live.mjs",
+    "worker:narratives:cron": "pnpm exec tsx --conditions=react-server scripts/run_ai_native_narrative_cron.ts",
     "worker:narratives:refresh": "pnpm exec tsx --conditions=react-server scripts/run_ai_native_narrative_pipeline.ts",
     "worker:narratives:refresh:force": "pnpm exec tsx --conditions=react-server scripts/run_ai_native_narrative_pipeline.ts --force",
     "worker:narratives:daemon": "pnpm exec tsx --conditions=react-server scripts/run_ai_native_narrative_worker.ts",
